@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>TAMER — 1996</title>
+<style>
+  html,body{margin:0;padding:0;background:#07090d;height:100%;overflow:hidden;
+    font-family:'Courier New',ui-monospace,monospace;-webkit-user-select:none;user-select:none;
+    touch-action:manipulation;}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+  canvas{background:#0a0d13;display:block;max-width:100vw;max-height:100vh;}
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c" width="480" height="720"></canvas></div>
+<script>
+'use strict';
+/* ================= TAMER (1996) — a monster-duel game. Original monsters, types, moves. ================= */
+
+// ---------- DATA ----------
+const TYPES = ['EMBER','TIDE','LEAF','VOLT','STONE','SHADE'];
+const TCOL = { EMBER:'#ff7a2f', TIDE:'#3fa9ff', LEAF:'#5dd65d', VOLT:'#ffd93f', STONE:'#c9a06a', SHADE:'#a06ae0' };
+// CHART[attacker][defender]
+const CHART = {
+  EMBER: { EMBER:1, TIDE:0.5, LEAF:2,   VOLT:1, STONE:0.5, SHADE:1 },
+  TIDE:  { EMBER:2, TIDE:1,   LEAF:0.5, VOLT:0.5, STONE:2, SHADE:1 },
+  LEAF:  { EMBER:0.5, TIDE:2,  LEAF:1,   VOLT:1, STONE:2,   SHADE:1 },
+  VOLT:  { EMBER:1, TIDE:2,   LEAF:1,   VOLT:1, STONE:0.5, SHADE:1 },
+  STONE: { EMBER:2, TIDE:0.5,  LEAF:0.5, VOLT:2, STONE:1,   SHADE:1 },
+  SHADE: { EMBER:1, TIDE:1,    LEAF:0.5, VOLT:2, STONE:1,   SHADE:2 },
+};
+// move: {n:name, t:type, p:power, a:accuracy, e:effect|null}  effect: {k:'burn'|'par', ch:chance}
+const MONSTERS = [
+  { id:'cindra', name:'CINDRA', type:'EMBER', hp:100, atk:95, def:70, spd:90, shape:'tri',
+    moves:[
+      {n:'Flare Bite',  t:'EMBER', p:65, a:100, e:null},
+      {n:'Magma Burst', t:'EMBER', p:90, a:85,  e:null},
+      {n:'Singe',       t:'EMBER', p:40, a:100, e:{k:'burn', ch:0.5}},
+      {n:'Rock Throw',  t:'STONE', p:60, a:95,  e:null},
+    ]},
+  { id:'wavern', name:'WAVERN', type:'TIDE', hp:110, atk:85, def:85, spd:70, shape:'drop',
+    moves:[
+      {n:'Aqua Slam',   t:'TIDE', p:65, a:100, e:null},
+      {n:'Tidal Crash', t:'TIDE', p:90, a:85,  e:null},
+      {n:'Brine Spray', t:'TIDE', p:40, a:100, e:{k:'par', ch:0.4}},
+      {n:'Mud Shot',    t:'STONE', p:60, a:95, e:null},
+    ]},
+  { id:'fernix', name:'FERNIX', type:'LEAF', hp:120, atk:80, def:90, spd:55, shape:'hex',
+    moves:[
+      {n:'Vine Lash',   t:'LEAF', p:65, a:100, e:null},
+      {n:'Leaf Storm',  t:'LEAF', p:90, a:85,  e:null},
+      {n:'Spore Cloud', t:'LEAF', p:40, a:100, e:{k:'par', ch:0.5}},
+      {n:'Mud Ball',    t:'STONE', p:60, a:95, e:null},
+    ]},
+  { id:'voltiq', name:'VOLTIQ', type:'VOLT', hp:90, atk:90, def:60, spd:105, shape:'bolt',
+    moves:[
+      {n:'Zap',          t:'VOLT', p:65, a:100, e:null},
+      {n:'Thunder Crash',t:'VOLT', p:90, a:85,  e:null},
+      {n:'Static Field', t:'VOLT', p:40, a:100, e:{k:'par', ch:0.5}},
+      {n:'Aqua Jet',     t:'TIDE', p:60, a:95,  e:null},
+    ]},
+  { id:'terrax', name:'TERRAX', type:'STONE', hp:115, atk:100, def:95, spd:50, shape:'rock',
+    moves:[
+      {n:'Rock Slide', t:'STONE', p:65, a:100, e:null},
+      {n:'Quake',      t:'STONE', p:90, a:85,  e:null},
+      {n:'Sand Tomb',  t:'STONE', p:40, a:100, e:{k:'par', ch:0.4}},
+      {n:'Fire Punch', t:'EMBER', p:60, a:95,  e:null},
+    ]},
+  { id:'umbra', name:'UMBRA', type:'SHADE', hp:95, atk:92, def:65, spd:98, shape:'crescent',
+    moves:[
+      {n:'Shadow Claw', t:'SHADE', p:65, a:100, e:null},
+      {n:'Nightmare',   t:'SHADE', p:90, a:85,  e:null},
+      {n:'Curse',       t:'SHADE', p:40, a:100, e:{k:'burn', ch:0.4}},
+      {n:'Ember Bite',  t:'EMBER', p:60, a:95,  e:null},
+    ]},
+];
+const LADDER_NAMES = ['RIVAL KAI', 'VETERAN MIRA', 'CHAMPION SOL'];
+
+// ---------- AUDIO ----------
+let AC = null, muted = false;
+function ac(){ if(!AC){ try{ AC = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } return AC; }
+function tone(f0, f1, dur, type, vol, delay){
+  if(muted) return; const c = ac(); if(!c) return;
+  const t = c.currentTime + (delay||0);
+  const o = c.createOscillator(), g = c.createGain();
+  o.type = type||'sine'; o.frequency.setValueAtTime(f0, t);
+  if(f1 && f1!==f0) o.frequency.exponentialRampToValueAtTime(Math.max(1,f1), t+dur);
+  g.gain.setValueAtTime(vol||0.12, t); g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
+  o.connect(g); g.connect(c.destination); o.start(t); o.stop(t+dur+0.02);
+}
+const SFX = {
+  click(){ tone(800,800,0.05,'square',0.06); },
+  pick(){ tone(520,780,0.09,'square',0.08); },
+  hit(){ tone(140,60,0.16,'triangle',0.16); },
+  super(){ tone(660,660,0.09,'sine',0.12); tone(880,880,0.12,'sine',0.12,0.09); },
+  weak(){ tone(220,180,0.1,'square',0.07); },
+  miss(){ tone(300,150,0.12,'sine',0.08); },
+  faint(){ tone(420,70,0.5,'sine',0.14); },
+  status(){ tone(330,330,0.08,'square',0.08); tone(330,330,0.08,'square',0.08,0.12); },
+  fanfare(){ [523,659,784,1046].forEach((f,i)=>tone(f,f,0.16,'square',0.09,i*0.14)); },
+  lose(){ [400,300,200].forEach((f,i)=>tone(f,f,0.18,'triangle',0.1,i*0.16)); },
+};
+
+// ---------- STATE ----------
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const W = 480, H = 720;
+function fit(){ const s = Math.min(innerWidth/W, innerHeight/H); cv.style.width = (W*s)+'px'; cv.style.height = (H*s)+'px'; }
+addEventListener('resize', fit); fit();
+
+const S = {
+  screen:'menu',            // menu | chart | draft | battle | over
+  mode:null,                // ladder | quick | versus
+  draftPool:[], draftOrder:[], draftIdx:0, draftTeams:{a:[],b:[]},
+  battle:null,              // battle object
+  ui:'main',                // battle submenu: main|moves|switch|busy
+  chooser:'a',              // which side is choosing now (versus: 'a' then 'b')
+  pending:{a:null,b:null},  // chosen actions
+  log:[],
+  ladderIdx:0,
+  wins:{a:0,b:0},
+  anims:[],                 // active tween list
+  t:0,
+};
+function log(m){ S.log.push(m); if(S.log.length>40) S.log.shift(); }
+
+// battle mon: {base, name, type, maxhp, hp, atk, def, spd, moves, status:null|'burn'|'par', alive:true}
+function inst(base){ return { base, name:base.name, type:base.type, maxhp:base.hp, hp:base.hp,
+  atk:base.atk, def:base.def, spd:base.spd, moves:base.moves.map(m=>({...m})), status:null, alive:true }; }
+function mkTeam(ids){ return ids.map(id=>inst(MONSTERS.find(m=>m.id===id))); }
+function randTeam(){ const ids = MONSTERS.map(m=>m.id);
+  for(let i=ids.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; [ids[i],ids[j]]=[ids[j],ids[i]]; }
+  return mkTeam(ids.slice(0,3)); }
+
+// ---------- BATTLE ENGINE ----------
+function effOf(moveType, defType){ return (CHART[moveType] && CHART[moveType][defType]) || 1; }
+function calcDmg(user, move, target){
+  const eff = effOf(move.t, target.type);
+  const stab = move.t === user.type ? 1.5 : 1;
+  const rand = 0.85 + Math.random()*0.15;
+  const dmg = Math.max(1, Math.floor(move.p * (user.atk/target.def) * 0.45 * eff * stab * rand));
+  return {dmg, eff};
+}
+function startBattle(teamA, teamB, controllers){ // controllers: {a:'human'|'ai'|'p1'|'p2', b:...}
+  S.battle = { a:{team:teamA, active:0}, b:{team:teamB, active:0}, ctrl:controllers, over:false, winner:null, turn:1 };
+  S.log = []; S.ui='main'; S.chooser='a'; S.pending={a:null,b:null};
+  log('Battle start!');
+}
+function activeMon(side){ const s=S.battle[side]; return s.team[s.active]; }
+function foe(side){ return side==='a'?'b':'a'; }
+function aliveCount(side){ return S.battle[side].team.filter(m=>m.alive).length; }
+
+// execute one full turn once both actions chosen. action: {kind:'move',i} | {kind:'switch',i}
+function resolveTurn(){
+  const B=S.battle, A=S.pending.a, Bp=S.pending.b;
+  S.pending={a:null,b:null}; S.ui='busy'; B.turn++;
+  const order=[];
+  // switches go first
+  [['a',A],['b',Bp]].forEach(([s,act])=>{ if(act && act.kind==='switch') order.push([s,act,Infinity]); });
+  [['a',A],['b',Bp]].forEach(([s,act])=>{
+    if(act && act.kind==='move') order.push([s,act, activeMon(s).spd + (activeMon(s).status==='par'?0:0)]);
+  });
+  order.sort((x,y)=> y[2]-x[2] || (Math.random()-0.5));
+  // queue animation steps
+  const steps=[];
+  order.forEach(([s,act])=>{
+    const me=activeMon(s), f=foe(s), foeM=activeMon(f);
+    if(!me.alive) return;
+    if(act.kind==='switch'){
+      steps.push(()=>{ B[s].active=act.i; const m=activeMon(s);
+        log((s==='a'?'You':sideName(s))+' sent out '+m.name+'!');
+        SFX.pick(); pushAnim({k:'send', side:s}); });
+      return;
+    }
+    // paralyze check
+    if(me.status==='par' && Math.random()<0.25){
+      steps.push(()=>{ log(me.name+' is paralyzed! It can\'t move!'); SFX.status(); pushAnim({k:'par', side:s}); });
+      return;
+    }
+    const mv=me.moves[act.i];
+    steps.push(()=>{
+      if(Math.random()*100 >= mv.a){ log(me.name+' used '+mv.n+'... missed!'); SFX.miss(); pushAnim({k:'miss', side:f}); return; }
+      const {dmg, eff} = calcDmg(me, mv, foeM);
+      foeM.hp = Math.max(0, foeM.hp - dmg);
+      pushAnim({k:'hit', side:f, big:eff>1});
+      if(eff>1){ log(me.name+' used '+mv.n+'! Super effective! ('+dmg+')'); SFX.super(); }
+      else if(eff<1){ log(me.name+' used '+mv.n+'. It\'s not very effective... ('+dmg+')'); SFX.weak(); }
+      else { log(me.name+' used '+mv.n+'! ('+dmg+')'); SFX.hit(); }
+      if(mv.e && foeM.alive && !foeM.status && Math.random()<mv.e.ch){
+        foeM.status = mv.e.k;
+        log(foeM.name+(mv.e.k==='burn'?' was burned!':' is paralyzed!')); SFX.status();
+      }
+      if(foeM.hp<=0 && foeM.alive){
+        foeM.alive=false; foeM.hp=0;
+        log(foeM.name+' fainted!'); SFX.faint(); pushAnim({k:'faint', side:f});
+      }
+    });
+  });
+  // end-of-turn burn
+  steps.push(()=>{
+    ['a','b'].forEach(s=>{ const m=activeMon(s);
+      if(m.alive && m.status==='burn'){ const d=Math.max(1,Math.floor(m.maxhp/16)); m.hp=Math.max(0,m.hp-d);
+        log(m.name+' is hurt by its burn! ('+d+')');
+        if(m.hp<=0){ m.alive=false; log(m.name+' fainted!'); SFX.faint(); pushAnim({k:'faint', side:s}); }
+      }});
+  });
+  runSteps(steps, afterTurn);
+}
+function afterTurn(){
+  const B=S.battle;
+  if(!B) return;
+  // check battle over
+  const aAlive=aliveCount('a')>0, bAlive=aliveCount('b')>0;
+  if(!aAlive || !bAlive){
+    B.over=true; B.winner = aAlive?'a':'b';
+    const w = B.winner;
+    if(S.mode==='versus') log((w==='a'?'P1':'P2')+' wins the battle!');
+    else log((w==='a'?'You win':'You lose')+' the battle!');
+    if(w==='a'){ SFX.fanfare(); } else { SFX.lose(); }
+    setTimeout(()=>onBattleEnd(), 1400);
+    S.ui='busy'; drawBattle(); return;
+  }
+  // fainted actives must be replaced
+  const need = ['a','b'].filter(s=>!activeMon(s).alive);
+  if(need.length){ S.ui='faintpick'; S.faintSide=need[0]; S.faintQueue=need.slice(1); maybeAIFaint(); }
+  else { S.ui='main'; S.chooser='a'; maybeAI('a'); }
+  drawBattle();
+}
+// AI must auto-replace a fainted mon (it can't click buttons)
+function maybeAIFaint(){
+  const s=S.faintSide;
+  if(!s || !S.battle || S.battle.ctrl[s]!=='ai') return;
+  setTimeout(()=>{
+    if(!S.battle || S.battle.over || S.ui!=='faintpick' || S.faintSide!==s) return;
+    const B=S.battle, foeM=activeMon(foe(s));
+    const benched=B[s].team.map((m,i)=>({m,i})).filter(o=>o.i!==B[s].active && o.m.alive);
+    if(!benched.length) return;
+    let bi=0, bs=-1;
+    benched.forEach((o,i)=>{ const sc=Math.max(...o.m.moves.map(mv=>mv.p*effOf(mv.t,foeM.type)));
+      if(sc>bs){ bs=sc; bi=i; } });
+    doSwitchPick(bi);
+  }, 700);
+}
+function onBattleEnd(){
+  const B=S.battle, w=B.winner;
+  if(S.mode==='ladder'){
+    if(w==='a'){ S.ladderIdx++;
+      if(S.ladderIdx>=3){ S.screen='over'; S.overText='CHAMPION OF THE LADDER!'; S.overWin=true; }
+      else { // next rung, heal team
+        S.battle.a.team.forEach(m=>{ m.hp=m.maxhp; m.alive=true; m.status=null; });
+        const foeTeam = randTeam();
+        startBattle(S.battle.a.team, foeTeam, {a:'human', b:'ai'});
+        log('Next challenger: '+LADDER_NAMES[S.ladderIdx]+'!');
+        S.screen='battle';
+      }
+    } else { S.screen='over'; S.overText='LADDER FAILED vs '+LADDER_NAMES[S.ladderIdx]; S.overWin=false; }
+  } else if(S.mode==='quick'){
+    S.screen='over'; S.overText = w==='a'?'VICTORY!':'DEFEAT'; S.overWin = w==='a';
+  } else { // versus
+    if(w==='a') S.wins.a++; else S.wins.b++;
+    S.screen='over';
+    S.overText = (w==='a'?'P1':'P2')+' WINS THE BATTLE!';
+    S.overWin = true; S.overVersus = true;
+  }
+  drawAll();
+}
+function sideName(s){ const c=S.battle.ctrl[s]; return c==='p1'?'P1':c==='p2'?'P2':(s==='a'?'You':'Foe'); }
+
+// ---------- AI ----------
+function aiChoose(side){
+  const B=S.battle, me=activeMon(side), f=foe(side), foeM=activeMon(f);
+  // switch if in trouble and a better option exists
+  const benched = B[side].team.map((m,i)=>({m,i})).filter(o=>o.i!==B[side].active && o.m.alive);
+  if(me.hp < me.maxhp*0.35 && benched.length && Math.random()<0.35){
+    let best=null, bestScore=-1;
+    benched.forEach(o=>{ const off=Math.max(...o.m.moves.map(mv=>mv.p*effOf(mv.t,foeM.type)));
+      const def=effOf(foeM.moves[0].t, o.m.type); const score=off/(def||1);
+      if(score>bestScore){bestScore=score;best=o;} });
+    if(best && bestScore>1.2){ S.pending[side]={kind:'switch', i:best.i}; aiDone(side); return; }
+  }
+  // pick move: score by power * effectiveness * stab
+  let bi=0, bs=-1;
+  me.moves.forEach((mv,i)=>{ const s = mv.p * effOf(mv.t, foeM.type) * (mv.t===me.type?1.3:1) * (0.9+Math.random()*0.2);
+    if(s>bs){bs=s;bi=i;} });
+  S.pending[side]={kind:'move', i:bi};
+  aiDone(side);
+}
+function aiDone(side){
+  const other=foe(side);
+  if(S.pending[other] || S.battle.ctrl[other]==='ai'){ /* both in eventually */ }
+  if(S.pending.a && S.pending.b){ resolveTurn(); }
+  else if(S.battle.ctrl[other]==='ai' && !S.pending[other]){ setTimeout(()=>{ if(S.battle&&!S.battle.over) aiChoose(other); }, 450); }
+  else { // other side is human: prompt them
+    S.chooser=other; S.ui = (S.battle.ctrl[other]==='p2') ? 'main-p2' : 'main';
+    drawBattle();
+  }
+}
+function maybeAI(side){
+  if(!S.battle || S.battle.over) return;
+  if(S.battle.ctrl[side]==='ai'){ S.ui='busy'; drawBattle(); setTimeout(()=>{ if(S.battle&&!S.battle.over) aiChoose(side); }, 500); }
+  else { S.ui = (S.battle.ctrl[side]==='p2') ? 'main-p2' : 'main'; S.chooser=side; drawBattle(); }
+}
+function humanAct(side, act){
+  if(!S.battle || S.battle.over) return;
+  S.pending[side]=act;
+  const other=foe(side);
+  if(S.pending[other]){ resolveTurn(); return; }
+  if(S.battle.ctrl[other]==='ai'){ S.ui='busy'; drawBattle(); setTimeout(()=>{ if(S.battle&&!S.battle.over) aiChoose(other); }, 450); }
+  else { S.chooser=other; S.ui = (S.battle.ctrl[other]==='p2') ? 'main-p2' : 'main'; drawBattle(); }
+}
+
+// ---------- STEP RUNNER (simple sequential animations) ----------
+let stepTimer=null;
+function runSteps(steps, done){
+  let i=0;
+  function next(){
+    if(i>=steps.length){ stepTimer=null; done(); return; }
+    try{ steps[i](); }catch(e){ console.error(e); }
+    i++; drawBattle();
+    stepTimer=setTimeout(next, 750);
+  }
+  next();
+}
+function pushAnim(a){ a.t0=performance.now(); S.anims.push(a); }
+
+// ---------- DRAFT ----------
+function startDraft(mode){
+  S.mode=mode; S.screen='draft';
+  S.draftPool = MONSTERS.map(m=>m.id);
+  S.draftTeams={a:[],b:[]}; S.draftIdx=0; S.wins={a:0,b:0};
+  S.draftOrder = mode==='versus' ? ['p1','p2','p1','p2','p1','p2'] : ['human','ai','human','ai','human','ai'];
+  S.ladderIdx=0;
+  if(mode==='ladder') log('Draft your team of 3!');
+  drawAll();
+}
+function draftPick(id){
+  const who=S.draftOrder[S.draftIdx];
+  S.draftPool=S.draftPool.filter(x=>x!==id);
+  if(who==='human'||who==='p1') S.draftTeams.a.push(id); else S.draftTeams.b.push(id);
+  SFX.pick(); S.draftIdx++;
+  if(S.draftIdx>=6){ finishDraft(); return; }
+  const nxt=S.draftOrder[S.draftIdx];
+  drawAll();
+  if(nxt==='ai'){ setTimeout(()=>{ // AI draft: prefer type coverage, slight random
+    const pool=S.draftPool;
+    const pick = pool[(Math.random()*pool.length)|0];
+    draftPick(pick);
+  }, 600); }
+}
+function finishDraft(){
+  const teamA=mkTeam(S.draftTeams.a), teamB=mkTeam(S.draftTeams.b);
+  if(S.mode==='ladder'){ startBattle(teamA, randTeam(), {a:'human',b:'ai'}); log('Challenger: '+LADDER_NAMES[0]+'!'); }
+  else if(S.mode==='quick'){ startBattle(teamA, teamB, {a:'human',b:'ai'}); }
+  else { startBattle(teamA, teamB, {a:'p1',b:'p2'}); }
+  S.screen='battle';
+  drawAll();
+}
+function startMode(mode){
+  if(mode==='ladder'||mode==='versus') startDraft(mode);
+  else if(mode==='quick'){ S.mode='quick'; S.screen='battle'; S.wins={a:0,b:0};
+    startBattle(randTeam(), randTeam(), {a:'human',b:'ai'}); drawAll(); }
+  maybeAI('a');
+}
+
+// ---------- INPUT ----------
+S.buttons=[]; S.focus=0; S.paused=false;
+function btn(x,y,w,h,label,fn,opts){ S.buttons.push(Object.assign({x,y,w,h,label,fn},opts||{})); }
+function toGame(e){ const r=cv.getBoundingClientRect();
+  const cx=(e.clientX-r.left)/r.width*W, cy=(e.clientY-r.top)/r.height*H; return [cx,cy]; }
+cv.addEventListener('pointerdown', e=>{ e.preventDefault(); const [x,y]=toGame(e);
+  for(const b of S.buttons){ if(x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h&&!b.disabled){ SFX.click(); b.fn(); return; } }
+});
+addEventListener('keydown', e=>{
+  const k=e.key;
+  if(k==='m'||k==='M'){ muted=!muted; drawAll(); return; }
+  if(k==='p'||k==='P'){ S.paused=!S.paused; drawAll(); return; }
+  if(S.screen!=='battle'||!S.battle||S.battle.over) {
+    if(k==='Enter'){ const b=S.buttons[S.focus]; if(b&&!b.disabled){b.fn();} }
+    if(k==='ArrowDown'||k==='ArrowRight'){ S.focus=(S.focus+1)%Math.max(1,S.buttons.length); drawAll(); }
+    if(k==='ArrowUp'||k==='ArrowLeft'){ S.focus=(S.focus-1+S.buttons.length)%Math.max(1,S.buttons.length); drawAll(); }
+    return;
+  }
+  const ui=S.ui;
+  if(ui==='main'||ui==='main-p2'){ if(k==='f'||k==='F'||k==='1'){ S.ui = ui==='main-p2'?'moves-p2':'moves'; SFX.click(); drawBattle(); }
+    if(k==='s'||k==='S'||k==='2'){ S.ui = ui==='main-p2'?'switch-p2':'switch'; SFX.click(); drawBattle(); } }
+  else if(ui==='moves'||ui==='moves-p2'){ const n=parseInt(k);
+    if(n>=1&&n<=4){ const m=activeMon(S.chooser); if(m.moves[n-1]){ S.ui='busy'; humanAct(S.chooser,{kind:'move',i:n-1}); } }
+    if(k==='Escape'){ S.ui = ui==='moves-p2'?'main-p2':'main'; drawBattle(); } }
+  else if(ui==='switch'||ui==='switch-p2'){ const n=parseInt(k);
+    if(n>=1&&n<=3){ doSwitchPick(n-1); }
+    if(k==='Escape'){ S.ui = ui.endsWith('p2')?'main-p2':'main'; drawBattle(); } }
+  if(k==='ArrowDown'||k==='ArrowRight'){ S.focus=(S.focus+1)%Math.max(1,S.buttons.length); drawBattle(); }
+  if(k==='ArrowUp'||k==='ArrowLeft'){ S.focus=(S.focus-1+S.buttons.length)%Math.max(1,S.buttons.length); drawBattle(); }
+  if(k==='Enter'){ const b=S.buttons[S.focus]; if(b&&!b.disabled){ SFX.click(); b.fn(); } }
+});
+function doSwitchPick(idx){
+  const B=S.battle, side=S.faintSide||S.chooser;
+  const benched=B[side].team.map((m,i)=>({m,i})).filter(o=>o.i!==B[side].active&&o.m.alive);
+  if(idx<0||idx>=benched.length) return;
+  const pick=benched[idx].i;
+  if(S.ui==='faintpick'){
+    B[side].active=pick; const m=activeMon(side);
+    log(sideName(side)+' sent out '+m.name+'!'); SFX.pick();
+    if(S.faintQueue&&S.faintQueue.length){ S.faintSide=S.faintQueue.shift(); maybeAIFaint(); }
+    else { S.faintSide=null; S.faintQueue=null; S.ui='main'; S.chooser='a'; }
+    drawBattle(); if(S.ui==='main') maybeAI('a');
+  } else {
+    const p2 = (S.ui==='switch-p2');
+    S.ui='busy'; humanAct(side,{kind:'switch', i:pick});
+  }
+}
+
+// ---------- CRITTERS ----------
+function drawCritter(shape, x, y, r, color, o){
+  o=o||{}; ctx.save(); ctx.translate(x,y);
+  if(o.alpha!==undefined) ctx.globalAlpha=o.alpha;
+  ctx.fillStyle=color; ctx.strokeStyle='rgba(0,0,0,0.45)'; ctx.lineWidth=3;
+  ctx.beginPath();
+  if(shape==='tri'){ ctx.moveTo(0,-r); ctx.lineTo(r*0.9,r*0.75); ctx.lineTo(-r*0.9,r*0.75); ctx.closePath(); }
+  else if(shape==='drop'){ ctx.moveTo(0,-r); ctx.bezierCurveTo(r*0.9,-r*0.2, r*0.75,r*0.6, 0,r*0.85);
+    ctx.bezierCurveTo(-r*0.75,r*0.6, -r*0.9,-r*0.2, 0,-r); }
+  else if(shape==='hex'){ for(let i=0;i<6;i++){ const a=Math.PI/6+i*Math.PI/3;
+      const px=Math.cos(a)*r, py=Math.sin(a)*r; i?ctx.lineTo(px,py):ctx.moveTo(px,py); } ctx.closePath(); }
+  else if(shape==='bolt'){ ctx.moveTo(r*0.25,-r); ctx.lineTo(-r*0.35,-r*0.1); ctx.lineTo(r*0.05,-r*0.1);
+    ctx.lineTo(-r*0.25,r); ctx.lineTo(r*0.35,r*0.1); ctx.lineTo(-r*0.05,r*0.1); ctx.closePath(); }
+  else if(shape==='rock'){ const rr=r*0.9; ctx.moveTo(-rr,-rr*0.7); ctx.lineTo(rr*0.8,-rr);
+    ctx.lineTo(rr,rr*0.6); ctx.lineTo(-rr*0.6,rr*0.85); ctx.closePath(); }
+  else { ctx.arc(0,0,r,Math.PI*0.35,Math.PI*1.65); ctx.quadraticCurveTo(0,0,r*Math.cos(Math.PI*0.35),r*Math.sin(Math.PI*0.35)); ctx.closePath(); }
+  ctx.fill(); ctx.stroke();
+  if(o.flash){ ctx.globalAlpha=o.flash*0.8; ctx.fillStyle='#fff'; ctx.fill(); ctx.globalAlpha=o.alpha!==undefined?o.alpha:1; }
+  // eyes
+  const ex=r*0.28, ey=-r*0.1, er=Math.max(4,r*0.14);
+  ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(-ex,ey,er,0,7); ctx.arc(ex,ey,er,0,7); ctx.fill();
+  ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(-ex,ey+1,er*0.5,0,7); ctx.arc(ex,ey+1,er*0.5,0,7); ctx.fill();
+  ctx.restore();
+}
+function monById(id){ return MONSTERS.find(m=>m.id===id); }
+
+// ---------- RENDER HELPERS ----------
+function rr(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function text(str,x,y,size,color,align,font){ ctx.fillStyle=color||'#e8f5ee'; ctx.font=(font||'')+size+'px "Courier New",monospace';
+  ctx.textAlign=align||'left'; ctx.textBaseline='top'; ctx.fillText(str,x,y); }
+function drawButton(b, focused){
+  ctx.fillStyle=b.disabled?'#141a24':(focused?'#0f2b22':'#0d1420');
+  rr(b.x,b.y,b.w,b.h,10); ctx.fill();
+  ctx.strokeStyle=b.disabled?'#2a3444':'#00ff9d'; ctx.lineWidth=focused?3:1.5; rr(b.x,b.y,b.w,b.h,10); ctx.stroke();
+  text(b.label, b.x+b.w/2, b.y+b.h/2-9, b.big?20:15, b.disabled?'#4a5a6c':'#e8f5ee','center','bold ');
+  if(b.sub) text(b.sub, b.x+b.w/2, b.y+b.h/2+10, 11, '#8fa89b','center');
+}
+function drawButtons(){ S.buttons.forEach((b,i)=>drawButton(b, i===S.focus)); }
+function hpBar(x,y,w,h,frac){
+  ctx.fillStyle='#141a24'; rr(x,y,w,h,5); ctx.fill();
+  const f=Math.max(0,Math.min(1,frac));
+  ctx.fillStyle=f>0.5?'#3ddc84':f>0.25?'#ffd93f':'#ff5a5a';
+  if(f>0){ rr(x+2,y+2,(w-4)*f,h-4,4); ctx.fill(); }
+}
+function typeBadge(t,x,y){ ctx.fillStyle=TCOL[t]; rr(x,y,64,20,5); ctx.fill();
+  text(t,x+32,y+3,11,'#0a0d13','center','bold '); }
+function drawPlate(mon,x,y,w,align){ // name + type + hp
+  text(mon.name,x,y,16,'#e8f5ee',align,'bold ');
+  typeBadge(mon.type, align==='left'?x:x-w+56, y+22);
+  hpBar(x+(align==='left'?0:w-160),y+46,160,12,mon.hp/mon.maxhp);
+  text(mon.hp+'/'+mon.maxhp, x+(align==='left'?165:w-165), y+44, 12, '#8fa89b', align==='left'?'left':'right');
+  if(mon.status) text(mon.status==='burn'?'BRN':'PAR', x+(align==='left'?w-34:0), y+22, 11, mon.status==='burn'?'#ff7a2f':'#ffd93f', align==='left'?'right':'left','bold ');
+}
+function animState(side){
+  const now=performance.now(); let dx=0,dy=0,flash=0,alpha=1,scale=1;
+  S.anims=S.anims.filter(a=>now-a.t0<900);
+  S.anims.forEach(a=>{ if(a.side!==side) return; const t=(now-a.t0)/450;
+    if(a.k==='hit'){ dx = side==='a'?Math.sin(t*20)*6:-Math.sin(t*20)*6; flash=Math.max(0,1-t); }
+    else if(a.k==='faint'){ dy=t*40; alpha=1-t; }
+    else if(a.k==='send'){ scale=0.3+0.7*Math.min(1,t*2); }
+    else if(a.k==='par'){ dx=Math.sin(t*30)*4; }
+  });
+  return {dx,dy,flash,alpha,scale};
+}
+
+// ---------- SCREENS ----------
+function drawMenu(){
+  S.buttons=[]; S.focus=0;
+  ctx.fillStyle='#0a0d13'; ctx.fillRect(0,0,W,H);
+  text('TAMER',W/2,90,64,'#00ff9d','center','bold ');
+  text('1996 — RAISE THEM. BREAK THEM.',W/2,165,14,'#8fa89b','center');
+  // mini critter parade
+  MONSTERS.forEach((m,i)=>{ const x=60+i*72; drawCritter(m.shape,x,260,26,TCOL[m.type],{}); });
+  btn(90,330,300,56,'LADDER','',{}); S.buttons[S.buttons.length-1].sub='draft 3 · beat 3 tamers';
+  btn(90,398,300,56,'QUICK BATTLE','',{}); S.buttons[S.buttons.length-1].sub='random teams · one fight';
+  btn(90,466,300,56,'VERSUS (2P)','',{}); S.buttons[S.buttons.length-1].sub='pass-and-pick · one battle';
+  btn(90,534,300,56,'TYPE CHART','',{}); S.buttons[S.buttons.length-1].sub='who beats who';
+  S.buttons[0].fn=()=>startMode('ladder'); S.buttons[1].fn=()=>startMode('quick');
+  S.buttons[2].fn=()=>startMode('versus'); S.buttons[3].fn=()=>{S.screen='chart';drawAll();};
+  S.buttons.forEach(b=>{b.big=true;});
+  drawButtons();
+  text('P pause · M mute',W/2,640,12,'#54655c','center');
+  text('tap or 1-4 + enter',W/2,660,12,'#54655c','center');
+}
+function drawChart(){
+  S.buttons=[];
+  ctx.fillStyle='#0a0d13'; ctx.fillRect(0,0,W,H);
+  text('TYPE CHART',W/2,40,32,'#00ff9d','center','bold ');
+  let y=100;
+  TYPES.forEach(t=>{
+    ctx.fillStyle=TCOL[t]; ctx.fillRect(30,y-4,14,14);
+    text(t,52,y-6,15,'#e8f5ee','left','bold ');
+    const strong=TYPES.filter(d=>CHART[t][d]>1), weak=TYPES.filter(d=>CHART[t][d]<1);
+    text('beats: '+(strong.join(', ')||'—'),52,y+16,12,'#3ddc84');
+    text('loses to: '+(weak.join(', ')||'—'),52,y+34,12,'#ff7a7a');
+    y+=92;
+  });
+  btn(140,640,200,52,'BACK',()=>{S.screen='menu';drawAll();},{big:true});
+  drawButtons();
+}
+function drawDraft(){
+  S.buttons=[];
+  ctx.fillStyle='#0a0d13'; ctx.fillRect(0,0,W,H);
+  const who=S.draftOrder[S.draftIdx];
+  const whoLabel = S.mode==='versus' ? (who==='p1'?'P1':'P2') : (who==='human'?'YOU':'RIVAL');
+  text('DRAFT',W/2,24,36,'#00ff9d','center','bold ');
+  text(whoLabel+' — pick '+(S.draftTeams[who==='p2'?'b':'a'].length+1)+' of 3',W/2,66,15,'#e8f5ee','center');
+  text('your team: '+S.draftTeams.a.map(id=>monById(id).name).join(' · '),W/2,90,12,'#8fa89b','center');
+  if(S.mode==='versus') text('P2 team: '+S.draftTeams.b.map(id=>monById(id).name).join(' · '),W/2,108,12,'#8fa89b','center');
+  const cols=2, cw=210, ch=168, gx=20, gy=140;
+  S.draftPool.forEach((id,i)=>{
+    const m=monById(id), x=gx+(i%cols)*(cw+20), y=gy+((i/cols)|0)*(ch+14);
+    const humanTurn = (who==='human'||who==='p1'||who==='p2');
+    btn(x,y,cw,ch,'',()=>{ if((S.mode==='versus'||who==='human')) draftPick(id); },{disabled:!humanTurn});
+    const b=S.buttons[S.buttons.length-1];
+    // card contents drawn after buttons so they overlay
+    b.card=m;
+  });
+  drawButtons();
+  S.buttons.forEach(b=>{ if(!b.card) return; const m=b.card;
+    drawCritter(m.shape, b.x+42, b.y+52, 30, TCOL[m.type], {});
+    text(m.name, b.x+84, b.y+18, 16, '#e8f5ee','left','bold ');
+    typeBadge(m.type, b.x+84, b.y+42);
+    text('HP '+m.hp+'  ATK '+m.atk, b.x+84, b.y+70, 12, '#8fa89b');
+    text('DEF '+m.def+'  SPD '+m.spd, b.x+84, b.y+88, 12, '#8fa89b');
+    text(m.moves[0].n+' / '+m.moves[1].n, b.x+16, b.y+128, 11, '#8fa89b');
+  });
+}
+function drawBattle(){
+  const B=S.battle; if(!B) return;
+  S.buttons=[];
+  ctx.fillStyle='#0a0d13'; ctx.fillRect(0,0,W,H);
+  // arena
+  ctx.strokeStyle='rgba(0,255,157,0.15)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.ellipse(350,258,90,18,0,0,7); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(130,468,90,18,0,0,7); ctx.stroke();
+  const A=activeMon('a'), F=activeMon('b');
+  const bobA=Math.sin(S.t*3)*4, bobF=Math.sin(S.t*3+1.5)*4;
+  drawPlate(F,16,12,220,'left');
+  drawPlate(A,244,300,220,'right');
+  // sprites with anims
+  let st=animState('b');
+  ctx.save(); ctx.globalAlpha=st.alpha;
+  drawCritter(F.base.shape, 350+st.dx, 210+bobF+st.dy, 56*st.scale, TCOL[F.type], {flash:st.flash, alpha:st.alpha});
+  ctx.restore();
+  st=animState('a');
+  ctx.save(); ctx.globalAlpha=st.alpha;
+  drawCritter(A.base.shape, 130+st.dx, 420+bobA+st.dy, 56*st.scale, TCOL[A.type], {flash:st.flash, alpha:st.alpha});
+  ctx.restore();
+  // team pips
+  B.a.team.forEach((m,i)=>{ ctx.fillStyle=m.alive?'#3ddc84':'#333'; ctx.beginPath(); ctx.arc(250+i*18,392,6,0,7); ctx.fill(); });
+  B.b.team.forEach((m,i)=>{ ctx.fillStyle=m.alive?'#ff5a5a':'#333'; ctx.beginPath(); ctx.arc(16+i*18,80,6,0,7); ctx.fill(); });
+  // log
+  ctx.fillStyle='#0d1420'; rr(16,500,448,88,8); ctx.fill();
+  const lines=S.log.slice(-3);
+  lines.forEach((l,i)=>text(l,28,512+i*26,13,'#cfe3d8'));
+  // menu
+  const ui=S.ui, chooser=S.chooser;
+  const p2 = ui.endsWith('p2');
+  const whoLabel = B.ctrl[chooser]==='p1'?'P1':B.ctrl[chooser]==='p2'?'P2':(chooser==='a'?'YOU':'');
+  if(ui==='main'||ui==='main-p2'){
+    if(whoLabel) text(whoLabel+' — choose',W/2,604,14,'#8fa89b','center');
+    btn(24,624,214,72,'FIGHT',()=>{ S.ui=p2?'moves-p2':'moves'; SFX.click(); drawBattle(); },{big:true,sub:'pick a move'});
+    const benched=B[chooser].team.filter((m,i)=>i!==B[chooser].active&&m.alive).length;
+    btn(242,624,214,72,'SWITCH',()=>{ S.ui=p2?'switch-p2':'switch'; SFX.click(); drawBattle(); },{big:true,sub:benched+' available',disabled:!benched});
+  } else if(ui==='moves'||ui==='moves-p2'){
+    const m=activeMon(chooser);
+    m.moves.forEach((mv,i)=>{ const x=24+(i%2)*226, y=606+((i/2)|0)*52;
+      btn(x,y,214,46,(i+1)+'. '+mv.n,()=>{ S.ui='busy'; humanAct(chooser,{kind:'move',i}); },
+        {sub:mv.t+' · pow '+mv.p}); 
+      const bb=S.buttons[S.buttons.length-1]; bb.tcol=TCOL[mv.t];
+    });
+    btn(196,662,88,30,'BACK',()=>{ S.ui=p2?'main-p2':'main'; drawBattle(); },{});
+  } else if(ui==='switch'||ui==='switch-p2'){
+    const B2=S.battle, benched=B2[chooser].team.map((m,i)=>({m,i})).filter(o=>o.i!==B2[chooser].active&&o.m.alive);
+    benched.forEach((o,i)=>{ btn(24+i*150,624,140,72,(i+1)+'. '+o.m.name,()=>doSwitchPick(i),{sub:o.m.hp+'/'+o.m.maxhp+' HP'}); });
+    if(!benched.length) text('no one left!',W/2,650,14,'#8fa89b','center');
+    btn(196,662,88,30,'BACK',()=>{ S.ui=p2?'main-p2':'main'; drawBattle(); },{});
+  } else if(ui==='faintpick'){
+    const s=S.faintSide, c=B.ctrl[s];
+    const label = c==='p1'?'P1':c==='p2'?'P2':c==='ai'?'FOE':'YOU';
+    text(label+' — send out next!',W/2,604,15,'#ffd93f','center','bold ');
+    const benched=B[s].team.map((m,i)=>({m,i})).filter(o=>o.i!==B[s].active&&o.m.alive);
+    benched.forEach((o,i)=>{ btn(24+i*150,628,140,64,(i+1)+'. '+o.m.name,()=>doSwitchPick(i),{sub:o.m.hp+'/'+o.m.maxhp+' HP'}); });
+  } else {
+    text('...',W/2,650,16,'#54655c','center');
+  }
+  drawButtons();
+  // tint move buttons by type
+  S.buttons.forEach(b=>{ if(b.tcol){ ctx.strokeStyle=b.tcol; ctx.lineWidth=2; rr(b.x,b.y,b.w,b.h,10); ctx.stroke(); } });
+  text('P pause · M mute'+(muted?' (muted)':''),W/2,700,11,'#54655c','center');
+}
+function drawOver(){
+  S.buttons=[];
+  ctx.fillStyle='#0a0d13'; ctx.fillRect(0,0,W,H);
+  text(S.overWin?'★ VICTORY ★':'DEFEAT',W/2,200,44,S.overWin?'#ffd93f':'#ff5a5a','center','bold ');
+  text(S.overText||'',W/2,270,18,'#e8f5ee','center');
+  if(S.mode==='ladder'&&S.overWin) text('ladder record: '+(S.ladderIdx)+'/3',W/2,310,14,'#8fa89b','center');
+  if(S.mode==='versus'&&S.overVersus) text('P1 '+S.wins.a+' — '+S.wins.b+' P2',W/2,310,16,'#e8f5ee','center');
+  btn(90,400,300,56,'REMATCH',()=>{ SFX.click(); startMode(S.mode); },{big:true});
+  btn(90,468,300,56,'MENU',()=>{ S.screen='menu'; S.battle=null; drawAll(); },{big:true});
+  drawButtons();
+}
+function drawAll(){
+  S.focus=0;
+  if(S.screen==='menu') drawMenu();
+  else if(S.screen==='chart') drawChart();
+  else if(S.screen==='draft') drawDraft();
+  else if(S.screen==='battle') drawBattle();
+  else if(S.screen==='over') drawOver();
+  if(S.paused){ ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(0,0,W,H);
+    text('PAUSED',W/2,340,40,'#e8f5ee','center','bold '); text('P to resume',W/2,390,14,'#8fa89b','center'); }
+}
+
+// ---------- LOOP ----------
+let last=0;
+function loop(ts){ const dt=Math.min(0.05,(ts-last)/1000||0); last=ts; S.t+=dt;
+  if(S.screen==='battle'&&!S.paused) drawBattle();
+  requestAnimationFrame(loop); }
+
+// ---------- GAME HOOKS ----------
+window.GAME = {
+  get state(){ return S.screen; },
+  get mode(){ return S.mode; },
+  get turn(){ return S.battle?S.battle.turn:0; },
+  get wins(){ return {...S.wins}; },
+  get log(){ return S.log.slice(-5); },
+  get teams(){ if(!S.battle) return null;
+    const t=s=>S.battle[s].team.map(m=>({name:m.name,type:m.type,hp:m.hp,maxhp:m.maxhp,alive:m.alive,status:m.status}));
+    return {a:t('a'), b:t('b'), activeA:S.battle.a.active, activeB:S.battle.b.active, over:S.battle.over, winner:S.battle.winner}; },
+  get draft(){ return {pool:[...S.draftPool], idx:S.draftIdx, teams:{a:[...S.draftTeams.a],b:[...S.draftTeams.b]}}; },
+  startMode,
+  _S:S,
+};
+drawAll();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
