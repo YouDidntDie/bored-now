@@ -3,78 +3,232 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>BORED? — Games Collection</title>
+<title>THE LIBRARY — The Lascaux of Gaming</title>
 <style>
-  :root { --neon:#00ff9d; --dim:#0a0f16; }
+  :root {
+    --ember:#ff7a2f; --ochre:#d99a4e; --bone:#f0e6d2; --ash:#8a7a63;
+    --cave:#0d0906; --stone:#17100a; --rust:#a83e1c;
+  }
   * { box-sizing:border-box; }
-  html, body { margin:0; padding:0; min-height:100%; background:#05070c; color:#e8f5ee;
-    font-family:'Courier New', ui-monospace, monospace; }
-  body { display:flex; flex-direction:column; align-items:center; padding:48px 20px 32px; }
-  h1 { font-size:clamp(2.6rem, 9vw, 4.5rem); margin:0; letter-spacing:.12em; color:var(--neon);
-    text-shadow:0 0 18px rgba(0,255,157,.55); }
-  .tag { margin:14px 0 44px; color:#8fa89b; font-size:clamp(.85rem, 3.5vw, 1.05rem);
-    letter-spacing:.06em; text-align:center; }
-  .grid { display:grid; gap:22px; width:min(860px, 100%);
-    grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); }
-  .card { background:var(--dim); border:1px solid rgba(0,255,157,.25); border-radius:14px;
-    padding:28px 24px; text-decoration:none; color:inherit; display:flex;
+  html, body { margin:0; padding:0; min-height:100%; color:var(--bone);
+    font-family:Georgia, 'Times New Roman', serif;
+    background:
+      radial-gradient(1200px 700px at 50% -10%, rgba(255,122,47,.14), transparent 60%),
+      radial-gradient(900px 600px at 85% 110%, rgba(168,62,28,.12), transparent 60%),
+      var(--cave); }
+  body { display:flex; flex-direction:column; align-items:center; padding:56px 20px 40px; }
+  .torch { font-size:2rem; animation:flicker 2.4s ease-in-out infinite; }
+  @keyframes flicker {
+    0%,100% { opacity:1; } 8% { opacity:.82; } 16% { opacity:.95; }
+    34% { opacity:.78; } 52% { opacity:.97; } 71% { opacity:.86; } 88% { opacity:.93; } }
+  h1 { font-size:clamp(2.4rem, 9vw, 4.2rem); margin:10px 0 0; letter-spacing:.14em;
+    color:var(--ochre); text-shadow:0 0 24px rgba(255,122,47,.45), 0 2px 0 rgba(0,0,0,.6);
+    font-weight:normal; }
+  .tag { margin:14px 0 6px; color:var(--bone); font-size:clamp(.95rem, 3.8vw, 1.15rem);
+    letter-spacing:.05em; text-align:center; font-style:italic; }
+  .sub { margin:0 0 48px; color:var(--ash); font-size:.85rem; letter-spacing:.22em;
+    text-align:center; text-transform:uppercase; }
+  .era { width:min(920px, 100%); margin:34px 0 6px; }
+  .era h2 { font-size:1rem; letter-spacing:.32em; color:var(--ember); font-weight:normal;
+    text-transform:uppercase; margin:0 0 4px; }
+  .era p { margin:0 0 18px; color:var(--ash); font-style:italic; font-size:.9rem; }
+  .grid { display:grid; gap:20px; width:min(920px, 100%);
+    grid-template-columns:repeat(auto-fit, minmax(270px, 1fr)); margin-bottom:10px; }
+  .card { background:linear-gradient(160deg, rgba(217,154,78,.06), rgba(0,0,0,.25)), var(--stone);
+    border:1px solid rgba(217,154,78,.35); border-radius:6px 14px 8px 16px;
+    padding:26px 24px; text-decoration:none; color:inherit; display:flex;
     flex-direction:column; gap:12px; transition:transform .15s ease, box-shadow .15s ease;
-    min-height:220px; }
+    min-height:230px; box-shadow:inset 0 0 34px rgba(0,0,0,.55); }
   .card:hover, .card:focus-visible { transform:translateY(-4px);
-    box-shadow:0 0 28px rgba(0,255,157,.22); outline:none; }
-  .card .kicker { font-size:.75rem; letter-spacing:.25em; color:var(--neon); }
-  .card h2 { margin:0; font-size:2rem; letter-spacing:.1em; }
-  .card p { margin:0; color:#8fa89b; line-height:1.55; font-size:.92rem; flex:1; }
-  .play { align-self:flex-start; padding:10px 26px; border:1px solid var(--neon);
-    border-radius:999px; color:var(--neon); letter-spacing:.18em; font-size:.85rem; }
-  .card:hover .play { background:var(--neon); color:#05070c; }
-  .soon { border-style:dashed; opacity:.55; cursor:default; }
-  .soon:hover { transform:none; box-shadow:none; }
-  footer { margin-top:56px; color:#54655c; font-size:.8rem; letter-spacing:.08em; text-align:center; }
-  footer a { color:var(--neon); }
+    box-shadow:0 0 26px rgba(255,122,47,.25), inset 0 0 34px rgba(0,0,0,.55); outline:none; }
+  .card .kicker { font-size:.72rem; letter-spacing:.28em; color:var(--ember);
+    font-family:'Courier New', ui-monospace, monospace; }
+  .card h3 { margin:0; font-size:1.9rem; letter-spacing:.1em; font-weight:normal; color:var(--bone); }
+  .card p { margin:0; color:#c9bda6; line-height:1.6; font-size:.93rem; flex:1; }
+  .play { align-self:flex-start; padding:9px 26px; border:1px solid var(--ochre);
+    border-radius:999px; color:var(--ochre); letter-spacing:.2em; font-size:.8rem;
+    font-family:'Courier New', ui-monospace, monospace; }
+  .card:hover .play { background:var(--ember); border-color:var(--ember); color:#1a0e05; }
+  .wall-end { margin:52px 0 8px; color:var(--ash); font-style:italic; text-align:center;
+    max-width:640px; line-height:1.7; }
+  footer { margin-top:40px; color:#5c5142; font-size:.8rem; letter-spacing:.08em; text-align:center; }
+  footer a { color:var(--ochre); }
 </style>
 </head>
 <body>
-  <h1>BORED?</h1>
-  <p class="tag">Games collection &mdash; when you're bored, play.</p>
+  <div class="torch">&#128293;</div>
+  <h1>THE LIBRARY</h1>
+  <p class="tag">The Lascaux of gaming &mdash; a cave wall of video game history, painted in torchlight.</p>
+  <p class="sub">1972 &rarr; 2017 &middot; twenty-three games &middot; each era, one painting</p>
+
+  <div class="era">
+    <h2>The First Fires &middot; 1972&ndash;1979</h2>
+    <p>Before the pixels, there were dials and dots. The wall begins here.</p>
+  </div>
   <div class="grid">
     <a class="card" href="pong/">
-      <span class="kicker">GAME 001</span>
-      <h2>PONG</h2>
+      <span class="kicker">GAME 001 &middot; 1972</span>
+      <h3>PONG</h3>
       <p>The classic. First to 7 takes it &mdash; against the machine or a friend on the same screen. Mouse, keys, or touch.</p>
       <span class="play">PLAY &rarr;</span>
     </a>
+    <a class="card" href="shatter/">
+      <span class="kicker">GAME 007 &middot; 1976</span>
+      <h3>SHATTER</h3>
+      <p>A 1976 story, told twice. Break the wall as the paddle, or become the wall against the AI &mdash; or face a friend in 2-player versus on the same screen.</p>
+      <span class="play">PLAY &rarr;</span>
+    </a>
     <a class="card" href="starfall/">
-      <span class="kicker">GAME 002</span>
-      <h2>STARFALL</h2>
+      <span class="kicker">GAME 002 &middot; 1978</span>
+      <h3>STARFALL</h3>
       <p>A 1978 story, told twice. Defend the station as the last orbital cannon, lead the invading swarm &mdash; or face a friend in 2-player versus on the same screen.</p>
       <span class="play">PLAY &rarr;</span>
     </a>
     <a class="card" href="field/">
-      <span class="kicker">GAME 003</span>
-      <h2>FIELD</h2>
+      <span class="kicker">GAME 003 &middot; 1979</span>
+      <h3>FIELD</h3>
       <p>A 1979 story, told twice. Fly the ship against the AI belt, become the rocks against the AI pilot &mdash; or face a friend in 2-player versus on the same screen.</p>
       <span class="play">PLAY &rarr;</span>
     </a>
+  </div>
+
+  <div class="era">
+    <h2>The Golden Age &middot; 1980&ndash;1984</h2>
+    <p>The arcades burned brightest. Every wall was a battlefield.</p>
+  </div>
+  <div class="grid">
+    <a class="card" href="abduct/">
+      <span class="kicker">GAME 008 &middot; 1980</span>
+      <h3>ABDUCT</h3>
+      <p>A 1980 story, told twice. Fly the rescue ship against the AI landers, or become the lander and take the humans yourself &mdash; or face a friend in 2-player versus on the same screen.</p>
+      <span class="play">PLAY &rarr;</span>
+    </a>
+    <a class="card" href="rain/">
+      <span class="kicker">GAME 009 &middot; 1980</span>
+      <h3>RAIN</h3>
+      <p>A 1980 story, told twice. Defend the cities from the falling rain, or become the storm &mdash; or face a friend in 2-player versus on the same screen.</p>
+      <span class="play">PLAY &rarr;</span>
+    </a>
     <a class="card" href="haunt/">
-      <span class="kicker">GAME 004</span>
-      <h2>HAUNT</h2>
+      <span class="kicker">GAME 004 &middot; 1980</span>
+      <h3>HAUNT</h3>
       <p>A 1980 story, told twice. Command the ghost pack against the AI eater, run the maze as the eater yourself &mdash; or face a friend in 2-player versus on the same screen.</p>
       <span class="play">PLAY &rarr;</span>
     </a>
+    <a class="card" href="traffic/">
+      <span class="kicker">GAME 010 &middot; 1981</span>
+      <h3>TRAFFIC</h3>
+      <p>A 1981 story, told twice. Weave the night highway against the AI traffic, or become the traffic against the AI driver &mdash; or face a friend in 2-player versus on the same screen.</p>
+      <span class="play">PLAY &rarr;</span>
+    </a>
     <a class="card" href="apex/">
-      <span class="kicker">GAME 005</span>
-      <h2>APEX</h2>
+      <span class="kicker">GAME 005 &middot; 1981</span>
+      <h3>APEX</h3>
       <p>A 1981 story, told twice. Hurl barrels as the ape against the AI climber, climb the steel tower yourself &mdash; or face a friend in 2-player versus on the same screen.</p>
       <span class="play">PLAY &rarr;</span>
     </a>
+    <a class="card" href="burrow/">
+      <span class="kicker">GAME 011 &middot; 1982</span>
+      <h3>BURROW</h3>
+      <p>A 1982 story, told twice. Dig as the digger against the AI monsters, or hunt as the monsters &mdash; or face a friend in 2-player versus on the same screen.</p>
+      <span class="play">PLAY &rarr;</span>
+    </a>
+    <a class="card" href="slipstream/">
+      <span class="kicker">GAME 012 &middot; 1982</span>
+      <h3>SLIPSTREAM</h3>
+      <p>Sunset highway racing. Draft the pack across three laps, qualify against the clock &mdash; or trade paint with a friend in 2-player versus on the same screen.</p>
+      <span class="play">PLAY &rarr;</span>
+    </a>
+    <a class="card" href="track/">
+      <span class="kicker">GAME 013 &middot; 1983</span>
+      <h3>TRACK</h3>
+      <p>Mash to glory. The 100m sprint and 110m hurdles against the AI &mdash; or a friend, same screen, best of 3. False start and you're disqualified.</p>
+      <span class="play">PLAY &rarr;</span>
+    </a>
     <a class="card" href="garbage/">
-      <span class="kicker">GAME 006</span>
-      <h2>GARBAGE</h2>
+      <span class="kicker">GAME 006 &middot; 1984</span>
+      <h3>GARBAGE</h3>
       <p>A 1984 story, told twice. Stack against the AI in practice, or bury a friend in 2-player versus on the same screen &mdash; your clears are their garbage.</p>
       <span class="play">PLAY &rarr;</span>
     </a>
   </div>
+
+  <div class="era">
+    <h2>The New School &middot; 1985&ndash;1998</h2>
+    <p>The pixels grew up. Worlds got bigger; fights got closer.</p>
+  </div>
+  <div class="grid">
+    <a class="card" href="stomp/">
+      <span class="kicker">GAME 014 &middot; 1985</span>
+      <h3>STOMP</h3>
+      <p>A 1985 story, told twice. Run the stage against the AI shaper, or shape the stage against the AI runner &mdash; or face a friend in 2-player versus on the same screen.</p>
+      <span class="play">PLAY &rarr;</span>
+    </a>
+    <a class="card" href="clash/">
+      <span class="kicker">GAME 015 &middot; 1991</span>
+      <h3>CLASH</h3>
+      <p>Arcade fighting, best of rounds. Take the AI apart &mdash; or a friend, same screen. No quarters required.</p>
+      <span class="play">PLAY &rarr;</span>
+    </a>
+    <a class="card" href="frag/">
+      <span class="kicker">GAME 016 &middot; 1993</span>
+      <h3>FRAG</h3>
+      <p>A 1993 story, told twice. Clear the base as the marine, or hunt as the demons &mdash; or settle it in a 2-player versus deathmatch on the same screen.</p>
+      <span class="play">PLAY &rarr;</span>
+    </a>
+    <a class="card" href="tamer/">
+      <span class="kicker">GAME 017 &middot; 1996</span>
+      <h3>TAMER</h3>
+      <p>Draft six monsters, climb the AI ladder &mdash; or draft against a friend and battle head-to-head on the same screen.</p>
+      <span class="play">PLAY &rarr;</span>
+    </a>
+    <a class="card" href="command/">
+      <span class="kicker">GAME 018 &middot; 1998</span>
+      <h3>COMMAND</h3>
+      <p>Harvest, build, command. Hold your base against the AI skirmish &mdash; or out-think a friend in 2-player versus on the same screen.</p>
+      <span class="play">PLAY &rarr;</span>
+    </a>
+  </div>
+
+  <div class="era">
+    <h2>The Modern Wall &middot; 2001&ndash;2017</h2>
+    <p>The wall keeps growing. The torch hasn't gone out yet.</p>
+  </div>
+  <div class="grid">
+    <a class="card" href="wanted/">
+      <span class="kicker">GAME 019 &middot; 2001</span>
+      <h3>WANTED</h3>
+      <p>A 2001 story, told twice. Hunt the outlaw as the posse, or run as the outlaw &mdash; or face a friend in 2-player versus on the same screen.</p>
+      <span class="play">PLAY &rarr;</span>
+    </a>
+    <a class="card" href="swap/">
+      <span class="kicker">GAME 020 &middot; 2001</span>
+      <h3>SWAP</h3>
+      <p>Match-3 with teeth. Practice against the AI, or bury a friend in 2-player versus &mdash; your matches are their junk.</p>
+      <span class="play">PLAY &rarr;</span>
+    </a>
+    <a class="card" href="encore/">
+      <span class="kicker">GAME 021 &middot; 2005</span>
+      <h3>ENCORE</h3>
+      <p>Rhythm. Hit the notes on beat and climb from C to S rank &mdash; or battle a friend note-for-note, best of 3, on the same screen.</p>
+      <span class="play">PLAY &rarr;</span>
+    </a>
+    <a class="card" href="siege/">
+      <span class="kicker">GAME 022 &middot; 2009</span>
+      <h3>SIEGE</h3>
+      <p>Fling and fortify. Break the AI fortress, build your own against the AI guns &mdash; or trade shots with a friend, two legs, on the same screen.</p>
+      <span class="play">PLAY &rarr;</span>
+    </a>
+    <a class="card" href="drop/">
+      <span class="kicker">GAME 023 &middot; 2017</span>
+      <h3>DROP</h3>
+      <p>Last one standing. Outlast the AI in the shrinking zone &mdash; or drop against a friend on the same screen.</p>
+      <span class="play">PLAY &rarr;</span>
+    </a>
+  </div>
+
+  <p class="wall-end">Twenty-three paintings, one cave. The games are the art &mdash;
+  the relics of each era rest in <a href="gallery/" style="color:var(--ochre);">the Cabinet</a>.</p>
   <footer>Built for killing time &middot; <a href="gallery/">The Cabinet</a></footer>
 </body>
 </html>
