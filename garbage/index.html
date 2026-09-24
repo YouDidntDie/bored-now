@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>GARBAGE — a 1984 story, stacked twice</title>
+<style>
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; padding:0; height:100%; background:#060809; overflow:hidden;
+    font-family:'Courier New', ui-monospace, monospace; }
+  body { display:flex; align-items:center; justify-content:center; }
+  #wrap { position:relative; }
+  canvas { display:block; background:#060809; touch-action:none; }
+  #hint { position:absolute; left:0; right:0; bottom:-34px; text-align:center;
+    color:#3a3f45; font-size:11px; letter-spacing:.14em; pointer-events:none;
+    font-family:'Courier New', ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c"></canvas>
+  <div id="hint">1984 &mdash; STACK IT, OR BURY THEM</div>
+</div>
+<script>
+'use strict';
+/* ================= GARBAGE =================
+   A 1984 story, stacked twice. Falling-block versus stacking.
+   Original expression throughout: 8x16 wells, original palette,
+   original name. The 7 tetromino shapes are functional geometry.
+   Modes: PRACTICE (1P well vs small AI well), VERSUS (2P same screen,
+   best of 3). Mobile-first 480x720. Single file, no assets.
+*/
+
+/* ---------- canvas ---------- */
+const W = 480, H = 720;
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+function fit() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const pad = 8;
+  const aw = window.innerWidth - pad, ah = window.innerHeight - pad - 40;
+  const s = Math.min(aw / W, ah / H);
+  canvas.width = Math.round(W * s * dpr);
+  canvas.height = Math.round(H * s * dpr);
+  canvas.style.width = Math.round(W * s) + 'px';
+  canvas.style.height = Math.round(H * s) + 'px';
+  ctx.setTransform(dpr * s, 0, 0, dpr * s, 0, 0);
+}
+window.addEventListener('resize', fit); fit();
+
+/* ---------- audio (tiny synth, no assets) ---------- */
+let AC = null, muted = false;
+function audio() {
+  if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+  if (AC && AC.state === 'suspended') AC.resume();
+}
+function beep(f0, f1, dur, type, vol, when) {
+  if (!AC || muted) return;
+  const t = AC.currentTime + (when || 0), o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'square'; o.frequency.setValueAtTime(f0, t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+  g.gain.setValueAtTime(vol || 0.07, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t + dur);
+}
+function noiseBurst(dur, vol, lp) {
+  if (!AC || muted) return;
+  const t = AC.currentTime, n = Math.floor(AC.sampleRate * dur);
+  const buf = AC.createBuffer(1, n, AC.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  const src = AC.createBufferSource(); src.buffer = buf;
+  const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lp || 1200;
+  const g = AC.createGain(); g.gain.setValueAtTime(vol || 0.15, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(f); f.connect(g); g.connect(AC.destination); src.start(t);
+}
+const sMove    = () => beep(220, 180, 0.04, 'square', 0.035);
+const sRotate  = () => beep(330, 520, 0.06, 'square', 0.05);
+const sLock    = () => beep(140, 70, 0.08, 'triangle', 0.09);
+const sHold    = () => beep(500, 300, 0.08, 'triangle', 0.06);
+const sUI      = () => beep(520, 780, 0.07, 'square', 0.06);
+const sClear   = n => { for (let i = 0; i <= n; i++) beep(440 + i * 160, 440 + i * 160, 0.09, 'square', 0.07, i * 0.07); };
+const sGarbage = () => { beep(110, 55, 0.35, 'sawtooth', 0.12); };
+const sTopOut  = () => { noiseBurst(0.5, 0.25, 700); beep(200, 40, 0.5, 'sawtooth', 0.1); };
+const sLevelUp = () => { beep(523, 523, 0.1, 'square', 0.08); beep(659, 659, 0.1, 'square', 0.08, 0.1); beep(784, 784, 0.16, 'square', 0.08, 0.2); };
+const sWarn    = () => beep(880, 880, 0.12, 'square', 0.05);
+
+/* ---------- helpers ---------- */
+const TAU = Math.PI * 2;
+const rnd = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const COLS = 8, ROWS = 16; // NOT 10x20 — our own well
+
+/* ---------- pieces: the 7 tetrominoes (functional geometry) ---------- */
+const BASE = [
+  [[0,1],[1,1],[2,1],[3,1]], // I
+  [[1,0],[2,0],[1,1],[2,1]], // O
+  [[1,0],[0,1],[1,1],[2,1]], // T
+  [[1,0],[2,0],[0,1],[1,1]], // S
+  [[0,0],[1,0],[1,1],[2,1]], // Z
+  [[0,0],[0,1],[1,1],[2,1]], // J
+  [[2,0],[0,1],[1,1],[2,1]], // L
+];
+// original palette — deliberately NOT the classic scheme
+const COLORS = ['#ff5d5d', '#ffb020', '#b45cff', '#2ee6a8', '#ff7ad9', '#3fa9ff', '#ffe14d'];
+const COLOR_DK = ['#a83232', '#a86a10', '#6f2fa8', '#1a8a62', '#a83f86', '#2568a8', '#a8942a'];
+const GARBAGE_C = '#6b5b7a', GARBAGE_DK = '#41364d';
+function normalize(cells) {
+  let mx = 9, my = 9;
+  for (const [x, y] of cells) { if (x < mx) mx = x; if (y < my) my = y; }
+  return cells.map(([x, y]) => [x - mx, y - my]);
+}
+const STATES = BASE.map(base => {
+  const states = [];
+  let cur = normalize(base);
+  for (let r = 0; r < 4; r++) {
+    states.push(cur);
+    cur = normalize(cur.map(([x, y]) => [3 - y, x]));
+  }
+  return states;
+});
+const KICKS = [[0,0],[-1,0],[1,0],[-2,0],[2,0],[0,-1],[-1,-1],[1,-1]];
+
+/* ---------- input ---------- */
+const keys = {};
+const GAME_KEYS = ['ArrowLeft','ArrowRight','ArrowDown','ArrowUp','Space','KeyA','KeyD','KeyS','KeyW','KeyG','KeyF','KeyH','KeyP','KeyM'];
+window.addEventListener('keydown', e => {
+  if (GAME_KEYS.includes(e.code)) e.preventDefault();
+  if (!e.repeat) { keys[e.code] = true; audio(); handleKey(e.code); }
+  else keys[e.code] = true;
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+function toGame(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H };
+}
+canvas.addEventListener('pointerdown', e => {
+  e.preventDefault(); audio();
+  const p = toGame(e);
+  handleTap(p.x, p.y);
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+});
+window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+function handleKey(code) {
+  if (code === 'KeyM') { muted = !muted; return; }
+  if (state !== 'play') return;
+  if (code === 'KeyP') { paused = !paused; sUI(); return; }
+  if (paused) return;
+  const p1 = players[0], p2 = players[1];
+  // P1 keyboard
+  if (!p1.ai && p1.alive) {
+    if (code === 'ArrowLeft') tryMoveP(p1, -1, 0);
+    else if (code === 'ArrowRight') tryMoveP(p1, 1, 0);
+    else if (code === 'ArrowUp') tryRotateP(p1);
+    else if (code === 'Space') hardDrop(p1);
+    else if (code === 'KeyH') holdPiece(p1);
+  }
+  // P2 keyboard (versus only)
+  if (mode === 'versus' && p2 && !p2.ai && p2.alive) {
+    if (code === 'KeyA') tryMoveP(p2, -1, 0);
+    else if (code === 'KeyD') tryMoveP(p2, 1, 0);
+    else if (code === 'KeyW') tryRotateP(p2);
+    else if (code === 'KeyG') hardDrop(p2);
+    else if (code === 'KeyF') holdPiece(p2);
+  }
+}
+
+/* ---------- state ---------- */
+let state = 'menu';       // menu | serve | play | roundEnd | matchEnd | gameOver
+let stateT = 0, mode = 'practice';
+let paused = false;
+let players = [];
+let round = 1, wins = [0, 0], roundWinner = -1;
+let banner = '', bannerT = 0;
+let best = +(localStorage.getItem('garbage_best') || 0);
+let pauseBtn = null, muteBtn = null;
+
+function emptyGrid() {
+  const g = [];
+  for (let y = 0; y < ROWS; y++) g.push(new Array(COLS).fill(-1));
+  return g;
+}
+function makePlayer(idx, neon, name, ai) {
+  return {
+    idx, neon, name, ai: !!ai,
+    x0: 0, y0: 0, cell: 20,
+    grid: emptyGrid(), bag: [], queue: [],
+    type: -1, rot: 0, px: 0, py: 0,
+    held: -1, canHold: true,
+    fallT: 0, lockT: 0, lockResets: 0, soft: false,
+    score: 0, lines: 0, level: 1, combo: -1,
+    alive: true, pendingGarbage: 0, garbageT: 0, warnT: 0,
+    aiPlan: null, aiT: 0,
+    buttons: [],
+  };
+}
+function refillQueue(p) {
+  while (p.queue.length < 7) {
+    if (p.bag.length === 0) {
+      p.bag = [0,1,2,3,4,5,6];
+      for (let i = p.bag.length - 1; i > 0; i--) {
+        const j = (Math.random() * (i + 1)) | 0;
+        [p.bag[i], p.bag[j]] = [p.bag[j], p.bag[i]];
+      }
+    }
+    p.queue.push(p.bag.pop());
+  }
+}
+function cellsOf(type, rot) { return STATES[type][rot]; }
+
+/* ---------- collision & movement ---------- */
+function collides(p, type, rot, px, py, grid) {
+  const g = grid || p.grid;
+  for (const [cx, cy] of cellsOf(type, rot)) {
+    const x = px + cx, y = py + cy;
+    if (x < 0 || x >= COLS || y >= ROWS) return true;
+    if (y >= 0 && g[y][x] !== -1) return true;
+  }
+  return false;
+}
+function tryMoveP(p, dx, dy) {
+  if (!p.alive || p.type < 0) return false;
+  if (!collides(p, p.type, p.rot, p.px + dx, p.py + dy)) {
+    p.px += dx; p.py += dy;
+    if (dx !== 0) { p.lockT = 0; if (p.lockResets < 15) { p.lockResets++; } }
+    if (!p.ai) sMove();
+    return true;
+  }
+  return false;
+}
+function tryRotateP(p) {
+  if (!p.alive || p.type < 0) return false;
+  const nr = (p.rot + 1) % 4;
+  for (const [kx, ky] of KICKS) {
+    if (!collides(p, p.type, nr, p.px + kx, p.py + ky)) {
+      p.rot = nr; p.px += kx; p.py += ky;
+      p.lockT = 0; if (p.lockResets < 15) p.lockResets++;
+      if (!p.ai) sRotate();
+      return true;
+    }
+  }
+  return false;
+}
+function ghostY(p) {
+  let y = p.py;
+  while (!collides(p, p.type, p.rot, p.px, y + 1)) y++;
+  return y;
+}
+function hardDrop(p) {
+  if (!p.alive || p.type < 0) return;
+  const gy = ghostY(p);
+  p.score += (gy - p.py) * 2;
+  p.py = gy;
+  if (!p.ai) { sLock(); }
+  lockPiece(p);
+}
+function holdPiece(p) {
+  if (!p.alive || !p.canHold || p.type < 0) return;
+  const cur = p.type;
+  if (p.held === -1) { refillQueue(p); p.type = p.queue.shift(); }
+  else { p.type = p.held; }
+  p.held = cur; p.canHold = false;
+  p.rot = 0; p.px = 2; p.py = 0; p.fallT = 0; p.lockT = 0; p.lockResets = 0;
+  if (collides(p, p.type, p.rot, p.px, p.py)) { topOut(p); return; }
+  if (!p.ai) sHold();
+  if (p.ai) p.aiPlan = null;
+}
+function spawnPiece(p) {
+  refillQueue(p);
+  p.type = p.queue.shift();
+  p.rot = 0; p.px = 2; p.py = 0;
+  p.fallT = 0; p.lockT = 0; p.lockResets = 0; p.canHold = true;
+  if (p.ai) p.aiPlan = null;
+  if (collides(p, p.type, p.rot, p.px, p.py)) topOut(p);
+}
+
+/* ---------- lock, clears, scoring, garbage ---------- */
+const LINE_SCORE = [0, 100, 300, 500, 800];
+const GARBAGE_FOR = [0, 0, 1, 2, 4]; // lines cleared -> garbage rows
+function fallInterval(level) {
+  return Math.max(0.05, 0.75 * Math.pow(0.82, level - 1));
+}
+function lockPiece(p) {
+  if (!p.alive || p.type < 0) return;
+  let above = false;
+  for (const [cx, cy] of cellsOf(p.type, p.rot)) {
+    const x = p.px + cx, y = p.py + cy;
+    if (y < 0) { above = true; continue; }
+    p.grid[y][x] = p.type;
+  }
+  if (above) { topOut(p); return; }
+  if (!p.ai) sLock();
+  p.type = -1;
+  // line clears
+  let cleared = 0;
+  for (let y = ROWS - 1; y >= 0; y--) {
+    if (p.grid[y].every(c => c !== -1)) {
+      p.grid.splice(y, 1);
+      p.grid.unshift(new Array(COLS).fill(-1));
+      cleared++; y++;
+    }
+  }
+  if (cleared > 4) cleared = 4; // defensive: a lock can complete at most 4 rows
+  if (cleared > 0) {
+    p.combo++;
+    p.score += LINE_SCORE[cleared] * p.level;
+    if (p.combo > 0) p.score += 50 * p.combo * p.level;
+    p.lines += cleared;
+    const nl = Math.floor(p.lines / 10) + 1;
+    if (nl > p.level) { p.level = nl; if (!p.ai) sLevelUp(); banner = 'LEVEL ' + nl; bannerT = 1.2; }
+    if (!p.ai) sClear(cleared);
+    // send garbage
+    const target = opponentOf(p);
+    if (target && target.alive) {
+      let g = GARBAGE_FOR[cleared] + Math.max(0, p.combo);
+      if (cleared === 4 && !p.ai) { banner = 'BREAK!'; bannerT = 1.2; }
+      if (g > 0) {
+        target.pendingGarbage += g;
+        target.garbageT = 1.4;
+        target.warnT = 1.4;
+        if (!target.ai) { banner = 'GARBAGE INCOMING'; bannerT = 1.2; sWarn(); }
+      }
+    }
+  } else {
+    p.combo = -1;
+  }
+  if (p.alive) spawnPiece(p);
+}
+function opponentOf(p) {
+  if (players.length < 2) return null;
+  return players[p.idx === 0 ? 1 : 0];
+}
+function topOut(p) {
+  if (!p.alive) return;
+  p.alive = false; p.type = -1;
+  sTopOut();
+  if (mode === 'practice') {
+    if (p.idx === 0) {
+      if (p.score > best) { best = p.score; localStorage.setItem('garbage_best', best); }
+      state = 'gameOver'; stateT = 0;
+    }
+    // AI topping out in practice: just respawn its well quietly
+    else { setTimeout(() => { if (state === 'play') resetWell(p); }, 1500); }
+  } else {
+    roundWinner = 1 - p.idx;
+    wins[roundWinner]++;
+    state = 'roundEnd'; stateT = 0;
+    banner = p.idx === 0 ? 'P2 TAKES ROUND ' + round : 'P1 TAKES ROUND ' + round;
+    bannerT = 2;
+  }
+}
+function resetWell(p) {
+  p.grid = emptyGrid(); p.bag = []; p.queue = [];
+  p.held = -1; p.score = 0; p.lines = 0; p.level = 1; p.combo = -1;
+  p.alive = true; p.pendingGarbage = 0; p.garbageT = 0; p.warnT = 0;
+  spawnPiece(p);
+}
+function applyGarbage(p) {
+  const n = Math.min(p.pendingGarbage, 8);
+  p.pendingGarbage = 0; p.garbageT = 0;
+  if (n <= 0 || !p.alive) return;
+  // if the top n rows hold blocks, they get pushed out -> top out
+  for (let y = 0; y < n; y++) {
+    if (p.grid[y].some(c => c !== -1)) { topOut(p); return; }
+  }
+  let lastHole = -1;
+  for (let i = 0; i < n; i++) {
+    let hole;
+    do { hole = (Math.random() * COLS) | 0; } while (hole === lastHole);
+    lastHole = hole;
+    p.grid.splice(0, 1);
+    const row = new Array(COLS).fill(7); // 7 = garbage marker
+    row[hole] = -1;
+    p.grid.push(row);
+  }
+  if (p.type >= 0) {
+    p.py -= n;
+    // piece fully above the well -> top out
+    let allAbove = true;
+    for (const [cx, cy] of cellsOf(p.type, p.rot)) {
+      if (p.py + cy >= 0) { allAbove = false; break; }
+    }
+    if (allAbove) { topOut(p); return; }
+  }
+  if (!p.ai) sGarbage();
+}
+
+/* ---------- per-frame update ---------- */
+function updatePlayer(p, dt) {
+  if (!p.alive || p.type < 0) return;
+  // incoming garbage
+  if (p.pendingGarbage > 0) {
+    p.garbageT -= dt; p.warnT -= dt;
+    if (p.garbageT <= 0) applyGarbage(p);
+    if (!p.alive) return;
+  }
+  // AI
+  if (p.ai) { p.aiT -= dt; if (p.aiT <= 0) { p.aiT = 0.09; aiStep(p); } }
+  else {
+    p.soft = !!(keys.ArrowDown && p.idx === 0) || !!(keys.KeyS && p.idx === 1);
+  }
+  // gravity
+  const iv = fallInterval(p.level);
+  p.fallT += dt * (p.soft || (p.ai && p.aiPlan && p.px === p.aiPlan.x && p.rot === p.aiPlan.rot) ? 18 : 1);
+  let guard = 0;
+  while (p.fallT >= iv && guard++ < 40) {
+    p.fallT -= iv;
+    if (p.type < 0) break;
+    if (!collides(p, p.type, p.rot, p.px, p.py + 1)) { p.py++; p.lockT = 0; }
+    else break;
+  }
+  if (p.soft && p.type >= 0) p.score += 0; // soft drop scoring kept simple
+  // lock delay
+  if (p.type >= 0 && !collides(p, p.type, p.rot, p.px, p.py + 1)) p.lockT = 0;
+  else if (p.type >= 0) {
+    p.lockT += dt;
+    if (p.lockT >= 0.4) { lockPiece(p); return; }
+  }
+}
+
+/* ---------- AI (practice opponent) ---------- */
+function aiDecide(p) {
+  let bestScore = -1e9, plan = null;
+  for (let rot = 0; rot < 4; rot++) {
+    const cells = cellsOf(p.type, rot);
+    for (let x = -2; x < COLS; x++) {
+      // drop
+      let y = p.py;
+      if (collides(p, p.type, rot, x, y)) continue;
+      while (!collides(p, p.type, rot, x, y + 1)) y++;
+      // simulate
+      const g = p.grid.map(r => r.slice());
+      let ok = true;
+      for (const [cx, cy] of cells) {
+        const gx = x + cx, gy = y + cy;
+        if (gy < 0) { ok = false; break; }
+        g[gy][gx] = p.type;
+      }
+      if (!ok) continue;
+      // clear lines in sim
+      let lines = 0;
+      for (let yy = ROWS - 1; yy >= 0; yy--) {
+        if (g[yy].every(c => c !== -1)) { g.splice(yy, 1); g.unshift(new Array(COLS).fill(-1)); lines++; yy++; }
+      }
+      // metrics
+      const heights = new Array(COLS).fill(0);
+      let holes = 0, agg = 0;
+      for (let c = 0; c < COLS; c++) {
+        for (let yy = 0; yy < ROWS; yy++) {
+          if (g[yy][c] !== -1) { heights[c] = ROWS - yy; break; }
+        }
+        agg += heights[c];
+        let seen = false;
+        for (let yy = 0; yy < ROWS; yy++) {
+          if (g[yy][c] !== -1) seen = true;
+          else if (seen) holes++;
+        }
+      }
+      let bump = 0;
+      for (let c = 0; c < COLS - 1; c++) bump += Math.abs(heights[c] - heights[c + 1]);
+      const maxH = Math.max.apply(null, heights);
+      const s = lines * 2.2 - agg * 0.45 - holes * 0.95 - bump * 0.22 - maxH * 0.12;
+      if (s > bestScore) { bestScore = s; plan = { rot, x }; }
+    }
+  }
+  p.aiPlan = plan;
+}
+function aiStep(p) {
+  if (p.type < 0 || !p.alive) return;
+  if (!p.aiPlan) { aiDecide(p); if (!p.aiPlan) { hardDrop(p); return; } }
+  const plan = p.aiPlan;
+  // rotate toward plan
+  if (p.rot !== plan.rot) {
+    const before = p.rot;
+    tryRotateP(p);
+    if (p.rot === before) { p.aiPlan = null; return; } // stuck, replan
+    return;
+  }
+  // move toward plan x
+  if (p.px < plan.x) { if (!tryMoveP(p, 1, 0)) { p.aiPlan = null; } return; }
+  if (p.px > plan.x) { if (!tryMoveP(p, -1, 0)) { p.aiPlan = null; } return; }
+  // in position: soft drop (handled via gravity boost in updatePlayer)
+}
+
+/* ---------- modes & layout ---------- */
+function layoutPlayer(p, x0, y0, cell) {
+  p.x0 = x0; p.y0 = y0; p.cell = cell;
+  const ww = COLS * cell;
+  const cx = x0; // left edge of well
+  if (!p.ai || mode === 'versus') {
+    // touch buttons under the well
+    const by = y0 + ROWS * cell + 14;
+    const bw3 = (ww - 16) / 3, bw2 = (ww - 8) / 2;
+    p.buttons = [
+      { id: 'left',  x: cx,          y: by,      w: bw3, h: 52, label: '\u25C0' },
+      { id: 'right', x: cx + bw3 + 8, y: by,     w: bw3, h: 52, label: '\u25B6' },
+      { id: 'rot',   x: cx + bw3*2 + 16, y: by, w: bw3, h: 52, label: '\u27F3' },
+      { id: 'drop',  x: cx,          y: by + 60, w: bw2, h: 52, label: 'DROP' },
+      { id: 'hold',  x: cx + bw2 + 8, y: by + 60, w: bw2, h: 52, label: 'HOLD' },
+    ];
+  } else p.buttons = [];
+}
+function startMode(m) {
+  mode = m; players = []; round = 1; wins = [0, 0]; roundWinner = -1;
+  paused = false; banner = ''; bannerT = 0;
+  if (m === 'practice') {
+    const p1 = makePlayer(0, '#22d3ee', 'YOU', false);
+    const ai = makePlayer(1, '#f472b6', 'CPU', true);
+    layoutPlayer(p1, 30, 170, 24);   // 192 x 384 well
+    layoutPlayer(ai, 352, 170, 11);  // 88 x 176 mini well
+    players = [p1, ai];
+    resetWell(p1); resetWell(ai);
+    banner = 'PRACTICE — OUTLAST THE CPU'; bannerT = 1.8;
+  } else {
+    const p1 = makePlayer(0, '#22d3ee', 'P1', false);
+    const p2 = makePlayer(1, '#e879f9', 'P2', false);
+    layoutPlayer(p1, 44, 132, 19);   // 152 x 304
+    layoutPlayer(p2, 284, 132, 19); // 152 x 304
+    players = [p1, p2];
+    startRound();
+    banner = 'VERSUS — BEST OF 3'; bannerT = 1.8;
+  }
+  state = 'serve'; stateT = 0;
+  sUI();
+}
+function startRound() {
+  for (const p of players) resetWell(p);
+  stateT = 0; state = 'serve';
+}
+function nextRound() {
+  if (wins[roundWinner] >= 2) {
+    state = 'matchEnd'; stateT = 0;
+    banner = ''; bannerT = 0;
+  } else {
+    round++;
+    banner = 'ROUND ' + round; bannerT = 1.6;
+    startRound();
+  }
+}
+function toMenu() { state = 'menu'; paused = false; sUI(); }
+
+/* ---------- tap handling ---------- */
+const menuBtns = [
+  { id: 'practice', y: 400, label: 'PRACTICE', sub: '1P — your well vs the CPU well' },
+  { id: 'versus',   y: 478, label: 'VERSUS',   sub: '2P — bury each other, best of 3' },
+];
+function handleTap(x, y) {
+  if (state === 'menu') {
+    for (const b of menuBtns) {
+      if (Math.abs(y - b.y) < 34 && x > 90 && x < W - 90) { startMode(b.id); return; }
+    }
+    return;
+  }
+  if (state === 'matchEnd' || state === 'gameOver') { toMenu(); return; }
+  // pause / mute glyphs
+  if (pauseBtn && Math.hypot(x - pauseBtn.x, y - pauseBtn.y) < 24) { if (state === 'play') { paused = !paused; sUI(); } return; }
+  if (muteBtn && Math.hypot(x - muteBtn.x, y - muteBtn.y) < 24) { muted = !muted; sUI(); return; }
+  if (state !== 'play' || paused) return;
+  // player buttons
+  for (const p of players) {
+    for (const b of p.buttons) {
+      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+        if (!p.alive) return;
+        if (b.id === 'left') tryMoveP(p, -1, 0);
+        else if (b.id === 'right') tryMoveP(p, 1, 0);
+        else if (b.id === 'rot') tryRotateP(p);
+        else if (b.id === 'drop') hardDrop(p);
+        else if (b.id === 'hold') holdPiece(p);
+        return;
+      }
+    }
+  }
+}
+
+/* ---------- main update ---------- */
+function update(dt) {
+  if (bannerT > 0) bannerT -= dt;
+  if (state === 'menu' || state === 'matchEnd' || state === 'gameOver') { stateT += dt; return; }
+  stateT += dt;
+  if (state === 'serve') { if (stateT > 1.6) state = 'play'; return; }
+  if (state === 'roundEnd') { if (stateT > 2.2) nextRound(); return; }
+  if (state !== 'play' || paused) return;
+  for (const p of players) {
+    updatePlayer(p, dt);
+    if (state !== 'play') break; // a top-out mid-loop ends the round immediately
+  }
+  // practice: keep the CPU in the fight even if the player idles
+  if (state === 'gameOver') return;
+}
+
+/* ---------- render ---------- */
+function baseColor(ci) { return ci === 7 ? GARBAGE_C : COLORS[ci]; }
+function drawBlock(px, py, s, ci, alpha) {
+  ctx.save();
+  if (alpha !== undefined) ctx.globalAlpha = alpha;
+  const c = baseColor(ci);
+  ctx.shadowColor = c; ctx.shadowBlur = s * 0.35;
+  ctx.fillStyle = c;
+  ctx.fillRect(px + 1, py + 1, s - 2, s - 2);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(255,255,255,0.32)';
+  ctx.fillRect(px + 1, py + 1, s - 2, 2);
+  ctx.fillRect(px + 1, py + 1, 2, s - 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.38)';
+  ctx.fillRect(px + 1, py + s - 3, s - 2, 2);
+  ctx.fillRect(px + s - 3, py + 1, 2, s - 2);
+  if (ci === 7) { // garbage rivet
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    const r = Math.max(1.5, s * 0.1);
+    ctx.beginPath(); ctx.arc(px + s / 2, py + s / 2, r, 0, TAU); ctx.fill();
+  }
+  ctx.restore();
+}
+function drawPieceCells(p, type, rot, px, py, alpha, ghost) {
+  for (const [cx, cy] of cellsOf(type, rot)) {
+    const x = p.x0 + (px + cx) * p.cell, y = p.y0 + (py + cy) * p.cell;
+    if (py + cy < 0) continue;
+    if (ghost) {
+      ctx.save(); ctx.globalAlpha = alpha === undefined ? 0.3 : alpha;
+      ctx.strokeStyle = baseColor(type); ctx.lineWidth = 1.5;
+      ctx.strokeRect(x + 1.5, y + 1.5, p.cell - 3, p.cell - 3);
+      ctx.restore();
+    } else drawBlock(x, y, p.cell, type, alpha);
+  }
+}
+function drawWell(p) {
+  const ww = COLS * p.cell, wh = ROWS * p.cell;
+  // frame
+  ctx.save();
+  ctx.shadowColor = p.neon; ctx.shadowBlur = 12;
+  ctx.strokeStyle = p.neon; ctx.lineWidth = 2;
+  ctx.strokeRect(p.x0 - 3, p.y0 - 3, ww + 6, wh + 6);
+  ctx.restore();
+  ctx.fillStyle = '#0a0f16';
+  ctx.fillRect(p.x0, p.y0, ww, wh);
+  // faint grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.045)'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let c = 1; c < COLS; c++) { ctx.moveTo(p.x0 + c * p.cell, p.y0); ctx.lineTo(p.x0 + c * p.cell, p.y0 + wh); }
+  for (let r = 1; r < ROWS; r++) { ctx.moveTo(p.x0, p.y0 + r * p.cell); ctx.lineTo(p.x0 + ww, p.y0 + r * p.cell); }
+  ctx.stroke();
+  // settled blocks
+  for (let y = 0; y < ROWS; y++)
+    for (let x = 0; x < COLS; x++) {
+      const ci = p.grid[y][x];
+      if (ci !== -1) drawBlock(p.x0 + x * p.cell, p.y0 + y * p.cell, p.cell, ci);
+    }
+  // garbage warning flash
+  if (p.pendingGarbage > 0 && p.warnT > 0 && Math.floor(p.warnT * 6) % 2 === 0) {
+    ctx.fillStyle = 'rgba(255,60,60,0.22)';
+    ctx.fillRect(p.x0, p.y0, ww, wh);
+    ctx.fillStyle = '#ff5d5d'; ctx.textAlign = 'center';
+    ctx.font = 'bold ' + Math.max(11, p.cell * 0.7) + 'px "Courier New", monospace';
+    ctx.fillText('!' + p.pendingGarbage, p.x0 + ww / 2, p.y0 + wh - 8);
+  }
+  // ghost + active piece
+  if (p.alive && p.type >= 0) {
+    if (!p.ai) drawPieceCells(p, p.type, p.rot, p.px, ghostY(p), 0.3, true);
+    drawPieceCells(p, p.type, p.rot, p.px, p.py);
+  }
+  if (!p.alive) {
+    ctx.fillStyle = 'rgba(6,8,9,0.55)';
+    ctx.fillRect(p.x0, p.y0, ww, wh);
+  }
+}
+function drawMiniPiece(bx, by, bs, type) {
+  if (type === undefined || type < 0) {
+    ctx.strokeStyle = '#2a3138'; ctx.lineWidth = 1;
+    ctx.strokeRect(bx, by, bs * 4, bs * 4);
+    return;
+  }
+  const cells = cellsOf(type, 0);
+  let mx = 9, my = 9, Mx = -9, My = -9;
+  for (const [x, y] of cells) { mx = Math.min(mx, x); my = Math.min(my, y); Mx = Math.max(Mx, x); My = Math.max(My, y); }
+  const w = (Mx - mx + 1) * bs, h = (My - my + 1) * bs;
+  const ox = bx + (bs * 4 - w) / 2 - mx * bs, oy = by + (bs * 4 - h) / 2 - my * bs;
+  for (const [x, y] of cells) drawBlock(ox + x * bs, oy + y * bs, bs, type);
+}
+function drawPreviews(p, bx, by, bs) {
+  ctx.textAlign = 'left'; ctx.font = '10px "Courier New", monospace';
+  ctx.fillStyle = '#8a93a0';
+  ctx.fillText('HOLD', bx, by - 4);
+  ctx.strokeStyle = '#2a3138'; ctx.lineWidth = 1;
+  ctx.strokeRect(bx, by, bs * 4, bs * 4);
+  drawMiniPiece(bx, by, bs, p.held);
+  const nx = bx + bs * 4 + 12;
+  ctx.fillText('NEXT', nx, by - 4);
+  ctx.strokeRect(nx, by, bs * 4, bs * 4);
+  drawMiniPiece(nx, by, bs, p.queue[0]);
+  const nx2 = nx + bs * 4 + 12;
+  ctx.strokeRect(nx2, by, bs * 4, bs * 4);
+  drawMiniPiece(nx2, by, bs, p.queue[1]);
+}
+function drawButtons(p) {
+  for (const b of p.buttons) {
+    ctx.fillStyle = 'rgba(20,28,36,0.9)';
+    ctx.strokeStyle = p.neon; ctx.lineWidth = 1.2;
+    ctx.globalAlpha = 0.85;
+    const r = 8;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(b.x, b.y, b.w, b.h, r); else ctx.rect(b.x, b.y, b.w, b.h);
+    ctx.fill(); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = p.neon; ctx.textAlign = 'center';
+    ctx.font = (b.label.length > 2 ? 'bold 13px' : '20px') + ' "Courier New", monospace';
+    ctx.fillText(b.label, b.x + b.w / 2, b.y + b.h / 2 + (b.label.length > 2 ? 5 : 7));
+  }
+}
+function drawPlayerHUD(p, hx, hy) {
+  ctx.textAlign = 'left';
+  ctx.fillStyle = p.neon; ctx.font = 'bold 15px "Courier New", monospace';
+  let label = p.name;
+  if (mode === 'versus') label += '  ' + '\u25CF'.repeat(wins[p.idx]) + '\u25CB'.repeat(2 - wins[p.idx]);
+  ctx.fillText(label, hx, hy);
+  ctx.fillStyle = '#8a93a0'; ctx.font = '12px "Courier New", monospace';
+  ctx.fillText('SCORE ' + p.score, hx, hy + 20);
+  ctx.fillText('LINES ' + p.lines + '  LV ' + p.level, hx, hy + 38);
+  if (p.combo > 0) {
+    ctx.fillStyle = '#ffe14d';
+    ctx.fillText('COMBO x' + (p.combo + 1), hx, hy + 56);
+  }
+}
+
+/* ---------- header, menu, overlays ---------- */
+function drawHeader() {
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#e8f4ff'; ctx.font = 'bold 22px "Courier New", monospace';
+  ctx.fillText('GARBAGE', 16, 30);
+  ctx.fillStyle = '#3a3f45'; ctx.font = '11px "Courier New", monospace';
+  ctx.fillText(mode === 'versus' ? 'VERSUS' : 'PRACTICE', 130, 29);
+  pauseBtn = { x: W - 66, y: 22 };
+  muteBtn = { x: W - 28, y: 22 };
+  ctx.fillStyle = '#3a3f45'; ctx.textAlign = 'center'; ctx.font = '14px "Courier New", monospace';
+  ctx.fillText(paused ? '\u25B6' : 'II', pauseBtn.x, pauseBtn.y);
+  ctx.fillText(muted ? 'M\u00D7' : 'M\u266A', muteBtn.x, muteBtn.y);
+  ctx.textAlign = 'left';
+}
+function drawMenu() {
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#e8f4ff'; ctx.font = 'bold 58px "Courier New", monospace';
+  ctx.fillText('GARBAGE', W / 2, 180);
+  ctx.font = '15px "Courier New", monospace'; ctx.fillStyle = '#8a93a0';
+  ctx.fillText('a 1984 story, stacked twice', W / 2, 214);
+  ctx.fillText('clear lines. bury them first.', W / 2, 238);
+  // ornament: falling tetrominoes
+  const demo = [[0, 300, 2], [1, 318, 5], [5, 296, 3], [3, 322, 0]];
+  const fake = { x0: 0, y0: 0, cell: 13 };
+  for (const [t, dx, dy] of demo)
+    for (const [cx, cy] of cellsOf(t, 0))
+      drawBlock(150 + dx + cx * 13, 130 + dy + cy * 13, 13, t);
+  for (const b of menuBtns) {
+    ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 1.6;
+    ctx.strokeRect(90, b.y - 30, W - 180, 60);
+    ctx.fillStyle = '#e8f4ff'; ctx.font = 'bold 22px "Courier New", monospace';
+    ctx.fillText(b.label, W / 2, b.y - 2);
+    ctx.font = '12px "Courier New", monospace'; ctx.fillStyle = '#8a93a0';
+    ctx.fillText(b.sub, W / 2, b.y + 20);
+  }
+  ctx.font = '12px "Courier New", monospace'; ctx.fillStyle = '#3a3f45';
+  ctx.fillText('P1: arrows + space + H · P2: A/D/W + G + F · M mute', W / 2, H - 80);
+  ctx.fillText('touch buttons under each well', W / 2, H - 60);
+}
+function drawCenter(text, sub, color) {
+  ctx.fillStyle = 'rgba(6,8,9,0.72)'; ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = color || '#e8f4ff'; ctx.font = 'bold 36px "Courier New", monospace';
+  ctx.fillText(text, W / 2, H / 2 - 30);
+  if (sub) {
+    ctx.font = '16px "Courier New", monospace'; ctx.fillStyle = '#8a93a0';
+    const lines = sub.split('\n');
+    lines.forEach((l, i) => ctx.fillText(l, W / 2, H / 2 + 6 + i * 24));
+  }
+  ctx.font = '14px "Courier New", monospace'; ctx.fillStyle = '#3a3f45';
+  ctx.fillText('tap to return', W / 2, H / 2 + 90);
+}
+
+/* ---------- main render ---------- */
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  if (state === 'menu') { drawMenu(); return; }
+  drawHeader();
+  if (mode === 'practice') {
+    const p1 = players[0], ai = players[1];
+    drawWell(p1); drawWell(ai);
+    drawPreviews(p1, 30, 100, 13);
+    drawPlayerHUD(p1, 240, 116);
+    ctx.textAlign = 'left'; ctx.fillStyle = '#f472b6'; ctx.font = 'bold 13px "Courier New", monospace';
+    ctx.fillText('CPU', 352, 160);
+    ctx.fillStyle = '#8a93a0'; ctx.font = '12px "Courier New", monospace';
+    ctx.fillText('SCORE ' + ai.score, 352, 380);
+    ctx.fillText('LINES ' + ai.lines, 352, 400);
+    ctx.fillStyle = '#8a93a0';
+    ctx.fillText('BEST ' + best, 352, 440);
+    ctx.fillText('your clears bury the CPU', 352, 470);
+    ctx.fillText('its clears bury you', 352, 490);
+    drawButtons(p1);
+  } else {
+    const p1 = players[0], p2 = players[1];
+    drawWell(p1); drawWell(p2);
+    drawPreviews(p1, 44, 56, 10);
+    drawPreviews(p2, 284, 56, 10);
+    drawPlayerHUD(p1, 44, 580);
+    drawPlayerHUD(p2, 284, 580);
+    ctx.textAlign = 'center'; ctx.fillStyle = '#8a93a0'; ctx.font = '13px "Courier New", monospace';
+    ctx.fillText('ROUND ' + round, W / 2, 30);
+    drawButtons(p1); drawButtons(p2);
+  }
+  if (bannerT > 0) {
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, bannerT);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ffe14d'; ctx.font = 'bold 30px "Courier New", monospace';
+    ctx.fillText(banner, W / 2, H / 2 - 60);
+    ctx.restore();
+  }
+  if (state === 'serve') {
+    ctx.textAlign = 'center'; ctx.fillStyle = '#e8f4ff';
+    ctx.font = 'bold 28px "Courier New", monospace';
+    ctx.fillText(mode === 'versus' ? 'ROUND ' + round : 'GET READY', W / 2, H / 2 + 20);
+  }
+  if (paused && state === 'play') {
+    ctx.fillStyle = 'rgba(6,8,9,0.65)'; ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center'; ctx.fillStyle = '#e8f4ff';
+    ctx.font = 'bold 32px "Courier New", monospace';
+    ctx.fillText('PAUSED', W / 2, H / 2);
+  }
+  if (state === 'roundEnd') {
+    ctx.textAlign = 'center'; ctx.fillStyle = '#e8f4ff';
+    ctx.font = 'bold 26px "Courier New", monospace';
+    ctx.fillText(banner, W / 2, H / 2 - 10);
+    ctx.font = '15px "Courier New", monospace'; ctx.fillStyle = '#8a93a0';
+    ctx.fillText('P1 ' + wins[0] + ' — ' + wins[1] + ' P2', W / 2, H / 2 + 24);
+  }
+  if (state === 'matchEnd') {
+    const p1won = wins[0] > wins[1];
+    drawCenter(p1won ? 'P1 WINS' : 'P2 WINS', 'rounds: P1 ' + wins[0] + ' — ' + wins[1] + ' P2',
+      p1won ? '#22d3ee' : '#e879f9');
+  }
+  if (state === 'gameOver') {
+    drawCenter('GAME OVER',
+      'score ' + players[0].score + '\nlines ' + players[0].lines + '  level ' + players[0].level + '\nbest ' + best,
+      '#ff5d5d');
+  }
+}
+
+/* ---------- main loop ---------- */
+let lastT = 0, acc = 0;
+const DT = 1 / 60;
+function frame(t) {
+  requestAnimationFrame(frame);
+  const now = t / 1000;
+  let ft = Math.min(0.1, now - (lastT || now));
+  lastT = now; acc += ft;
+  while (acc >= DT) { update(DT); acc -= DT; }
+  render();
+}
+requestAnimationFrame(frame);
+
+/* ---------- debug hooks ---------- */
+window.GAME = {
+  get state() { return state; }, get mode() { return mode; },
+  get players() { return players.map(p => ({
+    name: p.name, alive: p.alive, score: p.score, lines: p.lines, level: p.level,
+    combo: p.combo, type: p.type, pendingGarbage: p.pendingGarbage,
+    grid: p.grid.map(r => r.slice()),
+  })); },
+  get wins() { return wins.slice(); }, get round() { return round; },
+  get banner() { return banner; },
+  startMode,
+  _p: () => players,
+};
+</script>
+</body>
+</html>
