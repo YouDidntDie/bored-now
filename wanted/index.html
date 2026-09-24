@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>WANTED — 2001</title>
+<title>HEAT — 2001</title>
 <style>
   html,body{margin:0;padding:0;background:#05060a;height:100%;overflow:hidden;
     font-family:'Courier New',ui-monospace,monospace;-webkit-user-select:none;user-select:none;
@@ -17,7 +17,7 @@
 <script>
 'use strict';
 /* ============================================================
-   WANTED — 2001. Top-down open-city chase. YOU ARE THE COPS.
+   HEAT — 2001. Top-down open-city chase. YOU ARE THE COPS.
    (or the driver. or both, same screen.)
    ============================================================ */
 const W=480, H=720;
@@ -67,7 +67,7 @@ noise(dur,vol){ if(!this.ctx||this.muted) return;
 click(){this.blip(660,660,0.06,'square',0.05);},
 pickup(){this.blip(880,880,0.08,'square',0.07);setTimeout(()=>this.blip(1320,1320,0.12,'square',0.07),90);},
 crash(){this.noise(0.25,0.2);},
-bust(){this.blip(420,90,0.5,'sawtooth',0.12);},
+pin(){this.blip(420,90,0.5,'sawtooth',0.12);},
 win(){[523,659,784,1046].forEach((f,i)=>setTimeout(()=>this.blip(f,f,0.14,'square',0.08),i*120));}
 };
 
@@ -219,10 +219,10 @@ const G={
   driver:null, cops:[], // cops[0] may be player-driven in COPS/VERSUS
   pkg:null, dropoff:null, carrying:false,
   roadblocks:[], rbCooldown:0,
-  cash:0, cashP2:0, wanted:1, busts:0, bustsP2:0, deliveries:0, deliveriesP2:0,
-  lives:3, round:1, roundT:0, wins:[0,0], best:+(localStorage.getItem('wanted_best')||0),
-  bestTime:+(localStorage.getItem('wanted_besttime')||0),
-  banner:null, bannerT:0, bustFlash:0, boxT:0, over:null,
+  cash:0, cashP2:0, heat:1, pins:0, pinsP2:0, deliveries:0, deliveriesP2:0,
+  lives:3, round:1, roundT:0, wins:[0,0], best:+(localStorage.getItem('heat_best')||0),
+  bestTime:+(localStorage.getItem('heat_besttime')||0),
+  banner:null, bannerT:0, pinFlash:0, boxT:0, over:null,
   cam:{x:0,y:0}, shake:0,
 };
 function banner(t,dur){G.banner=t;G.bannerT=dur||2.2;}
@@ -246,9 +246,9 @@ function makeCop(x,y,player){return makeCar(x,y,rand(0,6.28),{color:player?'#e8f
 function startMode(mode){
   AU.init(); AU.click();
   G.mode=mode; G.state='play'; G.t=0; G.cash=0; G.cashP2=0;
-  G.wanted=1; G.busts=0; G.bustsP2=0; G.deliveries=0; G.deliveriesP2=0;
+  G.heat=1; G.pins=0; G.pinsP2=0; G.deliveries=0; G.deliveriesP2=0;
   G.lives=3; G.round=1; G.roundT=0; G.wins=[0,0]; G.over=null; G.boxT=0;
-  G.roadblocks.length=0; G.rbCooldown=0; G.shake=0; G.bustFlash=0;
+  G.roadblocks.length=0; G.rbCooldown=0; G.shake=0; G.pinFlash=0;
   const s=randomRoadPoint();
   G.driver=makeDriver(s.x,s.y);
   G.cops=[];
@@ -258,69 +258,69 @@ function startMode(mode){
   }else if(mode==='cops'){
     const p=randomRoadPoint(); G.playerCop=makeCop(p.x,p.y,true); G.cops.push(G.playerCop);
     const q=randomRoadPoint(); G.cops.push(makeCop(q.x,q.y,false));
-    banner('RAM THE GETAWAY CAR — 3 BUSTS TO WIN',2.6);
+    banner('RAM THE GETAWAY CAR — 3 PINS TO WIN',2.6);
   }else{ // versus
     const p=randomRoadPoint(); G.playerCop=makeCop(p.x,p.y,true); G.cops.push(G.playerCop);
     const q=randomRoadPoint(); G.cops.push(makeCop(q.x,q.y,false));
-    G.roundT=90; banner('ROUND 1 — DRIVER: DELIVER · COPS: BUST',2.6);
+    G.roundT=90; banner('ROUND 1 — DRIVER: DELIVER · COPS: PIN',2.6);
   }
   spawnPackage(); resetPositions();
   G.cam.x=clamp(G.driver.x-W/2,0,CITY-W); G.cam.y=clamp(G.driver.y-H/2,0,CITY-H);
 }
-function syncWanted(){
+function syncHeat(){
   const target=clamp(1+G.deliveries,1,5);
-  if(target!==G.wanted){G.wanted=target;
-    // add AI partner cops up to wanted+1 total
-    const wantCops=G.mode==='driver'?G.wanted+1:G.wanted; // driver mode: all AI; cops mode: player + AI
+  if(target!==G.heat){G.heat=target;
+    // add AI partner cops up to heat+1 total
+    const wantCops=G.mode==='driver'?G.heat+1:G.heat; // driver mode: all AI; cops mode: player + AI
     while(G.cops.length<wantCops){const p=randomRoadPoint();const c=makeCop(p.x,p.y,false);
-      c.maxSpeed=265+G.wanted*10;c.accel=250+G.wanted*8;c.x=clamp(G.driver.x+rand(-500,500),40,CITY-40);c.y=clamp(G.driver.y+rand(-500,500),40,CITY-40);
+      c.maxSpeed=265+G.heat*10;c.accel=250+G.heat*8;c.x=clamp(G.driver.x+rand(-500,500),40,CITY-40);c.y=clamp(G.driver.y+rand(-500,500),40,CITY-40);
       G.cops.push(c);}
-    G.cops.forEach(c=>{if(!c.cop)return;c.maxSpeed=265+G.wanted*10;c.accel=250+G.wanted*8;});
-    banner('WANTED LEVEL '+G.wanted+' ★',1.6);
+    G.cops.forEach(c=>{if(!c.cop)return;c.maxSpeed=265+G.heat*10;c.accel=250+G.heat*8;});
+    banner('HEAT '+G.heat,1.6);
   }
 }
-function doBust(byPlayer){
-  AU.bust(); G.bustFlash=1; G.shake=10;
+function doPin(byPlayer){
+  AU.pin(); G.pinFlash=1; G.shake=10;
   if(G.mode==='driver'){
-    G.busts++; G.lives--;
-    banner('BUSTED! '+(G.lives>0?G.lives+' STRIKES LEFT':' — GAME OVER'),2.4);
+    G.pins++; G.lives--;
+    banner('PINNED! '+(G.lives>0?G.lives+' STRIKES LEFT':' — GAME OVER'),2.4);
     if(G.lives<=0){
       G.state='over'; G.over={win:false};
-      if(G.cash>G.best){G.best=G.cash;localStorage.setItem('wanted_best',G.best);}
+      if(G.cash>G.best){G.best=G.cash;localStorage.setItem('heat_best',G.best);}
     } else resetPositions();
   }else if(G.mode==='cops'){
-    G.busts++;
-    banner('BUSTED! '+G.busts+'/3',2.0);
-    if(G.busts>=3){
+    G.pins++;
+    banner('PINNED! '+G.pins+'/3',2.0);
+    if(G.pins>=3){
       G.state='over'; G.over={win:true,time:G.t};
-      if(!G.bestTime||G.t<G.bestTime){G.bestTime=Math.round(G.t);localStorage.setItem('wanted_besttime',G.bestTime);}
+      if(!G.bestTime||G.t<G.bestTime){G.bestTime=Math.round(G.t);localStorage.setItem('heat_besttime',G.bestTime);}
       AU.win();
     } else resetPositions();
   }else{ // versus
-    G.bustsP2++; G.cashP2+=150;
-    banner('BUSTED! COPS +$150',2.0);
+    G.pinsP2++; G.cashP2+=150;
+    banner('PINNED! PATROL +$150',2.0);
     resetPositions();
-    if(G.bustsP2>=3) endRound();
+    if(G.pinsP2>=3) endRound();
   }
 }
 function deliver(byDriver){
-  const amt=100*G.wanted;
+  const amt=100*G.heat;
   if(G.mode==='versus'&&!byDriver){G.cashP2+=0;} // driver is always P1 in versus
   G.cash+=amt; G.deliveries++; AU.pickup();
   banner('+$'+amt+' DELIVERED',1.4);
-  if(G.mode!=='versus') syncWanted();
+  if(G.mode!=='versus') syncHeat();
   else { G.deliveriesP2=0; }
   spawnPackage();
 }
 function endRound(){
   const p1=G.cash, p2=G.cashP2;
-  const w=p1===p2?(G.bustsP2>0?1:0):(p1>p2?0:1);
+  const w=p1===p2?(G.pinsP2>0?1:0):(p1>p2?0:1);
   G.wins[w]++; G.state='roundend';
   G.over={win:w===0, p1, p2, matchOver:G.wins[0]>=2||G.wins[1]>=2};
   if(G.over.matchOver) AU.win();
 }
 function nextRound(){
-  G.round++; G.roundT=90; G.cash=0; G.cashP2=0; G.bustsP2=0; G.deliveries=0;
+  G.round++; G.roundT=90; G.cash=0; G.cashP2=0; G.pinsP2=0; G.deliveries=0;
   G.state='play'; resetPositions(); spawnPackage();
   banner('ROUND '+G.round+' — GO!',2.0);
 }
@@ -532,7 +532,7 @@ const RB_RECTS=()=>G.roadblocks.map(r=>({x:r.x,y:r.y,w:r.w,h:r.h}));
 function update(dt){
   G.t+=dt;
   if(G.bannerT>0){G.bannerT-=dt;if(G.bannerT<=0)G.banner=null;}
-  if(G.bustFlash>0)G.bustFlash-=dt*2;
+  if(G.pinFlash>0)G.pinFlash-=dt*2;
   if(G.shake>0)G.shake-=dt*30;
   if(G.rbCooldown>0)G.rbCooldown-=dt;
   for(let i=G.roadblocks.length-1;i>=0;i--){G.roadblocks[i].ttl-=dt;if(G.roadblocks[i].ttl<=0)G.roadblocks.splice(i,1);}
@@ -555,11 +555,11 @@ function update(dt){
     });
     // box-in check
     const nc=nearestCop(d);
-    if(Math.abs(d.fwd)<25&&nc<100){G.boxT+=dt;if(G.boxT>3){doBust();return;}}
+    if(Math.abs(d.fwd)<25&&nc<100){G.boxT+=dt;if(G.boxT>3){doPin();return;}}
     else G.boxT=Math.max(0,G.boxT-dt*2);
-    if(d.damage>=100){doBust();return;}
+    if(d.damage>=100){doPin();return;}
     AU.setEngine(true,Math.abs(d.fwd)/d.maxSpeed);
-    AU.setSiren(clamp(1.2-G.wanted*0.15,0.3,1));
+    AU.setSiren(clamp(1.2-G.heat*0.15,0.3,1));
   }
   else if(G.mode==='cops'){
     // AI driver does the crime
@@ -580,9 +580,9 @@ function update(dt){
     // AI driver packages
     aiDriverCrime(dt);
     const nc=nearestCop(d);
-    if(Math.abs(d.fwd)<25&&nc<100){G.boxT+=dt;if(G.boxT>3){doBust();return;}}
+    if(Math.abs(d.fwd)<25&&nc<100){G.boxT+=dt;if(G.boxT>3){doPin();return;}}
     else G.boxT=Math.max(0,G.boxT-dt*2);
-    if(d.damage>=100){doBust();return;}
+    if(d.damage>=100){doPin();return;}
     AU.setEngine(true,Math.abs(pc.fwd)/pc.maxSpeed);
     AU.setSiren(0.5);
   }
@@ -602,9 +602,9 @@ function update(dt){
     // P1 deliveries
     checkPickup(d,true);
     const nc=nearestCop(d);
-    if(Math.abs(d.fwd)<25&&nc<100){G.boxT+=dt;if(G.boxT>3){doBust();return;}}
+    if(Math.abs(d.fwd)<25&&nc<100){G.boxT+=dt;if(G.boxT>3){doPin();return;}}
     else G.boxT=Math.max(0,G.boxT-dt*2);
-    if(d.damage>=100){doBust();return;}
+    if(d.damage>=100){doPin();return;}
     G.roundT-=dt;
     if(G.roundT<=0){G.roundT=0;endRound();return;}
     AU.setEngine(true,Math.abs(d.fwd)/d.maxSpeed);
@@ -624,8 +624,8 @@ function checkPickup(d,isPlayer){
     G.carrying=true;AU.pickup();banner(isPlayer?'PACKAGE — DELIVER IT':'DRIVER HAS THE PACKAGE',1.4);
   }else if(G.carrying&&G.dropoff&&dist(d.x,d.y,G.dropoff.x,G.dropoff.y)<38){
     if(G.mode==='driver'||G.mode==='versus') deliver(true);
-    else { // cops mode: AI scores, wanted rises
-      G.deliveries++; syncWanted(); AU.pickup(); banner('DRIVER DELIVERED — HEAT UP',1.6); spawnPackage();
+    else { // cops mode: AI scores, heat rises
+      G.deliveries++; syncHeat(); AU.pickup(); banner('DRIVER DELIVERED — HEAT UP',1.6); spawnPackage();
     }
   }
 }
@@ -691,7 +691,7 @@ function render(){
     for(let i=0;i<3;i++)ctx.fillRect(G.driver.x+rand(-10,10),G.driver.y+rand(-10,10)-14,6,6);
   }
   ctx.restore();
-  if(G.bustFlash>0){ctx.fillStyle=`rgba(43,123,255,${G.bustFlash*0.35})`;ctx.fillRect(0,0,W,H);}
+  if(G.pinFlash>0){ctx.fillStyle=`rgba(43,123,255,${G.pinFlash*0.35})`;ctx.fillRect(0,0,W,H);}
   renderHUD();
   if(G.state==='pause'){dim();center('PAUSED','P to resume');}
   if(G.state==='over')renderOver();
@@ -712,7 +712,7 @@ function renderMenu(){
   ctx.textAlign='center';
   ctx.fillStyle='#2b7bff';ctx.font='bold 64px monospace';
   ctx.shadowColor='#2b7bff';ctx.shadowBlur=24;
-  ctx.fillText('WANTED',W/2,180);ctx.shadowBlur=0;
+  ctx.fillText('HEAT',W/2,180);ctx.shadowBlur=0;
   ctx.fillStyle='#8fa89b';ctx.font='15px monospace';
   ctx.fillText('2001 — OUTRUN THE LAW. OR BE IT.',W/2,220);
   ctx.fillStyle='#54655c';ctx.font='13px monospace';
@@ -729,23 +729,25 @@ function renderMenu(){
 }
 function hudText(){ctx.textAlign='left';ctx.font='bold 15px monospace';}
 function renderHUD(){
-  // top-left: cash / wanted / damage
+  // top-left: cash / heat / damage
   hudText();
-  ctx.fillStyle='rgba(5,8,14,0.7)';ctx.fillRect(8,8,190,86);
+  ctx.fillStyle='rgba(5,8,14,0.7)';ctx.fillRect(8,8,190,100);
   ctx.fillStyle='#39ff7a';ctx.fillText('$'+G.cash,10,30);
   if(G.mode==='versus'){ctx.fillStyle='#2b7bff';ctx.fillText('COPS $'+G.cashP2,10,52);}
+  // heat bar: label + 5 filled blocks
   ctx.fillStyle='#ffcf3f';
-  let stars='';for(let i=0;i<5;i++)stars+=i<G.wanted?'★':'☆';
-  ctx.fillText(stars,10,74);
+  ctx.fillText('HEAT '+G.heat,10,74);
+  ctx.fillStyle='#2a1a08';ctx.fillRect(84,64,92,12);
+  for(let i=0;i<5;i++){ctx.fillStyle=i<G.heat?'#ff7b2b':'#4a3418';ctx.fillRect(86+i*18,66,14,8);}
   // driver damage bar
-  ctx.fillStyle='#333';ctx.fillRect(108,60,80,10);
+  ctx.fillStyle='#333';ctx.fillRect(10,84,80,10);
   ctx.fillStyle=G.driver.damage>70?'#ff2b2b':'#ffb300';
-  ctx.fillRect(108,60,80*clamp(G.driver.damage/100,0,1),10);
-  // busts / lives / round
+  ctx.fillRect(10,84,80*clamp(G.driver.damage/100,0,1),10);
+  // pins / lives / round
   ctx.fillStyle='#e8f5ee';ctx.font='13px monospace';
   let info='';
-  if(G.mode==='driver')info='STRIKES '+G.busts+'/3';
-  else if(G.mode==='cops')info='BUSTS '+G.busts+'/3';
+  if(G.mode==='driver')info='STRIKES '+G.pins+'/3';
+  else if(G.mode==='cops')info='PINS '+G.pins+'/3';
   else info='R'+G.round+' · '+Math.ceil(G.roundT)+'s · W'+G.wins[0]+'-'+G.wins[1];
   ctx.fillText(info,10,110);
   // roadblock cooldown pips
@@ -813,14 +815,14 @@ function renderOver(){
     }
   }else{
     if(G.mode==='driver'){
-      ctx.fillStyle='#ff2b2b';ctx.font='bold 40px monospace';ctx.fillText('BUSTED OUT',W/2,240);
+      ctx.fillStyle='#ff2b2b';ctx.font='bold 40px monospace';ctx.fillText('TAKEN IN',W/2,240);
       ctx.fillStyle='#e8f5ee';ctx.font='18px monospace';
       ctx.fillText('TAKE: $'+G.cash+'  ·  '+G.deliveries+' DELIVERIES',W/2,290);
       ctx.fillStyle='#ffcf3f';ctx.fillText('BEST $'+G.best,W/2,320);
     }else{
-      ctx.fillStyle='#2b7bff';ctx.font='bold 40px monospace';ctx.fillText('CASE CLOSED',W/2,240);
+      ctx.fillStyle='#2b7bff';ctx.font='bold 40px monospace';ctx.fillText('SHIFT OVER',W/2,240);
       ctx.fillStyle='#e8f5ee';ctx.font='18px monospace';
-      ctx.fillText('3 BUSTS IN '+Math.round(G.over.time)+'s',W/2,290);
+      ctx.fillText('3 PINS IN '+Math.round(G.over.time)+'s',W/2,290);
       if(G.bestTime)ctx.fillText('BEST '+G.bestTime+'s',W/2,320);
     }
   }
@@ -845,10 +847,11 @@ requestAnimationFrame(frame);
 /* ---------------- debug hooks ---------------- */
 window.GAME={
   get state(){return G.state;}, get mode(){return G.mode;},
-  get cash(){return G.cash;}, get wanted(){return G.wanted;},
-  get busts(){return G.busts;}, get wins(){return G.wins.slice();},
+  get cash(){return G.cash;}, get heat(){return G.heat;},
+  get pins(){return G.pins;}, get wins(){return G.wins.slice();},
   get driver(){return G.driver;}, get cops(){return G.cops;},
   get lives(){return G.lives;}, get roundT(){return G.roundT;},
+  get debug(){return G;},
   startMode,
 };
 </script>
