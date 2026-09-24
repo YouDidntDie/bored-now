@@ -197,16 +197,16 @@ function tryHit(att,def){
 
 function doKO(winner,loser){
   loser.hp=0; loser.state='ko'; loser.t=0; loser.vy=260; loser.koVx=-winner.facing*(140+Math.random()*60);
-  winner.rounds++; winner.state='idle'; winner.t=0; winner.atk=null;
+  winner.rounds++; P1rounds=P1.rounds; P2rounds=P2.rounds; winner.state='idle'; winner.t=0; winner.atk=null;
   projectiles.length=0;
-  slowmoT=1.1; setBanner('K.O.!', winner.name+' takes round '+roundNum, 1.8);
+  slowmoT=1.1; setBanner('DOWN!', winner.name+' takes bout '+roundNum, 1.8);
   SFX.ko();
   state='roundEnd'; roundEndT=0;
 }
 function timeoutWinner(){
   const w = P1.hp===P2.hp ? (Math.random()<.5?P1:P2) : (P1.hp>P2.hp?P1:P2);
   const l = w===P1?P2:P1;
-  w.rounds++; setBanner('TIME!', w.name+' takes round '+roundNum, 1.8); SFX.round();
+  w.rounds++; P1rounds=P1.rounds; P2rounds=P2.rounds; setBanner('BELL!', w.name+' takes bout '+roundNum, 1.8); SFX.round();
   state='roundEnd'; roundEndT=0;
 }
 
@@ -238,7 +238,7 @@ function updFighter(f,opp,pad,dt,isAI){
   if(st==='recover'){ if(f.t>=f.tEnd){f.state='idle';f.t=0;} return; }
   if(st==='punch'||st==='kick'){
     tryHit(f,opp);
-    if(f.t>=f.atk.rEnd){f.state='idle';f.t=0;f.atk=null;}
+    if(f.atk&&f.t>=f.atk.rEnd){f.state='idle';f.t=0;f.atk=null;}
     return;
   }
   if(st==='special'){ if(f.t>=f.tEnd){f.state='idle';f.t=0;} return; }
@@ -347,8 +347,8 @@ function newFight(){
   else if(mode==='training'){ P2.ai=makeAI(0); P2._dummy=true; }
   else if(mode==='versus'){ /* human */ }
   projectiles.length=0; particles.length=0;
-  roundNum=P1rounds+P2rounds+1; roundT=60; state='intro';
-  setBanner('ROUND '+roundNum, P1.name+'  vs  '+P2.name, 1.2);
+  roundNum=P1rounds+P2rounds+1; roundT=60; state='intro'; introT=0;
+  setBanner('BOUT '+roundNum, P1.name+'  vs  '+P2.name, 1.2);
   buildButtons();
 }
 let P1key='volt',P2key='flux',P1rounds=0,P2rounds=0;
@@ -390,29 +390,43 @@ function updPlay(dt){
 /* ---------- background (pre-rendered) ---------- */
 const bgC=document.createElement('canvas'); bgC.width=W; bgC.height=H;
 (function paintBG(){ const g=bgC.getContext('2d');
+  // neon rooftop at night
   const sky=g.createLinearGradient(0,0,0,GROUND);
-  sky.addColorStop(0,'#0b0a1e'); sky.addColorStop(.55,'#2a1545'); sky.addColorStop(.85,'#7a2d3f'); sky.addColorStop(1,'#c65a2e');
+  sky.addColorStop(0,'#04040c'); sky.addColorStop(.55,'#0b0e28'); sky.addColorStop(.85,'#191740'); sky.addColorStop(1,'#241f4e');
   g.fillStyle=sky; g.fillRect(0,0,W,GROUND+4);
-  // sun
-  g.fillStyle='#ffb347'; g.beginPath(); g.arc(240,470,58,0,7); g.fill();
-  g.fillStyle='rgba(255,179,71,.25)'; g.beginPath(); g.arc(240,470,80,0,7); g.fill();
-  // torii silhouette
-  g.fillStyle='#120d20'; g.fillRect(60,380,14,110); g.fillRect(406,380,14,110);
-  g.fillRect(40,364,400,16); g.fillRect(70,392,340,10);
-  // distant rooftops
-  g.fillStyle='#160f28'; for(let x=0;x<W;x+=64){ const h=40+((x*37)%50); g.fillRect(x,GROUND-h,64,h); }
-  // lanterns
-  for(const lx of [90,240,390]){ g.strokeStyle='#0d0918'; g.lineWidth=3;
-    g.beginPath(); g.moveTo(lx,0); g.lineTo(lx,120); g.stroke();
-    g.fillStyle='rgba(255,150,80,.9)'; g.beginPath(); g.ellipse(lx,140,16,22,0,0,7); g.fill();
-    g.fillStyle='rgba(255,200,120,.35)'; g.beginPath(); g.ellipse(lx,140,26,32,0,0,7); g.fill(); }
-  // floor
+  // stars
+  for(let i=0;i<80;i++){ const sx=(i*173)%W, sy=(i*97)%280;
+    g.globalAlpha=.2+((i*13)%50)/120; g.fillStyle='#cdd6ff'; g.fillRect(sx,sy,2,2); }
+  g.globalAlpha=1;
+  // moon
+  g.fillStyle='#e9edf7'; g.beginPath(); g.arc(366,116,40,0,7); g.fill();
+  g.fillStyle='rgba(233,237,247,.16)'; g.beginPath(); g.arc(366,116,56,0,7); g.fill();
+  // distant skyline with lit windows (painted silhouettes)
+  for(let x=0;x<W;x+=56){ const h=70+((x*53)%150);
+    g.fillStyle='#08081a'; g.fillRect(x,GROUND-h,52,h);
+    for(let wy=GROUND-h+12;wy<GROUND-16;wy+=24) for(let wx=x+8;wx<x+42;wx+=15){
+      if(((wx*7+wy*13)%5)<2){ g.fillStyle='rgba(255,214,130,.5)'; g.fillRect(wx,wy,7,10); } }
+  }
+  // rooftop neon signs
+  const signs=[['#ff2d78','CLASH',70],['#29e6ff','BOUT',240],['#b8ff29','POW',400]];
+  g.textAlign='center';
+  for(const s of signs){ const c=s[0],sx=s[2];
+    g.fillStyle=c; g.globalAlpha=.1; g.fillRect(sx-52,152,104,76); g.globalAlpha=1;
+    g.strokeStyle='#0d0918'; g.lineWidth=4; g.beginPath(); g.moveTo(sx,300); g.lineTo(sx,236); g.stroke();
+    g.save(); g.shadowColor=c; g.shadowBlur=16;
+    g.strokeStyle=c; g.lineWidth=2; g.strokeRect(sx-44,162,88,56);
+    g.fillStyle=c; g.font='bold 15px "Courier New",monospace'; g.fillText(s[1],sx,196);
+    g.restore();
+  }
+  // rooftop floor: wet concrete with neon reflections
   const fl=g.createLinearGradient(0,GROUND,0,H);
-  fl.addColorStop(0,'#241a30'); fl.addColorStop(1,'#120c1c');
+  fl.addColorStop(0,'#1a1a28'); fl.addColorStop(1,'#0a0a14');
   g.fillStyle=fl; g.fillRect(0,GROUND,W,H-GROUND);
-  g.strokeStyle='rgba(199,125,255,.25)'; g.lineWidth=2;
-  for(let y=GROUND+18;y<H;y+=26){ g.beginPath(); g.moveTo(0,y); g.lineTo(W,y); g.stroke(); }
-  g.strokeStyle='#c77dff'; g.lineWidth=3; g.beginPath(); g.moveTo(0,GROUND); g.lineTo(W,GROUND); g.stroke();
+  g.fillStyle='rgba(41,230,255,.07)';
+  for(let i=0;i<8;i++){ g.beginPath(); g.ellipse((i*97)%W,GROUND+22+((i*53)%66),26,7,0,0,7); g.fill(); }
+  g.fillStyle='rgba(255,45,120,.07)';
+  for(let i=0;i<6;i++){ g.beginPath(); g.ellipse((i*131+40)%W,GROUND+30+((i*71)%58),20,6,0,0,7); g.fill(); }
+  g.strokeStyle='#ff2d78'; g.lineWidth=3; g.beginPath(); g.moveTo(0,GROUND); g.lineTo(W,GROUND); g.stroke();
 })();
 
 /* ---------- fighter drawing ---------- */
@@ -653,7 +667,7 @@ onActionPress=function(pl,act){
 let introT=0;
 function step(dt){
   if(banner){ banner.t+=dt; if(banner.t>=banner.dur) banner=null; }
-  if(state==='intro'){ introT+=dt; if(introT>1.3){ state='play'; setBanner('FIGHT!','',0.8); SFX.fight(); } }
+  if(state==='intro'){ introT+=dt; if(introT>1.3){ state='play'; setBanner('CLASH!','',0.8); SFX.fight(); } }
   else if(state==='play'){ if(!paused) updPlay(dt); }
   else if(state==='roundEnd'){ roundEndT+=dt; if(roundEndT>2.1) afterRound(); }
 }
