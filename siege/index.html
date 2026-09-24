@@ -55,7 +55,6 @@ window.addEventListener('keydown',e=>{
  const k=e.key.toLowerCase();
  if(k==='p'){togglePause();}
  else if(k==='m'){AU.muted=!AU.muted;}
- else if(k===' '){trySplit();e.preventDefault();}
  else if(state==='build'&&build){
    if(k==='1')build.sel='wood';else if(k==='2')build.sel='stone';else if(k==='3')build.sel='glass';else if(k==='4')build.sel='crystal';
    else if(k==='r')build.orient=build.orient==='h'?'v':'h';
@@ -66,7 +65,7 @@ window.addEventListener('keydown',e=>{
 'use strict';
 /* ================= entities & physics ================= */
 let blocks=[],projs=[],parts=[],crystals=[],floats=[];
-const GRAV=1400,VMAX=1050,SLING={x:90,y:552};
+const GRAV=1400,VMAX=1050,CATAPULT={x:90,y:552};
 const MATS={
  wood:{hp:2,col:'#a5713a',dark:'#7a4f24',name:'WOOD'},
  stone:{hp:5,col:'#8d93a0',dark:'#5c6170',name:'STONE'},
@@ -74,9 +73,9 @@ const MATS={
 };
 const PTYPES={
  rock:{r:10,dmg:1,hp:3,col:'#9aa0ab',name:'ROCK'},
- split:{r:9,dmg:1,hp:2,col:'#e0a44e',name:'SPLIT'},
- heavy:{r:14,dmg:3,hp:6,col:'#5a5f6a',name:'HEAVY'},
- small:{r:7,dmg:1,hp:1,col:'#e0a44e',name:'SHARD'}
+ ember:{r:9,dmg:1,hp:2,col:'#e0803a',name:'EMBER'},
+ boulder:{r:14,dmg:3,hp:6,col:'#8a7a5e',name:'BOULDER'},
+ cinder:{r:7,dmg:1,hp:1,col:'#c96a2e',name:'CINDER'}
 };
 function addBlock(x,y,w,h,mat){const m=MATS[mat];blocks.push({x,y,w,h,mat,hp:m.hp,maxhp:m.hp,dyn:false,vx:0,vy:0,dead:false});}
 function addCrystal(x,y){crystals.push({x,y,w:20,h:20,dead:false});}
@@ -113,6 +112,7 @@ function supportCheck(){
 function circleRect(px,py,r,b){const cx=clamp(px,b.x,b.x+b.w),cy=clamp(py,b.y,b.y+b.h);const dx=px-cx,dy=py-cy;return dx*dx+dy*dy<r*r;}
 function hitBlockWithProj(p,b){
  const sp=Math.hypot(p.vx,p.vy);
+ if(p.type==='ember'&&!p.emberDone){p.emberDone=true;emberBurst(p);}
  b.hp-=p.dmg;
  if(b.hp<=0){destroyBlock(b);}
  else{AU.thud();if(sp>520&&!b.dead){b.dyn=true;b.vx=p.vx*0.10;b.vy=Math.min(0,p.vy*0.10)-30;}}
@@ -124,12 +124,19 @@ function stepPhysics(dt){
  for(const p of projs){
   if(p.dead)continue;
   p.vy+=GRAV*dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.spin+=dt*6;
-  if(p.y>GROUND-p.r){dust(p.x,GROUND,5);p.dead=true;continue;}
+  if(p.type==='ember'&&Math.random()<0.8)parts.push({x:p.x+rnd(-3,3),y:p.y+rnd(-3,3),
+   vx:rnd(-40,40),vy:rnd(-60,10),life:rnd(0.25,0.5),t:0,
+   col:Math.random()<0.5?'#ff9a3c':'#ff6b1a',sz:rnd(2,4)});
+  if(p.y>GROUND-p.r){
+   if(p.type==='ember'&&!p.emberDone){p.emberDone=true;emberBurst(p);}
+   dust(p.x,GROUND,5);p.dead=true;continue;}
   if(p.x<-50||p.x>W+50||p.y>H+50){p.dead=true;continue;}
   if(Math.hypot(p.vx,p.vy)<70&&p.y>GROUND-60){p.dead=true;continue;}
   for(const b of blocks){if(b.dead)continue;if(circleRect(p.x,p.y,p.r,b)){hitBlockWithProj(p,b);break;}}
   if(p.dead)continue;
-  for(const c of crystals){if(c.dead)continue;if(circleRect(p.x,p.y,p.r,c)){p.dead=true;killCrystal(c);break;}}
+  for(const c of crystals){if(c.dead)continue;if(circleRect(p.x,p.y,p.r,c)){
+   if(p.type==='ember'&&!p.emberDone){p.emberDone=true;emberBurst(p);}
+   p.dead=true;killCrystal(c);break;}}
  }
  projs=projs.filter(p=>!p.dead);
  // dynamic blocks
@@ -191,7 +198,7 @@ function genFortress(level){
 
 /* ================= AI flinger ================= */
 function aiAim(tx,ty){
- const dx=tx-SLING.x,dy=ty-SLING.y;
+ const dx=tx-CATAPULT.x,dy=ty-CATAPULT.y;
  for(const ad of [38,48,58,68]){
   const t=Math.tan(ad*Math.PI/180),den=2*(dy+dx*t);
   if(den<=40)continue;
@@ -216,12 +223,13 @@ let state='menu',mode=null,paused=false;
 let shots=0,level=1,score=0,shotQueue=[],shotType='rock';
 let build=null,versus=null,aiShots=0,aiTimer=0,clearTimer=0;
 let aiming=false,aimX=0,aimY=0,aimPull=0,bannerT=0,bannerText='',msgT=0,msgText='';
+let catSwing=0,catArmFrom=0;
 let best={fling:0,fortify:0};
 try{best.fling=parseInt(localStorage.getItem('siege_best_fling')||'0',10)||0;best.fortify=parseInt(localStorage.getItem('siege_best_fortify')||'0',10)||0;}catch(e){}
 function banner(t,d){bannerText=t;bannerT=d||1.6;}
 function msg(t,d){msgText=t;msgT=d||2;}
 function crystalsAlive(){return crystals.filter(c=>!c.dead).length;}
-function genQueue(){const q=[];const base=['rock','split','heavy'];for(let i=0;i<2;i++){const s=base.slice();for(let j=s.length-1;j>0;j--){const k=Math.floor(Math.random()*(j+1));const tmp=s[j];s[j]=s[k];s[k]=tmp;}q.push.apply(q,s);}return q;}
+function genQueue(){const q=[];const base=['rock','ember','boulder'];for(let i=0;i<2;i++){const s=base.slice();for(let j=s.length-1;j>0;j--){const k=Math.floor(Math.random()*(j+1));const tmp=s[j];s[j]=s[k];s[k]=tmp;}q.push.apply(q,s);}return q;}
 function startMode(m){
  mode=m;paused=false;score=0;level=1;clearTimer=0;bannerT=0;parts=[];floats=[];
  versus=null;build=null;aiShots=0;
@@ -254,28 +262,29 @@ function firePlayer(vx,vy){
  if(shots<=0||projs.length>0)return;
  shotType=shotQueue.length?shotQueue.shift():'rock';shots--;
  const P=PTYPES[shotType];
- projs.push({x:SLING.x,y:SLING.y,vx:vx,vy:vy,r:P.r,dmg:P.dmg,hp:P.hp,type:shotType,spin:0,splitDone:false,ai:false});
+ projs.push({x:CATAPULT.x,y:CATAPULT.y,vx:vx,vy:vy,r:P.r,dmg:P.dmg,hp:P.hp,type:shotType,spin:0,emberDone:false,ai:false});
+ catArmFrom=armAngle();catSwing=1;
  AU.whoosh();aiming=false;
 }
 function fireAI(){
  const t=aiPickTarget();if(!t||aiShots<=0)return;
  const v=aiAim(t.x+10,t.y+10);
- const type=aiShots%3===0?'heavy':'rock',P=PTYPES[type];
- projs.push({x:SLING.x,y:SLING.y,vx:v.vx,vy:v.vy,r:P.r,dmg:P.dmg,hp:P.hp,type:type,spin:0,splitDone:true,ai:true});
+ const type=aiShots%3===0?'boulder':'rock',P=PTYPES[type];
+ projs.push({x:CATAPULT.x,y:CATAPULT.y,vx:v.vx,vy:v.vy,r:P.r,dmg:P.dmg,hp:P.hp,type:type,spin:0,emberDone:false,ai:true});
+ catArmFrom=-Math.PI/2-0.5;catSwing=1;
  aiShots--;AU.whoosh();
 }
-function trySplit(){
- if(state!=='play'||paused)return;
- for(const p of projs){
-  if(!p.dead&&p.type==='split'&&!p.splitDone){
-   p.splitDone=true;AU.whoosh();
-   for(const da of [-0.35,0.35]){
-    const sp=Math.hypot(p.vx,p.vy),a=Math.atan2(p.vy,p.vx)+da,P=PTYPES.small;
-    projs.push({x:p.x,y:p.y,vx:sp*Math.cos(a),vy:sp*Math.sin(a),r:P.r,dmg:P.dmg,hp:P.hp,type:'small',spin:0,splitDone:true,ai:p.ai});
-   }
-   banner('SPLIT!',0.8);return;
-  }
- }
+function emberBurst(p){
+ banner('EMBER BURST!',0.8);
+ AU.noise(0.4,0.3,700);AU.tone(180,0.4,'sawtooth',0.12,60);
+ for(let i=0;i<22;i++)parts.push({x:p.x+rnd(-8,8),y:p.y+rnd(-8,8),vx:rnd(-160,160),vy:rnd(-260,-40),
+  life:rnd(0.4,0.9),t:0,col:['#ff9a3c','#ff6b1a','#ffd23c'][i%3],sz:rnd(2,5)});
+ for(const b of blocks){if(b.dead)continue;
+  const cx=clamp(p.x,b.x,b.x+b.w),cy=clamp(p.y,b.y,b.y+b.h);
+  if(Math.hypot(p.x-cx,p.y-cy)<62){b.hp-=2;if(b.hp<=0)destroyBlock(b);}}
+ for(const c of crystals){if(c.dead)continue;
+  const cx=clamp(p.x,c.x,c.x+c.w),cy=clamp(p.y,c.y,c.y+c.h);
+  if(Math.hypot(p.x-cx,p.y-cy)<62)killCrystal(c);}
 }
 function togglePause(){if(state==='play'||state==='build'){paused=!paused;AU.click();}}
 
@@ -352,11 +361,10 @@ function onDown(x,y){
   return;
  }
  if(state==='play'){
-  if(trySplitTap(x,y))return;
   const canAim=(mode==='fling')||(mode==='versus');
   const aiTurn=(mode==='fortify');
   if(canAim&&!aiTurn&&projs.length===0&&shots>0){
-   const d=Math.hypot(x-SLING.x,y-SLING.y);
+   const d=Math.hypot(x-CATAPULT.x,y-CATAPULT.y);
    if(d<150){aiming=true;aimX=x;aimY=y;}
   }
   return;
@@ -366,15 +374,11 @@ function onDown(x,y){
   for(const b of bs)if(inR(x,y,b.r)){b.fn();return;}
  }
 }
-function trySplitTap(x,y){
- for(const p of projs){if(!p.dead&&p.type==='split'&&!p.splitDone){trySplit();return true;}}
- return false;
-}
 function onMove(x,y){if(aiming){aimX=x;aimY=y;}}
 function onUp(x,y){
  if(aiming&&state==='play'){
   aiming=false;
-  const dx=SLING.x-aimX,dy=SLING.y-aimY,pull=Math.hypot(dx,dy);
+  const dx=CATAPULT.x-aimX,dy=CATAPULT.y-aimY,pull=Math.hypot(dx,dy);
   if(pull>40){
    const k=4.4;let vx=dx*k,vy=dy*k;
    const sp=Math.hypot(vx,vy);
@@ -384,7 +388,7 @@ function onUp(x,y){
  }
 }
 function menuBtns(){
- const ms=[['fling','FLING — sling vs the fortress'],['fortify','FORTIFY — build vs the AI'],['versus','VERSUS — build & fling, 2P']];
+ const ms=[['fling','FLING — catapult vs the fortress'],['fortify','FORTIFY — build vs the AI'],['versus','VERSUS — build & fling, 2P']];
  return ms.map((m,i)=>({m:m[0],label:m[1],r:{x:70,y:300+i*76,w:W-140,h:60}}));
 }
 function endBtns(){
@@ -400,6 +404,7 @@ function update(dt){
  if(paused)return;
  if(bannerT>0)bannerT-=dt;
  if(msgT>0)msgT-=dt;
+ if(catSwing>0)catSwing=Math.max(0,catSwing-dt*2.2);
  if(state==='build'&&build){
   build.time-=dt;
   if(build.time<=0){
@@ -458,7 +463,7 @@ function endFortify(){
 }
 function endVersusLeg(alive){
  const destroyed=versus.legCrystals-alive;
- if(versus.leg===1){versus.d2=destroyed;beginBuild('versus',2);}
+ if(versus.leg===1){versus.d2=destroyed;versus.leg=2;beginBuild('versus',2);}
  else{
   versus.d1=destroyed;versus.leg=3;state='win';AU.fanfare();
   const w=versus.d1>versus.d2?'P1 WINS!':versus.d2>versus.d1?'P2 WINS!':'DRAW!';
@@ -484,41 +489,61 @@ function drawSky(){
  ctx.fillStyle='#2e2a26';ctx.fillRect(0,GROUND,W,H-GROUND);
  ctx.fillStyle='#4a443c';ctx.fillRect(0,GROUND,W,6);
 }
-function drawSling(){
- const bx=SLING.x,by=GROUND;
- ctx.strokeStyle='#5a3d22';ctx.lineWidth=10;ctx.lineCap='round';
- ctx.beginPath();ctx.moveTo(bx,by);ctx.lineTo(bx,by-42);ctx.stroke();
- ctx.lineWidth=7;
- ctx.beginPath();ctx.moveTo(bx,by-42);ctx.lineTo(bx-14,SLING.y+4);ctx.stroke();
- ctx.beginPath();ctx.moveTo(bx,by-42);ctx.lineTo(bx+14,SLING.y+4);ctx.stroke();
- // band
- const loaded=state==='play'&&projs.length===0&&((mode==='fling'||mode==='versus')&&shots>0);
- ctx.strokeStyle='#8a2f2f';ctx.lineWidth=4;
+const ARM_REST=-Math.PI/2-0.5,ARM_FWD=-Math.PI/2+1.15,ARM_LEN=66;
+function armAngle(){
  if(aiming){
-  ctx.beginPath();ctx.moveTo(bx-14,SLING.y+4);ctx.lineTo(aimX,aimY);ctx.stroke();
-  ctx.beginPath();ctx.moveTo(bx+14,SLING.y+4);ctx.lineTo(aimX,aimY);ctx.stroke();
-  drawArcPreview();
+  const dx=CATAPULT.x-aimX,dy=(CATAPULT.y+8)-aimY;
+  return ARM_REST-clamp(Math.hypot(dx,dy)/160,0,1)*0.85;
+ }
+ return ARM_REST;
+}
+function drawCatapult(){
+ const bx=CATAPULT.x,by=GROUND,px=bx,py=CATAPULT.y+8;
+ // wooden frame: splayed legs, base beam, axle
+ ctx.strokeStyle='#6b4a2a';ctx.lineWidth=12;ctx.lineCap='round';
+ ctx.beginPath();ctx.moveTo(bx-30,by);ctx.lineTo(px-6,py);ctx.stroke();
+ ctx.beginPath();ctx.moveTo(bx+30,by);ctx.lineTo(px+6,py);ctx.stroke();
+ ctx.beginPath();ctx.moveTo(bx-30,by-4);ctx.lineTo(bx+30,by-4);ctx.stroke();
+ // arm angle: pulled back while aiming, swinging on release
+ let ang;
+ if(aiming){ang=armAngle();}
+ else if(catSwing>0){const t=1-catSwing,e=1-(1-t)*(1-t);ang=catArmFrom+(ARM_FWD-catArmFrom)*e;}
+ else{ang=ARM_REST;}
+ const tx=px+Math.cos(ang)*ARM_LEN,ty=py+Math.sin(ang)*ARM_LEN;
+ // throwing arm
+ ctx.strokeStyle='#8a5f33';ctx.lineWidth=9;
+ ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(tx,ty);ctx.stroke();
+ ctx.strokeStyle='rgba(60,38,18,0.6)';ctx.lineWidth=3;
+ ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(tx,ty);ctx.stroke();
+ // bucket at the arm tip
+ ctx.save();ctx.translate(tx,ty);
+ ctx.strokeStyle='#4a3018';ctx.lineWidth=5;
+ ctx.beginPath();ctx.arc(0,0,12,0.15*Math.PI,0.85*Math.PI);ctx.stroke();
+ ctx.restore();
+ // axle cap
+ ctx.fillStyle='#3d2a16';ctx.beginPath();ctx.arc(px,py,7,0,7);ctx.fill();
+ const loaded=state==='play'&&projs.length===0&&((mode==='fling'||mode==='versus')&&shots>0);
+ if(aiming){
+  drawAimGuide();
  }else if(loaded){
-  ctx.beginPath();ctx.moveTo(bx-14,SLING.y+4);ctx.lineTo(bx,SLING.y);ctx.stroke();
-  ctx.beginPath();ctx.moveTo(bx+14,SLING.y+4);ctx.lineTo(bx,SLING.y);ctx.stroke();
   const P=PTYPES[shotQueue[0]||'rock'];
-  ctx.fillStyle=P.col;ctx.beginPath();ctx.arc(bx,SLING.y,P.r,0,7);ctx.fill();
+  ctx.fillStyle=P.col;ctx.beginPath();ctx.arc(tx,ty-4,P.r,0,7);ctx.fill();
   ctx.strokeStyle='#00000055';ctx.lineWidth=2;ctx.stroke();
- }else{
-  ctx.beginPath();ctx.moveTo(bx-14,SLING.y+4);ctx.lineTo(bx+14,SLING.y+4);ctx.stroke();
  }
 }
 function aimVel(){
- const dx=SLING.x-aimX,dy=SLING.y-aimY;
+ const dx=CATAPULT.x-aimX,dy=CATAPULT.y-aimY;
  let vx=dx*4.4,vy=dy*4.4;
  const sp=Math.hypot(vx,vy);
  if(sp>VMAX){vx*=VMAX/sp;vy*=VMAX/sp;}
  return{vx,vy};
 }
-function drawArcPreview(){
- const v=aimVel();let x=SLING.x,y=SLING.y,vx=v.vx,vy=v.vy;
- ctx.fillStyle='rgba(255,255,255,0.55)';
- for(let i=0;i<42;i++){vy+=GRAV/30;x+=vx/30;y+=vy/30;if(i%3===0){ctx.beginPath();ctx.arc(x,y,3,0,7);ctx.fill();}if(y>GROUND)break;}
+function drawAimGuide(){
+ const v=aimVel();let x=CATAPULT.x,y=CATAPULT.y,vx=v.vx,vy=v.vy;
+ ctx.save();ctx.strokeStyle='rgba(255,255,255,0.5)';ctx.lineWidth=3;ctx.setLineDash([10,8]);
+ ctx.beginPath();ctx.moveTo(x,y);
+ for(let i=0;i<40;i++){vy+=GRAV/30;x+=vx/30;y+=vy/30;ctx.lineTo(x,y);if(y>GROUND)break;}
+ ctx.stroke();ctx.restore();
 }
 function drawBlocks(){
  for(const b of blocks){
@@ -556,8 +581,15 @@ function drawCrystals(){
 function drawProjs(){
  for(const p of projs){
   ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.spin);
-  ctx.fillStyle=PTYPES[p.type].col;
+  const P=PTYPES[p.type];
+  if(p.type==='ember'){ctx.shadowColor='#ff8c2e';ctx.shadowBlur=14;}
+  ctx.fillStyle=P.col;
   ctx.beginPath();ctx.arc(0,0,p.r,0,7);ctx.fill();
+  ctx.shadowBlur=0;
+  if(p.type==='boulder'){ctx.fillStyle='rgba(60,50,35,0.55)';
+   ctx.beginPath();ctx.arc(-p.r*0.3,-p.r*0.2,p.r*0.22,0,7);ctx.fill();
+   ctx.beginPath();ctx.arc(p.r*0.35,p.r*0.25,p.r*0.16,0,7);ctx.fill();
+   ctx.beginPath();ctx.arc(p.r*0.05,-p.r*0.4,p.r*0.13,0,7);ctx.fill();}
   ctx.strokeStyle='rgba(0,0,0,0.4)';ctx.lineWidth=2;ctx.stroke();
   ctx.strokeStyle='rgba(255,255,255,0.35)';ctx.lineWidth=1.5;
   ctx.beginPath();ctx.arc(0,0,p.r*0.55,0.6,2.4);ctx.stroke();
@@ -631,7 +663,7 @@ function drawMenu(){
   text(b.label,W/2,b.r.y+36,15,'#ffe9a8','center');
  }
  text('best fling: '+best.fling+'   best fortify: '+best.fortify,W/2,580,13,'#8fa89b','center');
- text('drag from the sling to aim • tap mid-air to SPLIT',W/2,640,13,'#8fa89b','center');
+ text('drag the catapult arm to aim • EMBER bursts into flame on impact',W/2,640,13,'#8fa89b','center');
 }
 function drawEnd(){
  ctx.fillStyle='rgba(0,0,0,0.6)';ctx.fillRect(0,0,W,H);
@@ -653,7 +685,7 @@ function drawEnd(){
 }
 function render(){
  T+=1/60;
- drawSky();drawSling();drawBlocks();drawCrystals();drawProjs();drawParts();
+ drawSky();drawCatapult();drawBlocks();drawCrystals();drawProjs();drawParts();
  if(state==='build'&&build)drawBuildUI();
  if(state!=='menu')drawHUD();
  if(state==='menu')drawMenu();
@@ -684,8 +716,8 @@ window.GAME={
  get score(){return score;},get level(){return level;},get paused(){return paused;},
  startMode(m){startMode(m);},
  _d:{get blocks(){return blocks;},get projs(){return projs;},get crystals(){return crystals;},get build(){return build;},
-  get versus(){return versus;},get aiShots(){return aiShots;},SLING:SLING,
-  fire(vx,vy,type){const P=PTYPES[type||'rock'];projs.push({x:SLING.x,y:SLING.y,vx:vx,vy:vy,r:P.r,dmg:P.dmg,hp:P.hp,type:type||'rock',spin:0,splitDone:false,ai:false});if(shots>0)shots--;},
+  get versus(){return versus;},get aiShots(){return aiShots;},CATAPULT:CATAPULT,
+  fire(vx,vy,type){const P=PTYPES[type||'rock'];projs.push({x:CATAPULT.x,y:CATAPULT.y,vx:vx,vy:vy,r:P.r,dmg:P.dmg,hp:P.hp,type:type||'rock',spin:0,emberDone:false,ai:false});if(shots>0)shots--;catArmFrom=ARM_REST;catSwing=1;},
   aiAim:aiAim,genFortress:genFortress,finishBuild:finishBuild,buildTap:buildTap,killAllCrystals(){crystals.forEach(killCrystal);}}
 };
 </script>
