@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FRAG — 1993</title>
+<title>BREACH — 1993</title>
 <style>
   html,body{margin:0;padding:0;background:#000;height:100%;overflow:hidden;
     font-family:'Courier New',ui-monospace,monospace;-webkit-user-select:none;user-select:none;}
@@ -15,7 +15,7 @@
 <canvas id="c" width="480" height="720"></canvas>
 <script>
 'use strict';
-/* FRAG — a 1993 raycaster. You are the demons. Original in every way. */
+/* BREACH — a 1993 raycaster. You are the demons. Original in every way. */
 const W=480,H=720;
 const cv=document.getElementById('c'),g=cv.getContext('2d');
 
@@ -182,7 +182,7 @@ const DEMON_TYPES={
   brute:{hp:85,speed:1.25,dmg:18,range:0.85,cool:1.4,scale:0.95,col:'#8e44ad',dark:'#4a235a',name:'BRUTE'}
 };
 function makeDemon(type,x,y){const t=DEMON_TYPES[type];return{kind:'demon',type,x,y,hp:t.hp,maxhp:t.hp,cool:0,ordx:null,ordy:null,attack:false,sel:false,anim:Math.random()*10,dead:false};}
-function makePlayer(x,y,angle){return{kind:'marine',x,y,angle,hp:100,maxhp:100,weapon:0,cool:0,flash:0,dead:false,respawn:0,invuln:0,frags:0,kills:0,bob:0};}
+function makePlayer(x,y,angle){return{kind:'marine',x,y,angle,hp:100,maxhp:100,weapon:0,cool:0,flash:0,dead:false,respawn:0,invuln:0,takedowns:0,kills:0,bob:0};}
 function moveEntity(e,dx,dy,dt,r){
   r=r||0.22;
   const nx=e.x+dx*dt;
@@ -364,7 +364,7 @@ function startMode(mode){
     world.players=[p1,p2];world.marine=p1;world.otherMarine=p2;
     spawnPickup('scatter',8.5,6.5);
     MEDSPOTS.forEach(s=>spawnPickup('medkit',s.x,s.y));
-    banner('FIRST TO 5 FRAGS');
+    banner('FIRST TO 5 TAKEDOWNS');
   }
   SFX.click();
 }
@@ -623,10 +623,10 @@ function updateVersusMode(dt){
   const p1=world.players[0],p2=world.players[1];
   [[p2,p1],[p1,p2]].forEach(([victim,killer])=>{
     if(victim.dead&&!victim.counted){
-      victim.counted=true;killer.frags++;victim.respawnT=2;SFX.boom();
+      victim.counted=true;killer.takedowns++;victim.respawnT=2;SFX.boom();
       const kn=killer===p1?1:2;
-      banner('P'+kn+' FRAG  '+killer.frags+'-'+victim.frags);
-      if(killer.frags>=5){if(killer===p1)G.wins.p1++;else G.wins.p2++;gameOver(true,'P'+kn+' WINS '+killer.frags+' - '+victim.frags);}
+      banner('P'+kn+' TAKEDOWN '+killer.takedowns+'-'+victim.takedowns);
+      if(killer.takedowns>=5){if(killer===p1)G.wins.p1++;else G.wins.p2++;gameOver(true,'P'+kn+' WINS '+killer.takedowns+' - '+victim.takedowns);}
     }
   });
   [[p1,0],[p2,1]].forEach(([p,pi])=>{
@@ -669,7 +669,7 @@ function renderMenu(){
   g.fillStyle='#05060a';g.fillRect(0,0,W,H);
   g.textAlign='center';
   g.fillStyle='#c0392b';g.font='bold 84px monospace';
-  g.fillText('FRAG',W/2,150);
+  g.fillText('BREACH',W/2,150);
   g.fillStyle='#8fa89b';g.font='15px monospace';
   g.fillText('1993 - YOU ARE THE DEMONS',W/2,182);
   g.fillStyle='#5a6a7a';g.font='12px monospace';
@@ -711,7 +711,7 @@ function render(){
     world.otherMarine=p2;
     g.fillStyle='#000';g.fillRect(0,344,W,32);
     g.fillStyle='#8fa89b';g.font='bold 14px monospace';g.textAlign='center';
-    g.fillText('P1 '+p1.frags+'  :  '+p2.frags+' P2',W/2,366);
+    g.fillText('P1 '+p1.takedowns+'  :  '+p2.takedowns+' P2',W/2,366);
     g.textAlign='left';g.font='12px monospace';
     g.fillStyle='#39c6ff';g.fillText('HP '+Math.max(0,Math.ceil(p1.hp)),10,30);
     g.fillStyle='#ff9ec6';g.fillText('HP '+Math.max(0,Math.ceil(p2.hp)),10,406);
@@ -738,7 +738,7 @@ window.GAME={
   get mode(){return G.mode;},
   get paused(){return G.paused;},
   get hp(){const p=world.players[0]||world.marine;return p?Math.max(0,Math.ceil(p.hp)):0;},
-  get frags(){const p=world.players[0];return p?p.frags:0;},
+  get takedowns(){const p=world.players[0];return p?p.takedowns:0;},
   get wave(){return G.wave;},
   get wins(){return G.wins;},
   get kills(){return world.kills;},
@@ -747,7 +747,7 @@ window.GAME={
     killDemons(){world.demons.forEach(d=>hurtDemon(d,9999));},
     hurtMarine(n){const m=world.players[0]||world.marine;if(m)hurtPlayer(m,n);},
     killMarine(){const m=world.marine;if(m)hurtPlayer(m,9999);},
-    fragFor(i){const v=world.players[1-i],k=world.players[i];if(v&&k){hurtPlayer(v,9999);}},
+    takedownFor(i){const v=world.players[1-i],k=world.players[i];if(v&&k){hurtPlayer(v,9999);}},
     demonsLeft(){return world.demons.filter(d=>!d.dead).length;}
   }
 };
