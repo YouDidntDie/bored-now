@@ -337,11 +337,13 @@ function update(dt) {
   let hitEdge = false;
   for (const u of units) {
     u.x += spd * dt; u.wob += dt * 3;
-    if (u.x < 26 || u.x > W - 26) hitEdge = true;
+    // hard walls: nothing can push the formation past the field edge, so an
+    // edge contact lasts exactly one frame and drops the swarm exactly once
+    if (u.x < 26) { u.x = 26; if (swarm.dir < 0) swarm.dir = 1; hitEdge = true; }
+    else if (u.x > W - 26) { u.x = W - 26; if (swarm.dir > 0) swarm.dir = -1; hitEdge = true; }
   }
   if (hitEdge) {
-    swarm.dir *= -1;
-    for (const u of units) { u.y += 24; u.x += swarm.dir * 8 * dt; }
+    for (const u of units) u.y += 24;
   }
   // swarm reached the defense line -> invasion wins the round
   for (const u of units) {
@@ -405,7 +407,7 @@ function diveKeyPressed() {
   return p;
 }
 function shiftFormation(dir, dt) {
-  for (const u of units) u.x = Math.max(20, Math.min(W - 20, u.x + dir * 190 * dt));
+  for (const u of units) u.x = Math.max(26, Math.min(W - 26, u.x + dir * 190 * dt));
 }
 function pickDiveUnit() {
   if (!units.length) return -1;
