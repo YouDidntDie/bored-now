@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>HAUNT — a 1980 story, told from the other side</title>
+<style>
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; padding:0; height:100%; background:#030308; overflow:hidden;
+    font-family:'Courier New', ui-monospace, monospace; }
+  body { display:flex; align-items:center; justify-content:center; }
+  #wrap { position:relative; }
+  canvas { display:block; background:#030308; touch-action:none; }
+  #hint { position:absolute; left:0; right:0; bottom:-34px; text-align:center;
+    color:#3a3f45; font-size:11px; letter-spacing:.14em; pointer-events:none;
+    font-family:'Courier New', ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c"></canvas>
+  <div id="hint">1980 &mdash; YOU ARE THE GHOSTS</div>
+</div>
+<script>
+'use strict';
+/* ================= HAUNT =================
+   A 1980 maze-chase story, told from the other side. Original in every way:
+   original maze, original geometric ghosts (RUIN/AMBUSH/DRIFT), original eater
+   (MUNCH), original code, art, and audio. No borrowed characters, names,
+   art, music, or layouts.
+   Modes: HAUNT (1P command the pack vs AI eater), EATER (1P classic vs AI pack),
+   VERSUS (2P same screen: eater vs pack). Mobile-first 480x720.
+*/
+
+/* ---------- constants & maze ---------- */
+const W = 480, H = 720, MW = 19, MH = 21;
+const TS = W / MW, OY = 78;           // tile size, maze top offset
+const MAZE = [
+"###################",
+"#........#........#",
+"#o##.###.#.###.##o#",
+"#.................#",
+"#.##.#.#####.#.##.#",
+"#....#...#...#....#",
+"####.###.#.###.####",
+"####.#.......#.####",
+"####.#.##-##.#.####",
+"T......#   #......T",
+"#####..#   #..#####",
+"####.#.#####.#.####",
+"#........#........#",
+"#.##.###.#.###.##.#",
+"#o..#.....#.....#o#",
+"##.#.#.#####.#.#.##",
+"#....#...#...#....#",
+"#.######.#.######.#",
+"#.................#",
+"#.####..###..####.#",
+"###################",
+];
+const DIRS = [{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}];
+const EATER_START = { x: 9, y: 18 };
+const DOOR = { x: 9, y: 8 };
+const PEN_SPAWNS = [{x:9,y:10},{x:8,y:10},{x:10,y:10}];
+const GHOST_DEFS = [
+  { name: 'RUIN',   ai: 'ruin',   color: '#ff4d5e', shape: 'diamond'  },
+  { name: 'AMBUSH', ai: 'ambush', color: '#ff4dd2', shape: 'triangle' },
+  { name: 'DRIFT',  ai: 'drift',  color: '#4dc9ff', shape: 'square'   },
+];
+const EATER_SPEED = 7.0, GHOST_SPEED = 6.4, FRIGHT_SPEED = 4.2; // tiles/sec
+
+/* ---------- canvas ---------- */
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+function fit() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const pad = 8;
+  const aw = window.innerWidth - pad, ah = window.innerHeight - pad - 40;
+  const s = Math.min(aw / W, ah / H);
+  canvas.width = Math.round(W * s * dpr);
+  canvas.height = Math.round(H * s * dpr);
+  canvas.style.width = Math.round(W * s) + 'px';
+  canvas.style.height = Math.round(H * s) + 'px';
+  ctx.setTransform(dpr * s, 0, 0, dpr * s, 0, 0);
+}
+window.addEventListener('resize', fit); fit();
+
+/* ---------- audio (tiny synth, no assets) ---------- */
+let AC = null, muted = false;
+function audio() {
+  if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+  if (AC && AC.state === 'suspended') AC.resume();
+}
+function beep(f0, f1, dur, type, vol, delay) {
+  if (!AC || muted) return;
+  const t = AC.currentTime + (delay || 0);
+  const o = AC.createOscillator(), g = AC.createGain();
+  o.type = type || 'square'; o.frequency.setValueAtTime(Math.max(1, f0), t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+  g.gain.setValueAtTime(vol || 0.07, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t + dur + 0.02);
+}
+function noiseBurst(dur, vol, lp) {
+  if (!AC || muted) return;
+  const t = AC.currentTime, n = Math.floor(AC.sampleRate * dur);
+  const buf = AC.createBuffer(1, n, AC.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  const src = AC.createBufferSource(); src.buffer = buf;
+  const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lp || 1200;
+  const g = AC.createGain(); g.gain.setValueAtTime(vol || 0.15, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(f); f.connect(g); g.connect(AC.destination); src.start(t);
+}
+let dotPitch = 0;
+const sDot   = () => { dotPitch = (dotPitch + 1) % 12; beep(320 + dotPitch * 28, 340 + dotPitch * 28, 0.05, 'square', 0.045); };
+const sOrb   = () => { beep(220, 220, 0.12, 'triangle', 0.09); beep(330, 330, 0.12, 'triangle', 0.09, 0.02); beep(440, 440, 0.16, 'triangle', 0.09, 0.04); };
+const sCatch = () => beep(420, 90, 0.35, 'sawtooth', 0.1);
+const sDeath = () => { noiseBurst(0.5, 0.22, 800); beep(160, 40, 0.5, 'sawtooth', 0.1); };
+const sEatGhost = () => beep(180, 900, 0.22, 'square', 0.09);
+const sUI    = () => beep(520, 780, 0.07, 'square', 0.06);
+const sWin   = () => { beep(440, 440, 0.14, 'square', 0.08); beep(554, 554, 0.14, 'square', 0.08, 0.14); beep(659, 659, 0.2, 'square', 0.08, 0.28); };
+
+/* ---------- helpers ---------- */
+const TAU = Math.PI * 2;
+const rnd = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const wrapX = x => ((x % MW) + MW) % MW;
+const key2 = (x, y) => x + ',' + y;
+const tileCX = tx => (tx + 0.5) * TS;
+const tileCY = ty => OY + (ty + 0.5) * TS;
+function manhattanW(ax, ay, bx, by) {
+  let dx = Math.abs(ax - bx); dx = Math.min(dx, MW - dx);
+  return dx + Math.abs(ay - by);
+}
+function tileAt(x, y) { return MAZE[y][wrapX(x)]; }
+function isPenTile(x, y) { const c = tileAt(x, y); return c === ' ' || c === '-'; }
+function walkE(x, y) {           // eater walkability (never enters the pen)
+  if (y < 0 || y >= MH) return false;
+  const c = tileAt(x, y);
+  return c !== '#' && c !== ' ' && c !== '-';
+}
+function walkG(x, y, g) {        // ghost walkability (pen only when not 'out')
+  if (y < 0 || y >= MH) return false;
+  const wx = wrapX(x), c = MAZE[y][wx];
+  if (c === '#') return false;
+  if (isPenTile(wx, y) && g && g.state === 'out') return false;
+  return true;
+}
+function validDirs(tx, ty, walkFn, g) {
+  const out = [];
+  for (const d of DIRS) if (walkFn(tx + d.x, ty + d.y, g)) out.push(d);
+  return out;
+}
+// BFS from (sx,sy); returns first-step direction toward nearest tile matching isTarget
+function bfsDir(sx, sy, walkFn, isTarget, g) {
+  const sk = key2(sx, sy);
+  const prev = new Map(); prev.set(sk, null);
+  const q = [[sx, sy]];
+  while (q.length) {
+    const [x, y] = q.shift();
+    for (const d of DIRS) {
+      const wx = wrapX(x + d.x), ny = y + d.y;
+      if (ny < 0 || ny >= MH || !walkFn(wx, ny, g)) continue;
+      const k = key2(wx, ny);
+      if (prev.has(k)) continue;
+      prev.set(k, [x, y]);
+      if (isTarget(wx, ny)) {
+        let cx = wx, cy = ny;
+        for (;;) {
+          const p = prev.get(key2(cx, cy));
+          if (p[0] === sx && p[1] === sy) {
+            let dx = cx - sx, dy = cy - sy;
+            if (dx > 1) dx = -1; else if (dx < -1) dx = 1;
+            return { x: dx, y: dy };
+          }
+          cx = p[0]; cy = p[1];
+        }
+      }
+      q.push([wx, ny]);
+    }
+  }
+  return null;
+}
+
+/* ---------- state ---------- */
+let state = 'menu';       // menu | serve | play | roundEnd | matchEnd | gameOver | win
+let mode = 'haunt';
+let stateT = 0, serveT = 0, paused = false, time = 0;
+let eater = null, ghosts = [];
+let dotSet = new Set(), orbSet = new Set(), dotsLeft = 0;
+let score = 0, best = +(localStorage.getItem('haunt_best') || 0);
+let bestTime = +(localStorage.getItem('haunt_best_time') || 0);
+let lives = 3, level = 1, catches = 0, hauntT = 0;
+let frightT = 0, eatChain = 0, driftHunt = 0;
+let round = 1, roundT = 90, wins = { eater: 0, ghost: 0 };
+let eaterScore = 0, ghostScore = 0, roundWinner = null;
+let selectedIdx = 0;
+let banner = '', bannerT = 0;
+let pauseBtn = null, muteBtn = null;
+const SPLIT_Y = OY + (MH * TS) / 2;   // versus touch split
+
+/* ---------- entities ---------- */
+function resetDots() {
+  dotSet = new Set(); orbSet = new Set();
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
+    const c = MAZE[y][x];
+    if (c === '.') dotSet.add(key2(x, y));
+    else if (c === 'o') orbSet.add(key2(x, y));
+  }
+  dotsLeft = dotSet.size;
+}
+function makeEater() {
+  return { tx: EATER_START.x, ty: EATER_START.y,
+           px: tileCX(EATER_START.x), py: tileCY(EATER_START.y),
+           dir: { x: -1, y: 0 }, want: { x: -1, y: 0 },
+           speed: EATER_SPEED * TS, mouth: 0 };
+}
+function makeGhost(i, exitDelay) {
+  const def = GHOST_DEFS[i], s = PEN_SPAWNS[i];
+  return { idx: i, name: def.name, ai: def.ai, color: def.color, shape: def.shape,
+           tx: s.x, ty: s.y, px: tileCX(s.x), py: tileCY(s.y),
+           dir: { x: 0, y: -1 }, want: { x: 0, y: -1 }, speed: GHOST_SPEED * TS,
+           state: 'inPen', exitT: exitDelay,
+           waypoints: [[9, 10], [DOOR.x, DOOR.y], [DOOR.x, DOOR.y - 1]], wpIdx: 0,
+           respawnT: 0 };
+}
+function resetPositions() {
+  eater = makeEater();
+  ghosts = [makeGhost(0, 0.2), makeGhost(1, 1.4), makeGhost(2, 2.6)];
+  frightT = 0; eatChain = 0; driftHunt = 0; selectedIdx = 0;
+  dotPitch = 0;
+}
+function ghostSpeed() {
+  if (frightT > 0) return FRIGHT_SPEED * TS;
+  const bonus = mode === 'eater' ? Math.min((level - 1) * 0.25, 1.2) : 0;
+  return (GHOST_SPEED + bonus) * TS;
+}
+
+/* ---------- movement: tile-based, smooth, tunnel wrap ---------- */
+function stepMover(e, dt, decideFn) {
+  const move = e.speed * dt;
+  const nx = e.tx + e.dir.x, ny = e.ty + e.dir.y;
+  const wx = wrapX(nx);
+  const gx = (nx < 0) ? -TS / 2 : (nx >= MW) ? W + TS / 2 : tileCX(nx);
+  const gy = tileCY(ny);
+  const dx = gx - e.px, dy = gy - e.py;
+  const d = Math.hypot(dx, dy);
+  if (d <= move + 0.01) {
+    if (nx < 0 || nx >= MW) {
+      // tunnel edge: wrap to far side, keep sliding toward its tile center
+      e.tx = wx; e.ty = ny;
+      e.px = (nx < 0) ? W + TS / 2 : -TS / 2;
+      e.py = gy;
+    } else {
+      e.tx = nx; e.ty = ny; e.px = gx; e.py = gy;
+      decideFn(e);
+    }
+  } else {
+    e.px += dx / d * move; e.py += dy / d * move;
+  }
+}
+function decideEaterHuman(e) {
+  for (const d of [e.want, e.dir]) {
+    if ((d.x || d.y) && walkE(e.tx + d.x, e.ty + d.y)) { e.dir = { x: d.x, y: d.y }; return; }
+  }
+  e.dir = { x: 0, y: 0 };
+}
+function decideGhostHuman(g) {
+  // player-steered ghost: want > current > AI fallback (never stalls)
+  const w = g.want;
+  if ((w.x || w.y) && walkG(g.tx + w.x, g.ty + w.y, g)) { g.dir = { x: w.x, y: w.y }; return; }
+  if ((g.dir.x || g.dir.y) && walkG(g.tx + g.dir.x, g.ty + g.dir.y, g)) return;
+  decideGhostAI(g);
+}
+function bestDirToward(opts, g, tx, ty) {
+  let best = opts[0], bd = 1e9;
+  for (const d of opts) {
+    const dd = manhattanW(wrapX(g.tx + d.x), g.ty + d.y, tx, ty);
+    if (dd < bd) { bd = dd; best = d; }
+  }
+  return best;
+}
+function decideGhostAI(g) {
+  const optsAll = validDirs(g.tx, g.ty, walkG, g);
+  const opts = optsAll.filter(d => !(d.x === -g.dir.x && d.y === -g.dir.y));
+  const use = opts.length ? opts : optsAll;
+  if (!use.length) { g.dir = { x: 0, y: 0 }; return; }
+  let pick;
+  if (frightT > 0) {
+    pick = use[(Math.random() * use.length) | 0];
+  } else if (g.ai === 'ruin') {
+    pick = bestDirToward(use, g, eater.tx, eater.ty);
+  } else if (g.ai === 'ambush') {
+    const ax = wrapX(eater.tx + eater.dir.x * 4), ay = eater.ty + eater.dir.y * 4;
+    pick = bestDirToward(use, g, ax, clamp(ay, 0, MH - 1));
+  } else { // drift: wanders, sometimes hunts
+    pick = (driftHunt > 0 || Math.random() < 0.12)
+      ? bestDirToward(use, g, eater.tx, eater.ty)
+      : use[(Math.random() * use.length) | 0];
+  }
+  g.dir = { x: pick.x, y: pick.y };
+}
+function decideEaterAI(e) {
+  const active = ghosts.filter(g => g.state === 'out');
+  const near = active.filter(g => manhattanW(e.tx, e.ty, g.tx, g.ty) <= 5);
+  const threat = near.filter(() => frightT <= 0);
+  const prey = near.filter(() => frightT > 0);
+  const opts = validDirs(e.tx, e.ty, walkE);
+  if (!opts.length) { e.dir = { x: 0, y: 0 }; return; }
+  if (prey.length && frightT > 1.2) {
+    // bold: hunt a frightened ghost
+    let t = prey[0], bd = 1e9;
+    for (const g of prey) { const d = manhattanW(e.tx, e.ty, g.tx, g.ty); if (d < bd) { bd = d; t = g; } }
+    e.dir = bestDirToward(opts, e, t.tx, t.ty);
+    return;
+  }
+  if (threat.length) {
+    let best = opts[0], bs = -1e9;
+    for (const d of opts) {
+      const nx = wrapX(e.tx + d.x), ny = e.ty + d.y;
+      let m = 1e9;
+      for (const g of threat) m = Math.min(m, manhattanW(nx, ny, g.tx, g.ty));
+      if (d.x === e.dir.x && d.y === e.dir.y) m += 0.6; // keep course, less jitter
+      if (m > bs) { bs = m; best = d; }
+    }
+    e.dir = { x: best.x, y: best.y };
+    return;
+  }
+  if (orbSet.size && active.some(g => manhattanW(e.tx, e.ty, g.tx, g.ty) <= 6)) {
+    const d = bfsDir(e.tx, e.ty, walkE, (x, y) => orbSet.has(key2(x, y)));
+    if (d) { e.dir = d; return; }
+  }
+  const d = bfsDir(e.tx, e.ty, walkE, (x, y) => dotSet.has(key2(x, y)));
+  e.dir = d || opts[(Math.random() * opts.length) | 0];
+}
+
+/* ---------- mode setup & flow ---------- */
+function startMode(m) {
+  mode = m; paused = false;
+  score = 0; lives = 3; level = 1; catches = 0; hauntT = 0;
+  round = 1; wins = { eater: 0, ghost: 0 };
+  eaterScore = 0; ghostScore = 0; roundT = 90;
+  resetDots(); resetPositions();
+  banner = m === 'haunt' ? 'HAUNT — COMMAND THE PACK'
+         : m === 'eater' ? 'EATER — RUN THE MAZE'
+         : 'VERSUS — EATER VS PACK';
+  bannerT = 1.8;
+  state = 'serve'; serveT = 1.8; stateT = 0;
+  sUI();
+}
+function startRound() {
+  resetDots(); resetPositions();
+  eaterScore = 0; ghostScore = 0; roundT = 90;
+  banner = 'ROUND ' + round; bannerT = 1.6;
+  state = 'serve'; serveT = 1.6; stateT = 0;
+}
+function scoreWinner() {
+  if (ghostScore > eaterScore) return 'ghost';
+  return 'eater'; // ties go to the eater
+}
+function endRound(winner) {
+  roundWinner = winner;
+  state = 'roundEnd'; stateT = 0;
+  banner = (winner === 'eater' ? 'EATER' : 'PACK') + ' TAKES ROUND ' + round;
+  bannerT = 2.0;
+  if (winner === 'eater') sWin(); else sCatch();
+}
+function nextRound() {
+  wins[roundWinner]++;
+  if (wins[roundWinner] >= 2) { state = 'matchEnd'; stateT = 0; sWin(); }
+  else { round++; startRound(); }
+}
+function respawnGhost(g) {
+  const s = PEN_SPAWNS[g.idx];
+  g.tx = s.x; g.ty = s.y; g.px = tileCX(s.x); g.py = tileCY(s.y);
+  g.dir = { x: 0, y: -1 }; g.want = { x: 0, y: -1 };
+  g.state = 'inPen'; g.exitT = 0.4;
+  g.waypoints = [[9, 10], [DOOR.x, DOOR.y], [DOOR.x, DOOR.y - 1]]; g.wpIdx = 0;
+}
+function updatePenGhost(g, dt) {
+  if (g.exitT > 0) { g.exitT -= dt; return; }
+  const wp = g.waypoints[g.wpIdx];
+  const gx = tileCX(wp[0]), gy = tileCY(wp[1]);
+  const dx = gx - g.px, dy = gy - g.py, d = Math.hypot(dx, dy);
+  const move = g.speed * dt;
+  if (d <= move + 0.01) {
+    g.px = gx; g.py = gy; g.wpIdx++;
+    if (g.wpIdx >= g.waypoints.length) {
+      g.state = 'out'; g.tx = DOOR.x; g.ty = DOOR.y - 1;
+      g.dir = walkG(8, 7, g) ? { x: -1, y: 0 } : { x: 1, y: 0 };
+      g.want = { x: g.dir.x, y: g.dir.y };
+    }
+  } else { g.px += dx / d * move; g.py += dy / d * move; }
+}
+function triggerFright() {
+  frightT = mode === 'eater' ? Math.max(2, 6 - (level - 1) * 0.7)
+          : mode === 'versus' ? 5 : 6;
+  eatChain = 0;
+  for (const g of ghosts)
+    if (g.state === 'out' && (g.dir.x || g.dir.y)) g.dir = { x: -g.dir.x, y: -g.dir.y };
+}
+function eatGhost(g) {
+  g.state = 'eaten'; g.respawnT = 4;
+  const pts = [200, 400, 800][Math.min(eatChain, 2)];
+  eatChain++;
+  if (mode === 'eater') score += pts;
+  else if (mode === 'versus') eaterScore += pts;
+  banner = '+' + pts; bannerT = 0.9;
+  sEatGhost();
+}
+function onCatch() {
+  if (mode === 'eater') {
+    lives--; sDeath();
+    if (lives <= 0) {
+      if (score > best) { best = score; localStorage.setItem('haunt_best', best); }
+      state = 'gameOver'; stateT = 0;
+    } else {
+      banner = 'CAUGHT!'; bannerT = 1.4;
+      resetPositions(); state = 'serve'; serveT = 1.2; stateT = 0;
+    }
+  } else if (mode === 'haunt') {
+    catches++; sCatch();
+    if (catches >= 3) {
+      if (!bestTime || hauntT < bestTime) {
+        bestTime = Math.round(hauntT * 10) / 10;
+        localStorage.setItem('haunt_best_time', bestTime);
+      }
+      state = 'win'; stateT = 0; sWin();
+    } else {
+      banner = 'CAUGHT! ' + catches + '/3'; bannerT = 1.4;
+      resetPositions(); state = 'serve'; serveT = 1.2; stateT = 0;
+    }
+  } else {
+    ghostScore += 500; sCatch();
+    banner = 'PACK STRIKES! +500'; bannerT = 1.2;
+    resetPositions(); state = 'serve'; serveT = 1.0; stateT = 0;
+  }
+}
+function onMazeCleared() {
+  if (mode === 'eater') {
+    level++; score += 500;
+    banner = 'LEVEL ' + level; bannerT = 1.6; sWin();
+    resetDots(); resetPositions();
+    state = 'serve'; serveT = 1.4; stateT = 0;
+  } else if (mode === 'versus') {
+    endRound('eater');
+  } else {
+    resetDots();
+    banner = 'MAZE RESTOCKED'; bannerT = 1.2;
+  }
+}
+function eatAtEaterTile() {
+  const k = key2(eater.tx, eater.ty);
+  if (dotSet.has(k)) {
+    dotSet.delete(k); dotsLeft--;
+    if (mode === 'eater') score += 10;
+    else if (mode === 'versus') eaterScore += 10;
+    sDot();
+  } else if (orbSet.has(k)) {
+    orbSet.delete(k);
+    if (mode === 'eater') score += 50;
+    else if (mode === 'versus') eaterScore += 50;
+    triggerFright(); sOrb();
+  }
+}
+function collisions() {
+  for (const g of ghosts) {
+    if (g.state !== 'out') continue;
+    if (Math.hypot(g.px - eater.px, g.py - eater.py) > TS * 0.6) continue;
+    if (frightT > 0) eatGhost(g);
+    else { onCatch(); break; }
+  }
+}
+
+/* ---------- per-frame update ---------- */
+function update(dt) {
+  time += dt;
+  if (bannerT > 0) bannerT -= dt;
+  if (state === 'menu' || state === 'matchEnd' || state === 'gameOver' || state === 'win') {
+    stateT += dt; return;
+  }
+  stateT += dt;
+  if (state === 'serve') { serveT -= dt; if (serveT <= 0) state = 'play'; return; }
+  if (state === 'roundEnd') { if (stateT > 2.2) nextRound(); return; }
+  if (paused) return;
+
+  if (mode === 'versus') {
+    roundT -= dt;
+    if (roundT <= 0) { endRound(scoreWinner()); return; }
+  }
+  if (mode === 'haunt') hauntT += dt;
+  if (frightT > 0) { frightT -= dt; if (frightT <= 0) eatChain = 0; }
+  if (driftHunt > 0) driftHunt -= dt;
+  if (Math.random() < dt * 0.12) driftHunt = 2; // DRIFT gets ideas
+
+  // eater
+  eater.mouth += dt * 9;
+  stepMover(eater, dt, mode === 'haunt' ? decideEaterAI : decideEaterHuman);
+  eatAtEaterTile();
+
+  // ghosts
+  for (const g of ghosts) {
+    g.speed = ghostSpeed();
+    if (g.state === 'eaten') {
+      g.respawnT -= dt;
+      if (g.respawnT <= 0) respawnGhost(g);
+      continue;
+    }
+    if (g.state === 'inPen') { updatePenGhost(g, dt); continue; }
+    const human = (mode === 'haunt' || mode === 'versus') && ghosts[selectedIdx] === g;
+    stepMover(g, dt, human ? decideGhostHuman : decideGhostAI);
+  }
+
+  collisions();
+  if (dotsLeft <= 0 && state === 'play') onMazeCleared();
+}
+
+/* ---------- input ---------- */
+const keys = {};
+window.addEventListener('keydown', e => {
+  if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(e.code)) e.preventDefault();
+  if (e.repeat) return;
+  keys[e.code] = true; audio();
+  const dir = e.code === 'ArrowLeft' || e.code === 'KeyA' ? { x: -1, y: 0 }
+            : e.code === 'ArrowRight' || e.code === 'KeyD' ? { x: 1, y: 0 }
+            : e.code === 'ArrowUp' || e.code === 'KeyW' ? { x: 0, y: -1 }
+            : e.code === 'ArrowDown' || e.code === 'KeyS' ? { x: 0, y: 1 } : null;
+  if (dir && state === 'play' && !paused) {
+    const arrows = ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.code);
+    const wasd = ['KeyW','KeyA','KeyS','KeyD'].includes(e.code);
+    if (mode === 'eater') eater.want = dir;
+    else if (mode === 'haunt') ghosts[selectedIdx].want = dir;
+    else { // versus: arrows = eater, WASD = selected ghost
+      if (arrows) eater.want = dir;
+      else if (wasd) ghosts[selectedIdx].want = dir;
+    }
+  }
+  if (['Digit1','Digit2','Digit3'].includes(e.code) && (mode === 'haunt' || mode === 'versus')
+      && state === 'play') {
+    const i = +e.code.slice(5) - 1;
+    if (ghosts[i] && ghosts[i].state === 'out') { selectedIdx = i; sUI(); }
+  }
+  if (e.code === 'KeyM') muted = !muted;
+  if (e.code === 'KeyP' && (state === 'play' || state === 'serve')) { paused = !paused; sUI(); }
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
+
+let pStart = null; // {x, y, t}
+function toGame(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H };
+}
+canvas.addEventListener('pointerdown', e => {
+  e.preventDefault(); audio();
+  const p = toGame(e);
+  pStart = { x: p.x, y: p.y, t: performance.now() };
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+});
+canvas.addEventListener('pointerup', e => {
+  if (!pStart) return;
+  const p = toGame(e);
+  const dx = p.x - pStart.x, dy = p.y - pStart.y;
+  const dist = Math.hypot(dx, dy), dur = performance.now() - pStart.t;
+  const sx = pStart.x, sy = pStart.y;
+  pStart = null;
+  if (dist < 14 && dur < 400) handleTap(sx, sy);
+  else if (dist >= 14) {
+    const dir = Math.abs(dx) > Math.abs(dy) ? { x: Math.sign(dx), y: 0 } : { x: 0, y: Math.sign(dy) };
+    handleSwipe(sx, sy, dir);
+  }
+});
+canvas.addEventListener('pointercancel', () => { pStart = null; });
+
+function ghostAt(x, y) {
+  for (let i = 0; i < ghosts.length; i++) {
+    const g = ghosts[i];
+    if (g.state !== 'out') continue;
+    if (Math.hypot(g.px - x, g.py - y) < 26) return i;
+  }
+  return -1;
+}
+function handleTap(x, y) {
+  if (pauseBtn && Math.hypot(x - pauseBtn.x, y - pauseBtn.y) < 26) {
+    if (state === 'play' || state === 'serve') { paused = !paused; sUI(); } return;
+  }
+  if (muteBtn && Math.hypot(x - muteBtn.x, y - muteBtn.y) < 26) { muted = !muted; sUI(); return; }
+  if (state === 'menu') {
+    for (const b of menuBtns)
+      if (Math.abs(y - b.y) < 34 && x > 90 && x < W - 90) { startMode(b.id); return; }
+    return;
+  }
+  if (state === 'matchEnd' || state === 'gameOver' || state === 'win') { state = 'menu'; sUI(); return; }
+  if (state !== 'play' || paused) return;
+  if (mode === 'haunt') {
+    const i = ghostAt(x, y);
+    if (i >= 0) { selectedIdx = i; sUI(); }
+  } else if (mode === 'versus' && y < SPLIT_Y) {
+    const i = ghostAt(x, y);
+    if (i >= 0) { selectedIdx = i; sUI(); }
+  }
+}
+function handleSwipe(x, y, dir) {
+  if (state !== 'play' || paused) return;
+  if (mode === 'eater') eater.want = dir;
+  else if (mode === 'haunt') ghosts[selectedIdx].want = dir;
+  else { // versus: top half steers selected ghost, bottom half steers eater
+    if (y < SPLIT_Y) ghosts[selectedIdx].want = dir;
+    else eater.want = dir;
+  }
+}
+const menuBtns = [
+  { id: 'haunt',  y: 400, label: 'HAUNT',  sub: '1P — command the pack vs the AI eater' },
+  { id: 'eater',  y: 478, label: 'EATER',  sub: '1P — run the maze vs the AI pack' },
+  { id: 'versus', y: 556, label: 'VERSUS', sub: '2P — eater vs pack, same screen' },
+];
+
+/* ---------- render ---------- */
+const mazeCv = document.createElement('canvas');
+(function buildMazeCache() {
+  mazeCv.width = W; mazeCv.height = Math.ceil(MH * TS);
+  const m = mazeCv.getContext('2d');
+  const isWall = (x, y) => {
+    if (y < 0 || y >= MH) return true;
+    return MAZE[y][wrapX(x)] === '#';
+  };
+  m.strokeStyle = '#00e5ff'; m.lineWidth = 2;
+  m.shadowColor = '#00e5ff'; m.shadowBlur = 7;
+  const ins = 3;
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
+    if (!isWall(x, y)) continue;
+    const px = x * TS, py = y * TS;
+    m.beginPath();
+    if (!isWall(x, y - 1)) { m.moveTo(px + ins, py + ins); m.lineTo(px + TS - ins, py + ins); }
+    if (!isWall(x, y + 1)) { m.moveTo(px + ins, py + TS - ins); m.lineTo(px + TS - ins, py + TS - ins); }
+    if (!isWall(x - 1, y)) { m.moveTo(px + ins, py + ins); m.lineTo(px + ins, py + TS - ins); }
+    if (!isWall(x + 1, y)) { m.moveTo(px + TS - ins, py + ins); m.lineTo(px + TS - ins, py + TS - ins); }
+    m.stroke();
+  }
+  // pen door bar
+  m.shadowColor = '#ff4dd2'; m.strokeStyle = '#ff4dd2'; m.lineWidth = 3;
+  m.beginPath();
+  m.moveTo(DOOR.x * TS + 4, (DOOR.y + 0.5) * TS);
+  m.lineTo((DOOR.x + 1) * TS - 4, (DOOR.y + 0.5) * TS);
+  m.stroke();
+})();
+function drawDots() {
+  ctx.fillStyle = '#9fd8ff';
+  for (const k of dotSet) {
+    const c = k.indexOf(','), x = +k.slice(0, c), y = +k.slice(c + 1);
+    ctx.fillRect(tileCX(x) - 1.5, tileCY(y) - 1.5, 3, 3);
+  }
+  const pr = 5 + 2 * Math.sin(time * 5);
+  ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 12;
+  for (const k of orbSet) {
+    const c = k.indexOf(','), x = +k.slice(0, c), y = +k.slice(c + 1);
+    ctx.beginPath(); ctx.arc(tileCX(x), tileCY(y), pr, 0, TAU); ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+}
+function drawEater() {
+  const e = eater, r = TS * 0.55;
+  const a = (e.dir.x || e.dir.y) ? Math.atan2(e.dir.y, e.dir.x) : -Math.PI / 2;
+  const open = 0.12 + 0.3 * Math.abs(Math.sin(e.mouth));
+  ctx.save(); ctx.translate(e.px, e.py);
+  ctx.fillStyle = '#ffb02e';
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const ha = a + Math.PI / 6 + i * TAU / 6;
+    const hx = Math.cos(ha) * r, hy = Math.sin(ha) * r;
+    i ? ctx.lineTo(hx, hy) : ctx.moveTo(hx, hy);
+  }
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#030308';
+  ctx.beginPath(); ctx.moveTo(0, 0);
+  ctx.arc(0, 0, r * 1.02, a - open, a + open); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.arc(Math.cos(a + 2.2) * r * 0.42, Math.sin(a + 2.2) * r * 0.42, r * 0.15, 0, TAU); ctx.fill();
+  ctx.restore();
+}
+function drawGhost(g) {
+  const r = TS * 0.55;
+  const fright = frightT > 0;
+  const flash = fright && frightT < 2 && Math.floor(time * 6) % 2 === 0;
+  const col = flash ? '#ffffff' : fright ? '#a8d8ff' : g.color;
+  ctx.save(); ctx.translate(g.px, g.py);
+  if ((mode === 'haunt' || mode === 'versus') && ghosts[selectedIdx] === g && g.state === 'out') {
+    ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 2;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath(); ctx.arc(0, 0, r + 6, time * 2, time * 2 + TAU); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  if (g.shape === 'diamond') {
+    ctx.moveTo(0, -r); ctx.lineTo(r * 0.8, 0); ctx.lineTo(0, r); ctx.lineTo(-r * 0.8, 0);
+  } else if (g.shape === 'triangle') {
+    const a = (g.dir.x || g.dir.y) ? Math.atan2(g.dir.y, g.dir.x) : -Math.PI / 2;
+    for (let i = 0; i < 3; i++) {
+      const ta = a + i * TAU / 3, tx = Math.cos(ta) * r, ty = Math.sin(ta) * r;
+      i ? ctx.lineTo(tx, ty) : ctx.moveTo(tx, ty);
+    }
+  } else {
+    const s = r * 0.85;
+    ctx.rect(-s, -s, 2 * s, 2 * s);
+  }
+  ctx.closePath(); ctx.fill();
+  const ex = g.dir.x * 3, ey = g.dir.y * 3, eo = r * 0.32;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(-eo + ex, -r * 0.1 + ey, r * 0.2, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(eo + ex, -r * 0.1 + ey, r * 0.2, 0, TAU); ctx.fill();
+  ctx.fillStyle = fright ? '#a8d8ff' : '#0a0a12';
+  ctx.beginPath(); ctx.arc(-eo + ex * 1.6, -r * 0.1 + ey * 1.6, r * 0.1, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(eo + ex * 1.6, -r * 0.1 + ey * 1.6, r * 0.1, 0, TAU); ctx.fill();
+  ctx.restore();
+}
+function drawMiniEater(x, y) {
+  ctx.fillStyle = '#ffb02e';
+  ctx.beginPath();
+  for (let i = 0; i < 6; i++) {
+    const ha = Math.PI / 6 + i * TAU / 6;
+    const hx = x + Math.cos(ha) * 9, hy = y + Math.sin(ha) * 9;
+    i ? ctx.lineTo(hx, hy) : ctx.moveTo(hx, hy);
+  }
+  ctx.closePath(); ctx.fill();
+}
+function drawHUD() {
+  ctx.textAlign = 'left'; ctx.font = '14px "Courier New", monospace';
+  ctx.fillStyle = '#8a93a0';
+  if (mode === 'eater') {
+    ctx.fillText('SCORE ' + score, 14, 26);
+    ctx.fillText('BEST ' + best, 14, 46);
+    ctx.fillText('LEVEL ' + level, 14, 66);
+    for (let i = 0; i < lives; i++) drawMiniEater(W - 30 - i * 28, 30);
+  } else if (mode === 'haunt') {
+    ctx.fillText('TIME ' + hauntT.toFixed(1) + 's', 14, 26);
+    ctx.fillText('CAUGHT ' + catches + '/3', 14, 46);
+    if (bestTime) ctx.fillText('BEST ' + bestTime.toFixed(1) + 's', 14, 66);
+  } else {
+    ctx.fillText('EATER ' + eaterScore, 14, 26);
+    ctx.fillText('PACK ' + ghostScore, 14, 46);
+    ctx.fillText('R' + round + '  E' + wins.eater + '-P' + wins.ghost, 14, 66);
+    ctx.fillStyle = '#ffd75a'; ctx.textAlign = 'center';
+    ctx.fillText(Math.ceil(roundT) + 's', W / 2, 30);
+    ctx.textAlign = 'left';
+  }
+  pauseBtn = { x: W - 30, y: 26 };
+  muteBtn = { x: W - 30, y: 52 };
+  ctx.fillStyle = '#3a3f45'; ctx.textAlign = 'center';
+  ctx.font = '13px "Courier New", monospace';
+  ctx.fillText(paused ? '▶' : 'II', pauseBtn.x, pauseBtn.y);
+  ctx.fillText(muted ? 'M×' : 'M♪', muteBtn.x, muteBtn.y);
+  ctx.textAlign = 'left';
+}
+function drawBottom() {
+  if (mode === 'versus' && (state === 'play' || state === 'serve')) {
+    ctx.strokeStyle = 'rgba(255,255,255,.09)'; ctx.lineWidth = 1;
+    ctx.setLineDash([6, 6]);
+    ctx.beginPath(); ctx.moveTo(0, SPLIT_Y); ctx.lineTo(W, SPLIT_Y); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  if (state !== 'play') return;
+  ctx.textAlign = 'center'; ctx.font = '13px "Courier New", monospace';
+  if (mode === 'haunt') {
+    const g = ghosts[selectedIdx];
+    ctx.fillStyle = g.color;
+    ctx.fillText('COMMANDING: ' + g.name + '  (tap ghost / 1-3)', W / 2, 648);
+    ctx.fillStyle = '#3a3f45';
+    ctx.fillText('swipe or arrows to steer', W / 2, 670);
+  } else if (mode === 'versus') {
+    const g = ghosts[selectedIdx];
+    ctx.fillStyle = g.color;
+    ctx.fillText('P2 PACK: ' + g.name + ' — steer with top swipes', W / 2, 648);
+    ctx.fillStyle = '#ffb02e';
+    ctx.fillText('P1 EATER — bottom swipes / arrows', W / 2, 670);
+  } else {
+    ctx.fillStyle = '#3a3f45';
+    ctx.fillText('swipe or arrows / WASD to steer', W / 2, 660);
+  }
+  ctx.textAlign = 'left';
+}
+function centerText(main, sub, color) {
+  ctx.textAlign = 'center';
+  ctx.fillStyle = color || '#e8f4ff';
+  ctx.font = 'bold 30px "Courier New", monospace';
+  ctx.fillText(main, W / 2, H / 2 - 10);
+  if (sub) {
+    ctx.font = '15px "Courier New", monospace'; ctx.fillStyle = '#8a93a0';
+    ctx.fillText(sub, W / 2, H / 2 + 22);
+  }
+  ctx.textAlign = 'left';
+}
+function drawMenu() {
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#e8f4ff';
+  ctx.font = 'bold 64px "Courier New", monospace';
+  ctx.fillText('HAUNT', W / 2, 190);
+  ctx.font = '15px "Courier New", monospace'; ctx.fillStyle = '#8a93a0';
+  ctx.fillText('a 1980 story, told from the other side', W / 2, 224);
+  ctx.fillText('you are the ghosts', W / 2, 248);
+  // ornament: the three shapes
+  const oy = 300;
+  ctx.fillStyle = '#ff4d5e';
+  ctx.beginPath(); ctx.moveTo(180, oy - 14); ctx.lineTo(194, oy); ctx.lineTo(180, oy + 14); ctx.lineTo(166, oy); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#ff4dd2';
+  ctx.beginPath(); ctx.moveTo(240, oy - 14); ctx.lineTo(254, oy + 10); ctx.lineTo(226, oy + 10); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#4dc9ff';
+  ctx.fillRect(292, oy - 12, 24, 24);
+  for (const b of menuBtns) {
+    ctx.strokeStyle = '#e8f4ff'; ctx.lineWidth = 1.6;
+    ctx.strokeRect(90, b.y - 30, W - 180, 60);
+    ctx.fillStyle = '#e8f4ff'; ctx.font = 'bold 22px "Courier New", monospace';
+    ctx.fillText(b.label, W / 2, b.y - 2);
+    ctx.font = '12px "Courier New", monospace'; ctx.fillStyle = '#8a93a0';
+    ctx.fillText(b.sub, W / 2, b.y + 20);
+  }
+  ctx.font = '12px "Courier New", monospace'; ctx.fillStyle = '#3a3f45';
+  ctx.fillText('swipe or arrows to steer · tap a ghost to command it · M mute', W / 2, H - 60);
+  ctx.textAlign = 'left';
+}
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  if (state === 'menu') { drawMenu(); return; }
+  ctx.drawImage(mazeCv, 0, OY);
+  drawDots();
+  if (eater) drawEater();
+  for (const g of ghosts) if (g.state !== 'eaten') drawGhost(g);
+  drawHUD();
+  drawBottom();
+  if (bannerT > 0) {
+    ctx.globalAlpha = clamp(bannerT, 0, 1);
+    ctx.fillStyle = '#e8f4ff'; ctx.textAlign = 'center';
+    ctx.font = 'bold 24px "Courier New", monospace';
+    ctx.fillText(banner, W / 2, OY + 60);
+    ctx.globalAlpha = 1; ctx.textAlign = 'left';
+  }
+  if (state === 'serve') centerText('READY!');
+  if (paused && (state === 'play' || state === 'serve')) {
+    ctx.fillStyle = 'rgba(3,3,8,.6)'; ctx.fillRect(0, 0, W, H);
+    centerText('PAUSED');
+  }
+  if (state === 'roundEnd') {
+    ctx.fillStyle = 'rgba(3,3,8,.45)'; ctx.fillRect(0, 0, W, H);
+    centerText(roundWinner === 'eater' ? 'EATER TAKES IT' : 'PACK TAKES IT',
+               'eater ' + eaterScore + ' — ' + ghostScore + ' pack',
+               roundWinner === 'eater' ? '#ffb02e' : '#ff4d5e');
+  }
+  if (state === 'matchEnd') {
+    ctx.fillStyle = 'rgba(3,3,8,.78)'; ctx.fillRect(0, 0, W, H);
+    const ew = wins.eater > wins.ghost;
+    centerText(ew ? 'EATER WINS' : 'PACK WINS',
+               'rounds: eater ' + wins.eater + ' — ' + wins.ghost + ' pack',
+               ew ? '#ffb02e' : '#ff4d5e');
+    ctx.textAlign = 'center'; ctx.fillStyle = '#8a93a0';
+    ctx.font = '15px "Courier New", monospace';
+    ctx.fillText('tap to return', W / 2, H / 2 + 52);
+    ctx.textAlign = 'left';
+  }
+  if (state === 'gameOver' || state === 'win') {
+    ctx.fillStyle = 'rgba(3,3,8,.78)'; ctx.fillRect(0, 0, W, H);
+    if (state === 'gameOver') {
+      centerText('GAME OVER', 'score ' + score + ' · best ' + best, '#ff4d5e');
+    } else {
+      centerText('PACK WINS', 'time ' + hauntT.toFixed(1) + 's' + (bestTime ? ' · best ' + bestTime.toFixed(1) + 's' : ''), '#7dff9a');
+    }
+    ctx.textAlign = 'center'; ctx.fillStyle = '#8a93a0';
+    ctx.font = '15px "Courier New", monospace';
+    ctx.fillText('tap to return', W / 2, H / 2 + 52);
+    ctx.textAlign = 'left';
+  }
+}
+
+/* ---------- main loop ---------- */
+let lastT = 0, acc = 0;
+const DT = 1 / 60;
+function frame(t) {
+  requestAnimationFrame(frame);
+  const now = t / 1000;
+  const ft = Math.min(0.1, now - (lastT || now));
+  lastT = now; acc += ft;
+  while (acc >= DT) { update(DT); acc -= DT; }
+  render();
+}
+requestAnimationFrame(frame);
+
+/* ---------- debug hooks ---------- */
+window.GAME = {
+  get state() { return state; }, get mode() { return mode; },
+  get score() { return mode === 'haunt' ? hauntT : mode === 'versus' ? eaterScore : score; },
+  get lives() { return lives; }, get level() { return level; },
+  get dotsLeft() { return dotsLeft; },
+  get ghosts() { return ghosts.map(g => ({ name: g.name, tx: g.tx, ty: g.ty, state: g.state })); },
+  get eater() { return eater ? { tx: eater.tx, ty: eater.ty } : null; },
+  get wins() { return wins; },
+  get catches() { return catches; }, get hauntT() { return hauntT; },
+  get roundT() { return roundT; }, get frightT() { return frightT; },
+  get eaterScore() { return eaterScore; }, get ghostScore() { return ghostScore; },
+  startMode,
+};
+</script>
+</body>
+</html>
