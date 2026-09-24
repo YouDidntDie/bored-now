@@ -78,7 +78,7 @@ function noiseBurst(dur, freq, vol) {
 const sfx = {
   click() { beep(660, 0.07, 'square', 0.08); },
   count(n) { beep(n === 0 ? 880 : 440, n === 0 ? 0.35 : 0.15, 'square', 0.12); },
-  checkpoint() { beep(660, 0.1, 'square', 0.1); beep(990, 0.18, 'square', 0.1, 0.1); },
+  gate() { beep(740, 0.08, 'square', 0.1); beep(1108, 0.14, 'square', 0.1, 0.07); },
   crash() { noiseBurst(0.3, 500, 0.25); beep(90, 0.25, 'sawtooth', 0.15); },
   slip() { beep(1200, 0.12, 'sine', 0.07); beep(1600, 0.12, 'sine', 0.07, 0.1); },
   fanfare() { [523, 659, 784, 1046].forEach((f, i) => beep(f, 0.22, 'square', 0.1, i * 0.14)); }
@@ -201,35 +201,44 @@ const G = {
   state: 'menu', mode: null, t: 0,
   countdown: 0, countShown: -1,
   racers: [], cars: [],
-  raceTime: 0, timeLeft: 0, lapStart: 0,
+  raceTime: 0, lapStart: 0, score: 0,
   wins: { p1: 0, p2: 0 }, round: 1,
   banner: null, bannerT: 0,
   qualHits: 0, finishedOrder: [],
   msg: null
 };
+// handicap (seconds of head start the rivals get), set by the time trial
+let handicapSecs = 0;
+try { handicapSecs = parseFloat(localStorage.getItem('slipstream_handicap') || '0') || 0; } catch (e) {}
+// sector gates: fractions of a lap that award score in gauntlet mode
+const GATES = [0.2, 0.4, 0.6, 0.8];
+const GATE_SEGS = GATES.map(f => Math.floor(f * segments.length));
 function makeRacer(isP2) {
   return {
     isP2: !!isP2, x: isP2 ? 0.5 : -0.5, z: 0, speed: 0, lap: 0,
     finished: false, finishT: 0, spin: 0, draft: false, draftT: 0,
     steerVis: 0, offroad: false, color: isP2 ? '#f15bb5' : '#00e5ff',
-    lapTimes: [], name: isP2 ? 'P2' : 'P1'
+    lapTimes: [], name: isP2 ? 'P2' : 'P1', gateHits: 0
   };
 }
 function banner(text, dur) { G.banner = text; G.bannerT = dur || 2.2; }
 
-const PARS = [52000, 56000, 60000, 64000, 68000, 72000, 76000];
 function startMode(mode) {
   G.mode = mode; G.t = 0; G.banner = null; G.finishedOrder = [];
-  G.racers = []; G.cars = []; G.wins = { p1: 0, p2: 0 }; G.round = 1;
-  if (mode === 'qualify') {
+  G.racers = []; G.cars = []; G.wins = { p1: 0, p2: 0 }; G.round = 1; G.score = 0;
+  if (mode === 'trial') {
     G.racers = [makeRacer(false)];
     G.cars = makeTraffic(6);
     G.qualHits = 0; G.raceTime = 0;
-  } else if (mode === 'race') {
+  } else if (mode === 'gauntlet') {
     G.racers = [makeRacer(false)];
     const paces = [0.97, 0.94, 0.92, 0.90, 0.88, 0.86, 0.84];
-    for (let i = 0; i < 7; i++) G.cars.push(makeAICar(i, paces[i]));
-    G.raceTime = 0; G.timeLeft = 60000; G.lapStart = 0;
+    for (let i = 0; i < 7; i++) {
+      const c = makeAICar(i, paces[i]);
+      c.z = handicapSecs * c.maxS + (6 - i) * SEG * 4; // handicap head start + stagger
+      G.cars.push(c);
+    }
+    G.raceTime = 0; G.lapStart = 0;
   } else if (mode === 'versus') {
     G.racers = [makeRacer(false), makeRacer(true)];
     G.cars = makeTraffic(3);
@@ -247,8 +256,8 @@ window.addEventListener('keydown', e => {
   audio();
   if (e.code === 'KeyM') { muted = !muted; }
   if (G.state === 'menu') {
-    if (e.code === 'Digit1') startMode('qualify');
-    if (e.code === 'Digit2') startMode('race');
+    if (e.code === 'Digit1') startMode('trial');
+    if (e.code === 'Digit2') startMode('gauntlet');
     if (e.code === 'Digit3') startMode('versus');
   } else if ((G.state === 'play' || G.state === 'countdown') && e.code === 'KeyP') {
     G.state = G.state === 'play' ? 'paused' : 'play'; sfx.click();
@@ -359,6 +368,17 @@ function updateRacer(r, inp, dt) {
     G.lapStart = G.raceTime;
     onLap(r);
   }
+  // sector gates (gauntlet): score for threading the gate on the road
+  if (G.mode === 'gauntlet' && !r.isP2 && !r.finished) {
+    const lapIdx = Math.floor(prevZ / TRACK_LEN);
+    for (let gi = 0; gi < GATES.length; gi++) {
+      const gz = lapIdx * TRACK_LEN + GATES[gi] * TRACK_LEN;
+      if (prevZ < gz && r.z >= gz && Math.abs(r.x) <= 1.05) {
+        G.score += 500; r.gateHits++;
+        sfx.gate(); banner('+500 GATE', 1.4);
+      }
+    }
+  }
   // collisions + slipstream vs cars (lap-relative distance, wrap-aware)
   const pz = (r.z + PLAYER_Z) % TRACK_LEN;
   let drafting = false;
@@ -380,26 +400,21 @@ function updateRacer(r, inp, dt) {
   if (drafting && !r.draft) { r.draft = true; r.draftT = 1.4; sfx.slip(); banner('SLIPSTREAM!', 1.4); }
 }
 function onLap(r) {
-  if (G.mode === 'race' && !r.isP2 && !r.finished) {
-    G.timeLeft += 45000;
-    if (r.lap < TOTAL_LAPS) { sfx.checkpoint(); banner('CHECKPOINT  +' + Math.floor(G.timeLeft / 1000) + 's', 1.8); }
-  }
-  if (G.mode === 'qualify' && !r.isP2 && !r.finished) {
+  if (G.mode === 'trial' && !r.isP2 && !r.finished) {
+    // one flying lap sets the handicap: slower trial -> bigger rival head start
     const t = r.lapTimes[r.lapTimes.length - 1];
-    let slot = 8;
-    for (let i = 0; i < PARS.length; i++) if (t < PARS[i]) { slot = i + 1; break; }
-    r.gridSlot = slot;
+    handicapSecs = Math.round(clamp((t - 48000) / 1000 * 0.6, 0, 8) * 10) / 10;
+    try { localStorage.setItem('slipstream_handicap', String(handicapSecs)); } catch (e) {}
     finishRacer(r);
     sfx.fanfare();
   }
-  if (r.lap >= TOTAL_LAPS && !r.finished) {
+  if (G.mode === 'versus' && r.lap >= TOTAL_LAPS && !r.finished) {
     finishRacer(r);
-    if (G.mode === 'versus') {
-      const other = G.racers.find(q => q !== r);
-      if (!other.finished) { other.graceT = 12; banner(r.name + ' FINISHES!', 2); sfx.fanfare(); }
-    } else if (G.mode === 'race' && !r.isP2) {
-      sfx.fanfare();
-    }
+    const other = G.racers.find(q => q !== r);
+    if (!other.finished) { other.graceT = 12; banner(r.name + ' FINISHES!', 2); sfx.fanfare(); }
+  } else if (G.mode === 'gauntlet' && r.lap >= TOTAL_LAPS && !r.finished) {
+    finishRacer(r);
+    sfx.fanfare();
   }
 }
 function finishRacer(r) {
@@ -474,30 +489,21 @@ function update(dt) {
   const sp = p0 ? p0.speed / MAX_SPEED : 0;
   const skid = p0 && Math.abs(p0.steerVis) > 0.7 && sp > 0.55 && !p0.offroad;
   engineUpdate(sp, skid);
-  // race timer
-  if (G.mode === 'race') {
-    G.timeLeft -= dt * 1000;
-    if (G.timeLeft <= 0) {
-      G.timeLeft = 0;
-      for (const r of G.racers) if (!r.finished) finishRacer(r);
-      endRace();
-    } else if (p0.finished && G.state === 'play') {
-      endRace();
-    }
-  }
-  if (G.mode === 'qualify' && p0.finished && G.state === 'play') endQualify();
+  // gauntlet: fixed laps, race ends when the player finishes; trial: one flying lap
+  if (G.mode === 'gauntlet' && p0.finished && G.state === 'play') endRace();
+  if (G.mode === 'trial' && p0.finished && G.state === 'play') endTrial();
   if (G.mode === 'versus' && G.racers.every(r => r.finished) && G.state === 'play') endVersusRound();
 }
-function endQualify() {
+function endTrial() {
   G.state = 'finished';
   const r = G.racers[0], t = r.lapTimes[0] || 0;
   let best = 0;
   try {
-    best = parseFloat(localStorage.getItem('slipstream_best_qual') || '0');
-    if (!best || t < best) { localStorage.setItem('slipstream_best_qual', String(t)); best = t; G.msg = 'NEW BEST!'; }
+    best = parseFloat(localStorage.getItem('slipstream_best_trial') || '0');
+    if (!best || t < best) { localStorage.setItem('slipstream_best_trial', String(t)); best = t; G.msg = 'NEW BEST!'; }
     else G.msg = null;
   } catch (e) {}
-  G.msg = (G.msg ? G.msg + '  ' : '') + 'GRID P' + (r.gridSlot || 8) + (G.qualHits === 0 ? '  •  CLEAN LAP' : '  •  ' + G.qualHits + ' HITS');
+  G.msg = (G.msg ? G.msg + '  ' : '') + 'TRIAL ' + fmtTime(t) + '  •  HANDICAP -' + handicapSecs.toFixed(1) + 's' + (G.qualHits === 0 ? '  •  CLEAN LAP' : '  •  ' + G.qualHits + ' HITS');
   sfx.fanfare();
 }
 function endRace() {
@@ -509,7 +515,8 @@ function endRace() {
     if (pos < best) { localStorage.setItem('slipstream_best_race', String(pos)); best = pos; }
   } catch (e) {}
   const prize = [1000, 700, 500, 350, 250, 150, 100, 50][clamp(pos - 1, 0, 7)];
-  G.msg = pos <= 3 ? ('PODIUM! P' + pos + '  •  +' + prize) : ('P' + pos + '  •  +' + prize);
+  G.score += prize;
+  G.msg = (pos <= 3 ? 'PODIUM! P' : 'P') + pos + '  •  SCORE ' + G.score;
   if (pos === 1) sfx.fanfare();
 }
 function endVersusRound() {
@@ -707,6 +714,13 @@ function renderView(v, r, isP2view) {
     if (seg.p1.camera.z <= CAM_DEPTH || p2.y >= p1.y || p2.y >= maxy) continue;
     renderSegmentView(v, p1.x, p1.y, p1.w, p2.x, p2.y, p2.w, seg.color);
     maxy = p1.y;
+    if (G.mode === 'gauntlet' && GATE_SEGS.indexOf(seg.index) >= 0 && p1.w < v.w * 1.5) {
+      // overhead sector-gate bar across the road
+      ctx.fillStyle = 'rgba(0,229,255,.85)';
+      ctx.fillRect(p1.x - p1.w, p1.y - 16, p1.w * 2, 8);
+      ctx.fillStyle = '#062a30';
+      for (let gx = p1.x - p1.w; gx < p1.x + p1.w; gx += 24) ctx.fillRect(gx, p1.y - 16, 12, 8);
+    }
   }
   // sprites + cars back to front
   for (let n = DRAW - 1; n > 0; n--) {
@@ -758,10 +772,12 @@ function drawHUD(v, r, label) {
   ctx.fillStyle = 'rgba(0,0,0,.45)';
   ctx.fillRect(v.x, v.y, v.w, 34 * s);
   const kmh = Math.round(r.speed / MAX_SPEED * 298);
+  const lapTotal = G.mode === 'trial' ? 1 : TOTAL_LAPS;
   text(label + '  ' + kmh + ' km/h', v.x + 10 * s, v.y + 23 * s, Math.round(17 * s), '#ffe9a8');
-  text('LAP ' + Math.min(r.lap + 1, TOTAL_LAPS) + '/' + TOTAL_LAPS, v.x + v.w / 2, v.y + 23 * s, Math.round(17 * s), '#fff', 'center');
-  if (G.mode === 'race' && !r.isP2) text('P' + playerPosition() + '/8', v.x + v.w - 10 * s, v.y + 23 * s, Math.round(17 * s), '#00e5ff', 'right');
-  if (G.mode === 'race') text(fmtTime(Math.max(0, G.timeLeft)), v.x + v.w - 10 * s, v.y + 46 * s, Math.round(15 * s), G.timeLeft < 10000 ? '#ff5252' : '#8fa89b', 'right');
+  text('LAP ' + Math.min(r.lap + 1, lapTotal) + '/' + lapTotal, v.x + v.w / 2, v.y + 23 * s, Math.round(17 * s), '#fff', 'center');
+  if (G.mode === 'gauntlet' && !r.isP2) text('P' + playerPosition() + '/8', v.x + v.w - 10 * s, v.y + 23 * s, Math.round(17 * s), '#00e5ff', 'right');
+  if (G.mode === 'gauntlet') text('SCORE ' + G.score, v.x + v.w - 10 * s, v.y + 46 * s, Math.round(15 * s), '#00e5ff', 'right');
+  if (G.mode === 'gauntlet') text('HANDICAP -' + handicapSecs.toFixed(1) + 's', v.x + v.w / 2, v.y + 46 * s, Math.round(15 * s), '#8fa89b', 'center');
   if (G.mode !== 'versus') text(fmtTime(G.raceTime), v.x + 10 * s, v.y + 46 * s, Math.round(15 * s), '#8fa89b');
   else text('R' + G.round + '  P1 ' + G.wins.p1 + ' - ' + G.wins.p2 + ' P2', v.x + v.w - 10 * s, v.y + 46 * s, Math.round(15 * s), '#8fa89b', 'right');
   if (G.banner && !r.isP2) {
@@ -777,11 +793,11 @@ function layoutTouch() {
   touchBtns = [];
   if (G.state === 'menu') {
     const defs = [
-      { id: 'm1', label: '1 QUALIFY', y: 400 }, { id: 'm2', label: '2 RACE', y: 470 }, { id: 'm3', label: '3 VERSUS', y: 540 }
+      { id: 'm1', label: '1 TIME TRIAL', y: 400 }, { id: 'm2', label: '2 GAUNTLET', y: 470 }, { id: 'm3', label: '3 VERSUS', y: 540 }
     ];
     for (const d of defs) touchBtns.push({
       id: d.id, x: 90, y: d.y, w: 300, h: 56,
-      action: () => { if (G.state === 'menu') startMode(d.id === 'm1' ? 'qualify' : d.id === 'm2' ? 'race' : 'versus'); }
+      action: () => { if (G.state === 'menu') startMode(d.id === 'm1' ? 'trial' : d.id === 'm2' ? 'gauntlet' : 'versus'); }
     });
     return;
   }
@@ -845,15 +861,16 @@ function drawMenu() {
   ctx.fillStyle = '#ff9a3c';
   for (let i = 0; i < 6; i++) { const y = 700 - i * 80; ctx.fillRect(237 - i * 1.2, y, 6, 34); }
   drawCar(W / 2, 660, 120, '#00e5ff', {});
-  const labels = ['1 · QUALIFY — one flying lap', '2 · RACE — 3 laps vs 7 rivals', '3 · VERSUS — split-screen duel'];
+  const labels = ['1 · TIME TRIAL — one lap sets the rival handicap', '2 · GAUNTLET — 3 laps vs 7 rivals', '3 · VERSUS — split-screen duel'];
   touchBtns.forEach((b, i) => {
     text(labels[i], W / 2, b.y + 36, 17, '#e8f5ee', 'center');
   });
   text('arrows/WASD drive · P pause · M mute', W / 2, 660, 13, '#54655c', 'center');
   try {
-    const bq = localStorage.getItem('slipstream_best_qual'), br = localStorage.getItem('slipstream_best_race');
-    if (bq) text('best qual ' + fmtTime(parseFloat(bq)), W / 2, 300, 14, '#8fa89b', 'center');
-    if (br) text('best race P' + br, W / 2, 322, 14, '#8fa89b', 'center');
+    const bq = localStorage.getItem('slipstream_best_trial'), br = localStorage.getItem('slipstream_best_race');
+    if (bq) text('best trial ' + fmtTime(parseFloat(bq)), W / 2, 300, 14, '#8fa89b', 'center');
+    if (br) text('best gauntlet P' + br, W / 2, 322, 14, '#8fa89b', 'center');
+    text('handicap -' + handicapSecs.toFixed(1) + 's', W / 2, 344, 14, '#8fa89b', 'center');
   } catch (e) {}
 }
 function drawCountdown(v, r) {
@@ -867,13 +884,15 @@ function drawFinished() {
     const parts = G.msg.split('  ');
     parts.forEach((p, i) => text(p, W / 2, 300 + i * 34, 20, '#e8f5ee', 'center'));
   }
-  if (G.mode === 'qualify') {
+  if (G.mode === 'trial') {
     const r = G.racers[0];
     text('lap ' + fmtTime(r.lapTimes[0] || 0), W / 2, 420, 22, '#00e5ff', 'center');
+    text('handicap -' + handicapSecs.toFixed(1) + 's', W / 2, 452, 20, '#8fa89b', 'center');
   }
-  if (G.mode === 'race') {
+  if (G.mode === 'gauntlet') {
     const r = G.racers[0];
     text('best lap ' + fmtTime(Math.min.apply(null, r.lapTimes.concat([Infinity]))), W / 2, 420, 20, '#8fa89b', 'center');
+    text('gates ' + r.gateHits + '  •  score ' + G.score, W / 2, 452, 20, '#00e5ff', 'center');
   }
   if (G.mode === 'versus') text('P1 ' + G.wins.p1 + '  —  ' + G.wins.p2 + ' P2', W / 2, 420, 22, '#e8f5ee', 'center');
   text('tap NEXT / ENTER', W / 2, 600, 15, '#54655c', 'center');
@@ -905,7 +924,7 @@ function render() {
   } else if (r0) {
     const v = { x: 0, y: 0, w: W, h: H };
     renderView(v, r0);
-    drawHUD(v, r0, G.mode === 'race' ? '' : 'YOU');
+    drawHUD(v, r0, G.mode === 'gauntlet' ? '' : 'YOU');
     if (G.state === 'countdown') drawCountdown(v, r0);
   }
   drawTouch();
@@ -933,7 +952,12 @@ window.GAME = {
   get state() { return G.state; },
   get mode() { return G.mode; },
   get lap() { return G.racers[0] ? G.racers[0].lap : 0; },
-  get position() { return G.mode === 'race' ? playerPosition() : (G.racers[0] && G.racers[0].finished ? 1 : 0); },
+  get position() { return G.mode === 'gauntlet' ? playerPosition() : (G.racers[0] && G.racers[0].finished ? 1 : 0); },
+  get score() { return G.score; },
+  get handicap() { return handicapSecs; },
+  get trackLen() { return TRACK_LEN; },
+  get gates() { return G.racers[0] ? G.racers[0].gateHits : 0; },
+  setZ(z) { if (G.racers[0]) G.racers[0].z = z; },
   get speed() { return G.racers[0] ? G.racers[0].speed : 0; },
   get timeMs() { return Math.round(G.raceTime); },
   get wins() { return { p1: G.wins.p1, p2: G.wins.p2 }; },
