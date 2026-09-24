@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>THE CABINET — Artifacts of the Tour</title>
+<style>
+  :root { --neon:#00ff9d; --dim:#0a0f16; --brass:#c9a35c; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; padding:0; min-height:100%; background:#05070c; color:#e8f5ee;
+    font-family:'Courier New', ui-monospace, monospace; }
+  body { display:flex; flex-direction:column; align-items:center; padding:48px 20px 32px; }
+  h1 { font-size:clamp(2.2rem, 8vw, 3.8rem); margin:0; letter-spacing:.18em; color:var(--neon);
+    text-shadow:0 0 18px rgba(0,255,157,.55); }
+  .tag { margin:14px 0 8px; color:#8fa89b; font-size:clamp(.85rem, 3.5vw, 1.05rem);
+    letter-spacing:.06em; text-align:center; }
+  .note { margin:0 0 40px; color:var(--brass); font-size:.85rem; letter-spacing:.04em;
+    text-align:center; max-width:620px; line-height:1.6; }
+  .grid { display:grid; gap:34px; width:min(860px, 100%);
+    grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); }
+  .artifact { background:var(--dim); border:1px solid rgba(201,163,92,.35); border-radius:14px;
+    padding:24px; display:flex; flex-direction:column; gap:14px;
+    box-shadow:inset 0 0 40px rgba(0,0,0,.5); }
+  .artifact img { width:100%; border-radius:8px; border:1px solid rgba(201,163,92,.2);
+    display:block; aspect-ratio:1/1; object-fit:cover; }
+  .plaque { border-top:1px solid rgba(201,163,92,.35); border-bottom:1px solid rgba(201,163,92,.35);
+    padding:10px 4px; text-align:center; }
+  .plaque .num { font-size:.72rem; letter-spacing:.3em; color:var(--brass); }
+  .plaque h2 { margin:6px 0; font-size:1.5rem; letter-spacing:.1em; color:var(--neon); }
+  .plaque .meta { font-size:.78rem; color:#8fa89b; letter-spacing:.08em; }
+  .lore { margin:0; color:#c6d4cc; line-height:1.65; font-size:.9rem; }
+  .lore em { color:var(--brass); font-style:normal; }
+  .back { margin-top:44px; color:#8fa89b; font-size:.85rem; letter-spacing:.1em; text-decoration:none;
+    border:1px solid rgba(0,255,157,.35); border-radius:999px; padding:10px 28px; }
+  .back:hover { background:var(--neon); color:#05070c; }
+  footer { margin-top:44px; color:#54655c; font-size:.8rem; letter-spacing:.08em; text-align:center; }
+  footer a { color:var(--neon); }
+</style>
+</head>
+<body>
+  <h1>THE CABINET</h1>
+  <p class="tag">Artifacts recovered from the history of games.</p>
+  <p class="note">Each era of the tour leaves one physical collectible behind. When the tour is
+  complete, one of these will be chosen to become a real physical board game.</p>
+  <div class="grid">
+    <div class="artifact">
+      <img src="images/paddle.png" alt="The First Paddle — a solid brass table-tennis paddle in a museum display case">
+      <div class="plaque">
+        <div class="num">ARTIFACT 001</div>
+        <h2>THE FIRST PADDLE</h2>
+        <div class="meta">ERA 1972 &middot; FROM PONG</div>
+      </div>
+      <p class="lore">The instrument of the first rally &mdash; table tennis on a television screen,
+      1972. Two dials, one square ball, and the object that started everything. Cast in brass,
+      it has not moved since the last point was scored. <em>Some say the ball is still in play.</em></p>
+    </div>
+    <div class="artifact">
+      <img src="images/starshard.png" alt="Starshard — a jagged crystal shard with glowing red cracks in a museum display case">
+      <div class="plaque">
+        <div class="num">ARTIFACT 002</div>
+        <h2>STARSHARD</h2>
+        <div class="meta">ERA 1978 &middot; FROM STARFALL</div>
+      </div>
+      <p class="lore">A crystallized fragment of a shattered invader, recovered from the orbital
+      defense of 1978. Every kill in the defense fell to earth in fragments &mdash; this is one
+      of them, kept. Its cracks still hold the red glow of the swarm's last descent.
+      <em>Handle with care: it remembers falling.</em></p>
+    </div>
+  </div>
+  <a class="back" href="../">&larr; BACK TO THE GAMES</a>
+  <footer>Built for killing time &middot; <a href="https://github.com/YouDidntDie/bored-now">bored-now</a></footer>
+</body>
+</html>
