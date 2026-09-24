@@ -37,19 +37,19 @@ const MONSTERS = [
       {n:'Flare Bite',  t:'EMBER', p:65, a:100, e:null},
       {n:'Magma Burst', t:'EMBER', p:90, a:85,  e:null},
       {n:'Singe',       t:'EMBER', p:40, a:100, e:{k:'burn', ch:0.5}},
-      {n:'Rock Throw',  t:'STONE', p:60, a:95,  e:null},
+      {n:'Stone Hurl',  t:'STONE', p:60, a:95,  e:null},
     ]},
   { id:'wavern', name:'WAVERN', type:'TIDE', hp:110, atk:85, def:85, spd:70, shape:'drop',
     moves:[
       {n:'Aqua Slam',   t:'TIDE', p:65, a:100, e:null},
       {n:'Tidal Crash', t:'TIDE', p:90, a:85,  e:null},
       {n:'Brine Spray', t:'TIDE', p:40, a:100, e:{k:'par', ch:0.4}},
-      {n:'Mud Shot',    t:'STONE', p:60, a:95, e:null},
+      {n:'Sludge Spit',    t:'STONE', p:60, a:95, e:null},
     ]},
   { id:'fernix', name:'FERNIX', type:'LEAF', hp:120, atk:80, def:90, spd:55, shape:'hex',
     moves:[
       {n:'Vine Lash',   t:'LEAF', p:65, a:100, e:null},
-      {n:'Leaf Storm',  t:'LEAF', p:90, a:85,  e:null},
+      {n:'Canopy Cyclone',  t:'LEAF', p:90, a:85,  e:null},
       {n:'Spore Cloud', t:'LEAF', p:40, a:100, e:{k:'par', ch:0.5}},
       {n:'Mud Ball',    t:'STONE', p:60, a:95, e:null},
     ]},
@@ -58,20 +58,20 @@ const MONSTERS = [
       {n:'Zap',          t:'VOLT', p:65, a:100, e:null},
       {n:'Thunder Crash',t:'VOLT', p:90, a:85,  e:null},
       {n:'Static Field', t:'VOLT', p:40, a:100, e:{k:'par', ch:0.5}},
-      {n:'Aqua Jet',     t:'TIDE', p:60, a:95,  e:null},
+      {n:'Torrent Dash',     t:'TIDE', p:60, a:95,  e:null},
     ]},
   { id:'terrax', name:'TERRAX', type:'STONE', hp:115, atk:100, def:95, spd:50, shape:'rock',
     moves:[
-      {n:'Rock Slide', t:'STONE', p:65, a:100, e:null},
+      {n:'Boulder Roll', t:'STONE', p:65, a:100, e:null},
       {n:'Quake',      t:'STONE', p:90, a:85,  e:null},
-      {n:'Sand Tomb',  t:'STONE', p:40, a:100, e:{k:'par', ch:0.4}},
-      {n:'Fire Punch', t:'EMBER', p:60, a:95,  e:null},
+      {n:'Dune Snare',  t:'STONE', p:40, a:100, e:{k:'par', ch:0.4}},
+      {n:'Blaze Fist', t:'EMBER', p:60, a:95,  e:null},
     ]},
   { id:'umbra', name:'UMBRA', type:'SHADE', hp:95, atk:92, def:65, spd:98, shape:'crescent',
     moves:[
-      {n:'Shadow Claw', t:'SHADE', p:65, a:100, e:null},
-      {n:'Nightmare',   t:'SHADE', p:90, a:85,  e:null},
-      {n:'Curse',       t:'SHADE', p:40, a:100, e:{k:'burn', ch:0.4}},
+      {n:'Dusk Talons', t:'SHADE', p:65, a:100, e:null},
+      {n:'Waking Terror',   t:'SHADE', p:90, a:85,  e:null},
+      {n:'Hex Mark',       t:'SHADE', p:40, a:100, e:{k:'burn', ch:0.4}},
       {n:'Ember Bite',  t:'EMBER', p:60, a:95,  e:null},
     ]},
 ];
@@ -168,7 +168,7 @@ function resolveTurn(){
     if(!me.alive) return;
     if(act.kind==='switch'){
       steps.push(()=>{ B[s].active=act.i; const m=activeMon(s);
-        log((s==='a'?'You':sideName(s))+' sent out '+m.name+'!');
+        log(m.name+' enters the fray!');
         SFX.pick(); pushAnim({k:'send', side:s}); });
       return;
     }
@@ -179,20 +179,20 @@ function resolveTurn(){
     }
     const mv=me.moves[act.i];
     steps.push(()=>{
-      if(Math.random()*100 >= mv.a){ log(me.name+' used '+mv.n+'... missed!'); SFX.miss(); pushAnim({k:'miss', side:f}); return; }
+      if(Math.random()*100 >= mv.a){ log(me.name+' used '+mv.n+'... went wide!'); SFX.miss(); pushAnim({k:'miss', side:f}); return; }
       const {dmg, eff} = calcDmg(me, mv, foeM);
       foeM.hp = Math.max(0, foeM.hp - dmg);
       pushAnim({k:'hit', side:f, big:eff>1});
-      if(eff>1){ log(me.name+' used '+mv.n+'! Super effective! ('+dmg+')'); SFX.super(); }
-      else if(eff<1){ log(me.name+' used '+mv.n+'. It\'s not very effective... ('+dmg+')'); SFX.weak(); }
+      if(eff>1){ log(me.name+' used '+mv.n+'! A crushing hit! ('+dmg+')'); SFX.super(); }
+      else if(eff<1){ log(me.name+' used '+mv.n+'. It barely dents it... ('+dmg+')'); SFX.weak(); }
       else { log(me.name+' used '+mv.n+'! ('+dmg+')'); SFX.hit(); }
       if(mv.e && foeM.alive && !foeM.status && Math.random()<mv.e.ch){
         foeM.status = mv.e.k;
-        log(foeM.name+(mv.e.k==='burn'?' was burned!':' is paralyzed!')); SFX.status();
+        log(foeM.name+(mv.e.k==='burn'?' caught fire!':' is paralyzed!')); SFX.status();
       }
       if(foeM.hp<=0 && foeM.alive){
         foeM.alive=false; foeM.hp=0;
-        log(foeM.name+' fainted!'); SFX.faint(); pushAnim({k:'faint', side:f});
+        log(foeM.name+' went down!'); SFX.faint(); pushAnim({k:'faint', side:f});
       }
     });
   });
@@ -201,7 +201,7 @@ function resolveTurn(){
     ['a','b'].forEach(s=>{ const m=activeMon(s);
       if(m.alive && m.status==='burn'){ const d=Math.max(1,Math.floor(m.maxhp/16)); m.hp=Math.max(0,m.hp-d);
         log(m.name+' is hurt by its burn! ('+d+')');
-        if(m.hp<=0){ m.alive=false; log(m.name+' fainted!'); SFX.faint(); pushAnim({k:'faint', side:s}); }
+        if(m.hp<=0){ m.alive=false; log(m.name+' went down!'); SFX.faint(); pushAnim({k:'faint', side:s}); }
       }});
   });
   runSteps(steps, afterTurn);
@@ -400,7 +400,7 @@ function doSwitchPick(idx){
   const pick=benched[idx].i;
   if(S.ui==='faintpick'){
     B[side].active=pick; const m=activeMon(side);
-    log(sideName(side)+' sent out '+m.name+'!'); SFX.pick();
+    log(m.name+' enters the fray!'); SFX.pick();
     if(S.faintQueue&&S.faintQueue.length){ S.faintSide=S.faintQueue.shift(); maybeAIFaint(); }
     else { S.faintSide=null; S.faintQueue=null; S.ui='main'; S.chooser='a'; }
     drawBattle(); if(S.ui==='main') maybeAI('a');
@@ -462,7 +462,7 @@ function drawPlate(mon,x,y,w,align){ // name + type + hp
   typeBadge(mon.type, align==='left'?x:x-w+56, y+22);
   hpBar(x+(align==='left'?0:w-160),y+46,160,12,mon.hp/mon.maxhp);
   text(mon.hp+'/'+mon.maxhp, x+(align==='left'?165:w-165), y+44, 12, '#8fa89b', align==='left'?'left':'right');
-  if(mon.status) text(mon.status==='burn'?'BRN':'PAR', x+(align==='left'?w-34:0), y+22, 11, mon.status==='burn'?'#ff7a2f':'#ffd93f', align==='left'?'right':'left','bold ');
+  if(mon.status) text(mon.status==='burn'?'BURN':'PARA', x+(align==='left'?w-34:0), y+22, 11, mon.status==='burn'?'#ff7a2f':'#ffd93f', align==='left'?'right':'left','bold ');
 }
 function animState(side){
   const now=performance.now(); let dx=0,dy=0,flash=0,alpha=1,scale=1;
@@ -592,7 +592,7 @@ function drawBattle(){
   } else if(ui==='faintpick'){
     const s=S.faintSide, c=B.ctrl[s];
     const label = c==='p1'?'P1':c==='p2'?'P2':c==='ai'?'FOE':'YOU';
-    text(label+' — send out next!',W/2,604,15,'#ffd93f','center','bold ');
+    text(label+' — choose your next monster!',W/2,604,15,'#ffd93f','center','bold ');
     const benched=B[s].team.map((m,i)=>({m,i})).filter(o=>o.i!==B[s].active&&o.m.alive);
     benched.forEach((o,i)=>{ btn(24+i*150,628,140,64,(i+1)+'. '+o.m.name,()=>doSwitchPick(i),{sub:o.m.hp+'/'+o.m.maxhp+' HP'}); });
   } else {
