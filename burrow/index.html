@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>BURROW — a 1982 story</title>
+<style>
+  html,body{margin:0;padding:0;background:#05060a;height:100%;overflow:hidden;
+    font-family:'Courier New',ui-monospace,monospace;-webkit-user-select:none;user-select:none;
+    touch-action:none;}
+  body{display:flex;align-items:flex-start;justify-content:center;}
+  canvas{display:block;background:#05060a;touch-action:none;}
+</style>
+</head>
+<body>
+<canvas id="c" width="480" height="720"></canvas>
+<script>
+'use strict';
+/* BURROW (1982) — you are the monsters. Original digging game. */
+// ================= helpers =================
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const irnd=(a,b)=>Math.floor(rnd(a,b+1));
+function mulberry(seed){return function(){seed|=0;seed=seed+0x6D2B79F5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+const dist2=(ax,ay,bx,by)=>Math.hypot(ax-bx,ay-by);
+
+// ================= audio =================
+let AC=null, muted=false, lastDigSfx=0;
+function audio(){try{if(!AC)AC=new(window.AudioContext||window.webkitAudioContext)();if(AC.state==='suspended')AC.resume();}catch(e){}return AC;}
+function tone(f0,f1,dur,type,vol,delay){
+  if(muted)return; const a=audio(); if(!a)return; delay=delay||0;
+  const t=a.currentTime+delay, o=a.createOscillator(), g=a.createGain();
+  o.type=type||'square'; o.frequency.setValueAtTime(Math.max(20,f0),t);
+  if(f1&&f1!==f0)o.frequency.exponentialRampToValueAtTime(Math.max(20,f1),t+dur);
+  g.gain.setValueAtTime(vol||0.12,t); g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+  o.connect(g); g.connect(a.destination); o.start(t); o.stop(t+dur+0.02);
+}
+function nz(dur,vol,fc,delay){
+  if(muted)return; const a=audio(); if(!a)return; delay=delay||0;
+  const t=a.currentTime+delay, len=Math.floor(a.sampleRate*dur), buf=a.createBuffer(1,len,a.sampleRate), d=buf.getChannelData(0);
+  for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*(1-i/len);
+  const s=a.createBufferSource(); s.buffer=buf;
+  const f=a.createBiquadFilter(); f.type='lowpass'; f.frequency.value=fc||1200;
+  const g=a.createGain(); g.gain.setValueAtTime(vol||0.2,t); g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+  s.connect(f); f.connect(g); g.connect(a.destination); s.start(t);
+}
+const sClick=()=>tone(660,660,0.06,'square',0.08);
+const sDig=()=>{const n=performance.now();if(n-lastDigSfx<110)return;lastDigSfx=n;nz(0.07,0.10,700);};
+const sPump=st=>tone(300+st*160,520+st*200,0.12,'square',0.10);
+const sPop=()=>{nz(0.12,0.22,2500);tone(900,1800,0.12,'square',0.10);};
+const sRumble=()=>nz(0.5,0.14,220);
+const sCrash=()=>{nz(0.35,0.30,500);tone(120,40,0.3,'sawtooth',0.14);};
+const sCatch=()=>{tone(500,140,0.35,'sawtooth',0.14);};
+const sPhase=()=>tone(200,900,0.25,'sine',0.10);
+const sWin=()=>{[523,659,784,1046].forEach((f,i)=>tone(f,f,0.14,'square',0.10,i*0.13));};
+const sLose=()=>{[400,300,220,150].forEach((f,i)=>tone(f,f,0.16,'sawtooth',0.10,i*0.14));};
+const sRound=()=>{tone(440,440,0.1,'square',0.10);tone(660,660,0.12,'square',0.10,0.12);};
+
+// ================= constants =================
+const COLS=14, ROWS=14, TS=34, GX=2, GY=70, GW=COLS*TS, GH=ROWS*TS;
+const cx=c=>GX+c*TS+TS/2, cy=r=>GY+r*TS+TS/2;
+const ROCK_SPOTS=[[2,4],[2,9],[6,2],[6,11],[10,6]];
+const MON_SPAWNS=[[13,0],[13,13],[0,13],[12,6],[6,12],[13,6]];
+const DIG_SPAWN={r:0,c:0};
+
+// ================= state =================
+let mode='menu';           // menu | digger | burrow | versus
+let state='menu';          // menu | play | pause | over | win | roundEnd
+let dirt=[];               // [r][c] bool
+let digger=null, monsters=[], rocks=[], parts=[];
+let score=0, best={digger:0, burrow:0};
+let lives=3, level=1, monstersLeft=0;
+let catches=0, aiPops=0, burrowT=0;
+let roundT=90, roundNum=1, p1Score=0, p2Score=0, wins={p1:0,p2:0}, roundEndT=0, roundWinner=0;
+let banner=null;           // {text, sub, t}
+let staticDirty=true;
+let selMonster=0;          // index of player-controlled monster (burrow / versus P2)
+try{ best.digger=parseInt(localStorage.getItem('burrow_digger_best')||'0',10)||0;
+     best.burrow=parseFloat(localStorage.getItem('burrow_time_best')||'0')||0; }catch(e){}
+function setBanner(text,sub,dur){ banner={text:text,sub:sub||'',t:dur||2.2}; }
+
+// ================= static soil layer =================
+const staticC=document.createElement('canvas'); staticC.width=GW; staticC.height=GH;
+const STRATA=['#3a2a1c','#3a2a1c','#3a2a1c','#3a2a1c','#4a2b18','#4a2b18','#4a2b18','#4a2b18',
+              '#40233d','#40233d','#40233d','#2b1a35','#2b1a35','#2b1a35'];
+function renderStatic(){
+  const g=staticC.getContext('2d'), R=mulberry(777);
+  g.clearRect(0,0,GW,GH);
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+    const x=c*TS, y=r*TS;
+    if(dirt[r][c]){
+      g.fillStyle=STRATA[r]; g.fillRect(x,y,TS,TS);
+      g.fillStyle='rgba(0,0,0,0.25)';
+      for(let i=0;i<7;i++){ g.fillRect(x+R()*TS, y+R()*TS, 2, 2); }
+      g.fillStyle='rgba(255,255,255,0.05)';
+      for(let i=0;i<3;i++){ g.fillRect(x+R()*TS, y+R()*TS, 2, 2); }
+    } else {
+      g.fillStyle='#070a12'; g.fillRect(x,y,TS,TS);
+      g.strokeStyle='rgba(255,170,70,0.30)'; g.lineWidth=3;
+      g.beginPath();
+      if(r>0&&dirt[r-1][c]){g.moveTo(x,y+1);g.lineTo(x+TS,y+1);}
+      if(r<ROWS-1&&dirt[r+1][c]){g.moveTo(x,y+TS-1);g.lineTo(x+TS,y+TS-1);}
+      if(c>0&&dirt[r][c-1]){g.moveTo(x+1,y);g.lineTo(x+1,y+TS);}
+      if(c<COLS-1&&dirt[r][c+1]){g.moveTo(x+TS-1,y);g.lineTo(x+TS-1,y+TS);}
+      g.stroke();
+    }
+  }
+  staticDirty=false;
+}
+
+// ================= entities =================
+function makeDigger(r,c,isAI){
+  return {kind:'d', r:r,c:c, tr:r,tc:c, px:cx(c),py:cy(r), dx:0,dy:0,
+    speed:4.6, alive:true, invuln:0, pumpHeld:false, pumpAcc:0, isAI:!!isAI,
+    thinkT:0, wanderT:0};
+}
+function makeMonster(type,r,c){
+  const t=type==='grit';
+  return {kind:'m', type:type, r:r,c:c, tr:r,tc:c, px:cx(c),py:cy(r), dx:0,dy:0,
+    tunSpd:t?4.6:5.2, dirtSpd:t?1.5:1.7, phaseSpd:3.4,
+    inflation:0, pumpAcc:0, decayAcc:0, pumpedNow:false, frozen:false,
+    phaseT:0, phaseCD:0, alive:true, respawnT:0, thinkT:rnd(0,0.25), homeR:r, homeC:c};
+}
+function makeRock(r,c){ return {r:r,c:c, fr:r, state:'rest', wob:0, shx:0}; }
+function rockAt(r,c){
+  for(const k of rocks){ if(k.state==='fall'){ if(Math.floor(k.fr)===r&&k.c===c) return k; } else if(k.r===r&&k.c===c) return k; }
+  return null;
+}
+function monAt(r,c,except){
+  for(const m of monsters){ if(m!==except&&m.alive&&m.r===r&&m.c===c) return m; }
+  return null;
+}
+function spawnParts(x,y,n,col,spd){
+  for(let i=0;i<n;i++){ if(parts.length>90)return;
+    parts.push({x:x,y:y,vx:rnd(-spd,spd),vy:rnd(-spd,spd),t:rnd(0.3,0.7),col:col}); }
+}
+
+// ================= BFS =================
+function bfs(sr,sc,gr,gc,costFn){
+  const W=COLS, key=(r,c)=>r*W+c;
+  const dist=new Map(), parent=new Map(), q=[[sr,sc]];
+  dist.set(key(sr,sc),0);
+  const DIRS=[[1,0],[-1,0],[0,1],[0,-1]];
+  while(q.length){
+    const [r,c]=q.shift();
+    if(r===gr&&c===gc){
+      const path=[]; let k=key(r,c), sk=key(sr,sc);
+      while(k!==sk){ path.unshift([Math.floor(k/W),k%W]); k=parent.get(k); }
+      return path;
+    }
+    for(const [dr,dc] of DIRS){
+      const nr=r+dr,nc=c+dc;
+      if(nr<0||nr>=ROWS||nc<0||nc>=W)continue;
+      const co=costFn(nr,nc); if(co===Infinity)continue;
+      const nk=key(nr,nc), nd=dist.get(key(r,c))+co;
+      if(!dist.has(nk)||nd<dist.get(nk)){ dist.set(nk,nd); parent.set(nk,key(r,c)); q.push([nr,nc]); }
+    }
+  }
+  return null;
+}
+function moveCost(r,c){ if(rockAt(r,c))return Infinity; return dirt[r][c]?5:1; }
+
+// ================= mode setup =================
+function newDirt(){ dirt=[]; for(let r=0;r<ROWS;r++){ dirt.push([]); for(let c=0;c<COLS;c++)dirt[r].push(true);} staticDirty=true; }
+function freeCellNear(r,c){
+  if(!rockAt(r,c)&&!(r===DIG_SPAWN.r&&c===DIG_SPAWN.c))return{r:r,c:c};
+  for(let rad=1;rad<6;rad++)for(let dr=-rad;dr<=rad;dr++)for(let dc=-rad;dc<=rad;dc++){
+    const nr=r+dr,nc=c+dc;
+    if(nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&!rockAt(nr,nc))return{r:nr,c:nc};
+  }
+  return{r:r,c:c};
+}
+function setupCommon(){
+  newDirt(); monsters=[]; rocks=[]; parts=[]; banner=null;
+  for(const [r,c] of ROCK_SPOTS)rocks.push(makeRock(r,c));
+}
+function setupDigger(lv){
+  setupCommon(); mode='digger'; level=lv; score=score; // score persists across levels
+  digger=makeDigger(DIG_SPAWN.r,DIG_SPAWN.c,false);
+  const n=Math.min(2+lv,6);
+  for(let i=0;i<n;i++){
+    const s=MON_SPAWNS[i%MON_SPAWNS.length], p=freeCellNear(s[0],s[1]);
+    const m=makeMonster(i%3===2?'grit':'murk',p.r,p.c);
+    m.tunSpd=Math.min(6.4,m.tunSpd+0.15*(lv-1));
+    monsters.push(m);
+  }
+  monstersLeft=monsters.filter(m=>m.alive).length;
+  selMonster=0;
+}
+function setupBurrow(){
+  setupCommon(); mode='burrow';
+  digger=makeDigger(DIG_SPAWN.r,DIG_SPAWN.c,true);
+  const spots=[[13,13],[13,0]];
+  monsters=[makeMonster('murk',spots[0][0],spots[0][1]),makeMonster('grit',spots[1][0],spots[1][1])];
+  monstersLeft=2; catches=0; aiPops=0; burrowT=0; selMonster=0;
+}
+function setupVersus(){
+  setupCommon(); mode='versus';
+  digger=makeDigger(DIG_SPAWN.r,DIG_SPAWN.c,false);
+  const spots=[[13,13],[13,0],[0,13]];
+  monsters=[makeMonster('murk',spots[0][0],spots[0][1]),makeMonster('grit',spots[1][0],spots[1][1]),makeMonster('murk',spots[2][0],spots[2][1])];
+  monstersLeft=3; roundT=90; p1Score=0; p2Score=0; selMonster=0;
+}
+function startMode(m){
+  sClick();
+  if(m==='digger'){ score=0; lives=3; setupDigger(1); setBanner('DIGGER','pump them or drop rocks',2.0); }
+  else if(m==='burrow'){ setupBurrow(); setBanner('BURROW','catch the digger 3 times',2.0); }
+  else if(m==='versus'){ setupVersus(); wins={p1:0,p2:0}; roundNum=1; setBanner('ROUND 1','digger vs monsters',2.0); }
+  state='play';
+}
+
+// ================= movement =================
+function monSpeed(m){
+  if(m.phaseT>0)return m.phaseSpd;
+  return dirt[m.tr]&&dirt[m.tr][m.tc]?m.dirtSpd:m.tunSpd;
+}
+function stepTo(e,dt,speed){
+  const tx=cx(e.tc), ty=cy(e.tr);
+  let dx=tx-e.px, dy=ty-e.py; const d=Math.hypot(dx,dy);
+  const sp=speed*TS*dt;
+  if(d<=sp+0.01){ e.px=tx;e.py=ty;e.r=e.tr;e.c=e.tc;return true; }
+  e.px+=dx/d*sp; e.py+=dy/d*sp; return false;
+}
+function tryStep(e,dr,dc){
+  const nr=clamp(e.r+dr,0,ROWS-1), nc=clamp(e.c+dc,0,COLS-1);
+  if(nr===e.r&&nc===e.c)return false;
+  if(rockAt(nr,nc))return false;
+  e.tr=nr;e.tc=nc;e.dx=dc;e.dy=dr; return true;
+}
+function digAt(r,c){
+  if(dirt[r][c]){ dirt[r][c]=false; staticDirty=true; sDig(); spawnParts(cx(c),cy(r),3,'#8a6a45',60); }
+}
+
+// ================= combat =================
+function addScore(n){ score+=n; }
+function popMonster(m,byCrush){
+  if(!m.alive)return;
+  m.alive=false; m.inflation=0; m.frozen=false;
+  spawnParts(m.px,m.py,14,m.type==='grit'?'#ff9a3c':'#b46ae0',130); sPop();
+  if(mode==='digger'){ addScore(byCrush?1000:200); monstersLeft--; }
+  else if(mode==='versus'){ p1Score+=byCrush?500:200; }
+  else if(mode==='burrow'){ aiPops++; setBanner('POPPED','the digger got one — '+aiPops+'/5',1.4); }
+  if(mode!=='digger'){ m.respawnT=4; }
+}
+function crushMonster(m){
+  if(!m.alive)return;
+  spawnParts(m.px,m.py,16,'#999',150);
+  popMonster(m,true);
+}
+function diggerDie(crushed){
+  if(digger.invuln>0&&!crushed)return;
+  sCrash(); spawnParts(digger.px,digger.py,18,'#ffb43c',150);
+  if(mode==='digger'){
+    lives--;
+    if(lives<=0){ state='over'; sLose(); if(score>best.digger){best.digger=score;try{localStorage.setItem('burrow_digger_best',String(score));}catch(e){}} return; }
+    respawnDigger();
+  } else if(mode==='burrow'){
+    respawnDigger();
+  } else if(mode==='versus'){
+    p2Score+=500; setBanner('CAUGHT!','+500 monsters',1.4); sCatch(); respawnDigger();
+  }
+}
+function respawnDigger(){
+  const d=digger; d.r=DIG_SPAWN.r;d.c=DIG_SPAWN.c;d.tr=d.r;d.tc=d.c;
+  d.px=cx(d.c);d.py=cy(d.r);d.invuln=2.5;d.pumpHeld=false;d.pumpAcc=0;
+}
+function monsterCatch(m){
+  // a live monster touches the digger
+  sCatch(); spawnParts(digger.px,digger.py,12,'#ff5a5a',120);
+  if(mode==='digger'){ diggerDie(false); }
+  else if(mode==='burrow'){
+    catches++; setBanner('CAUGHT '+catches+'/3','',1.6); respawnDigger();
+    if(catches>=3){
+      state='win'; sWin();
+      if(!best.burrow||burrowT<best.burrow){best.burrow=burrowT;try{localStorage.setItem('burrow_time_best',String(burrowT));}catch(e){}}
+    }
+  } else if(mode==='versus'){ diggerDie(false); }
+}
+
+// ================= digger update =================
+let inputDir={r:0,c:0}, p1Dir={r:0,c:0}, p2Dir={r:0,c:0}, p1Pump=false;
+function adjacentMonster(d){
+  for(const m of monsters){
+    if(!m.alive||m.phaseT>0)continue;
+    if(Math.abs(m.r-d.r)+Math.abs(m.c-d.c)===1)return m;
+  }
+  return null;
+}
+function updateDigger(dt){
+  const d=digger; if(!d.alive)return;
+  if(d.invuln>0)d.invuln-=dt;
+  const dir=(mode==='versus')?p1Dir:inputDir;
+  const arrived=stepTo(d,dt,d.speed);
+  if(arrived){
+    digAt(d.r,d.c);
+    if(dir.r||dir.c)tryStep(d,dir.r,dir.c);
+  }
+  // pumping
+  const wantPump=(mode==='versus')?p1Pump:d.pumpHeld;
+  if(wantPump){
+    const m=adjacentMonster(d);
+    if(m){
+      m.pumpAcc+=dt; m.pumpT=m.pumpT||0;
+      while(m.pumpAcc>=0.33){
+        m.pumpAcc-=0.33;
+        if(m.inflation<3){ m.inflation++; sPump(m.inflation); spawnParts(m.px,m.py,4,'#cfe8ff',70); }
+        if(m.inflation>=3){ popMonster(m,false); break; }
+      }
+      m.pumpedNow=true; m.frozen=m.inflation>=1;
+    }
+  }
+}
+
+// ================= monster update =================
+function updateMonster(m,dt,controlled,ctrlDir){
+  if(!m.alive){
+    if(m.respawnT>0){ m.respawnT-=dt;
+      if(m.respawnT<=0){ const p=freeCellNear(m.homeR,m.homeC); m.r=p.r;m.c=p.c;m.tr=p.r;m.tc=p.c;
+        m.px=cx(p.c);m.py=cy(p.r); m.alive=true; m.inflation=0; m.frozen=false; m.phaseT=0; }
+    }
+    return;
+  }
+  if(m.phaseT>0)m.phaseT-=dt;
+  if(m.phaseCD>0)m.phaseCD-=dt;
+  if(!m.pumpedNow&&m.inflation>0){
+    m.decayAcc+=dt;
+    if(m.decayAcc>=1.4){ m.decayAcc=0; m.inflation--; if(m.inflation<=0){m.inflation=0;m.frozen=false;} }
+  }
+  m.pumpedNow=false;
+  if(m.frozen)return;
+  const arrived=stepTo(m,dt,monSpeed(m));
+  if(arrived&&controlled){
+    if(ctrlDir.r||ctrlDir.c)tryStep(m,ctrlDir.r,ctrlDir.c);
+  }
+}
+function activatePhase(m){
+  if(m.phaseCD>0||!m.alive||m.frozen)return;
+  m.phaseT=1.5; m.phaseCD=6; sPhase(); spawnParts(m.px,m.py,8,'#9adfff',90);
+}
+
+// ================= AI =================
+function rockDangerAbove(e){
+  for(const k of rocks){
+    if(k.state==='rest')continue;
+    if(k.c===e.c&&k.fr<e.r&&e.r-k.fr<=3)return true;
+  }
+  return false;
+}
+function aiMonsterThink(m,dt){
+  m.thinkT-=dt; if(m.thinkT>0)return; m.thinkT=0.25;
+  const d=digger; if(!d||!d.alive)return;
+  if(rockDangerAbove(m)){ // sidestep falling rocks
+    const opts=[[0,1],[0,-1]].filter(o=>{const nr=m.r+o[0],nc=m.c+o[1];return nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&!rockAt(nr,nc);});
+    if(opts.length){const o=opts[irnd(0,opts.length-1)];tryStep(m,o[0],o[1]);return;}
+  }
+  // GRIT sometimes phases toward the digger through dirt
+  if(m.type==='grit'&&m.phaseCD<=0&&Math.abs(m.r-d.r)+Math.abs(m.c-d.c)>7&&Math.random()<0.35){activatePhase(m);}
+  const path=bfs(m.r,m.c,d.r,d.c,moveCost);
+  if(path&&path.length){
+    const [nr,nc]=path[0];
+    if(monAt(nr,nc,m))return;
+    tryStep(m,nr-m.r,nc-m.c);
+  }
+}
+function aiDiggerThink(dt){
+  const d=digger; d.thinkT-=dt; if(d.thinkT>0)return; d.thinkT=0.22;
+  // find nearest live monster
+  let bestM=null,bestD=1e9;
+  for(const m of monsters){ if(!m.alive)continue;
+    const dd=Math.abs(m.r-d.r)+Math.abs(m.c-d.c); if(dd<bestD){bestD=dd;bestM=m;} }
+  if(rockDangerAbove(d)){
+    const opts=[[0,1],[0,-1]].filter(o=>{const nr=d.r+o[0],nc=d.c+o[1];return nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&!rockAt(nr,nc);});
+    if(opts.length){const o=opts[irnd(0,opts.length-1)];tryStep(d,o[0],o[1]);return;}
+  }
+  if(bestM){
+    if(bestD===1){ // adjacent: pump, with human-like flakiness
+      if(!d.pumpHeld||Math.random()<0.82){ d.pumpHeld=true; }
+      else { d.pumpHeld=false; } // mistake: lets go early
+      return;
+    }
+    d.pumpHeld=false;
+    // rock-drop opportunity: monster below a rock in same column, dig under the rock
+    if(Math.random()<0.5){
+      for(const k of rocks){
+        if(k.state!=='rest')continue;
+        const br=k.r+1; if(br>=ROWS||!dirt[br][k.c])continue;
+        if(bestM.c===k.c&&bestM.r>br){
+          const path=bfs(d.r,d.c,br,k.c,moveCost);
+          if(path&&path.length){const[nr,nc]=path[0];tryStep(d,nr-d.r,nc-d.c);return;}
+        }
+      }
+    }
+    if(bestD<=2&&Math.random()<0.3){ // flee!
+      const dr=Math.sign(d.r-bestM.r), dc=Math.sign(d.c-bestM.c);
+      if(!tryStep(d,dr,dc))tryStep(d,dc,dr);
+      return;
+    }
+    const path=bfs(d.r,d.c,bestM.r,bestM.c,moveCost);
+    if(path&&path.length){
+      if(Math.random()<0.12){ // wander mistake
+        const DIRS=[[1,0],[-1,0],[0,1],[0,-1]],o=DIRS[irnd(0,3)];
+        const nr=d.r+o[0],nc=d.c+o[1];
+        if(nr>=0&&nr<ROWS&&nc>=0&&nc<COLS&&!rockAt(nr,nc)&&!monAt(nr,nc))tryStep(d,o[0],o[1]);
+        return;
+      }
+      const[nr,nc]=path[0];
+      if(!monAt(nr,nc))tryStep(d,nr-d.r,nc-d.c);
+    }
+  } else { d.pumpHeld=false; }
+}
+
+// ================= rocks =================
+function updateRocks(dt){
+  for(const k of rocks){
+    if(k.state==='rest'){
+      const br=k.r+1;
+      const supported=br>=ROWS||dirt[br][k.c];
+      if(!supported){ k.state='wobble'; k.wob=0.7; sRumble(); }
+    } else if(k.state==='wobble'){
+      k.wob-=dt; k.shx=Math.sin(performance.now()*0.06)*3;
+      if(k.wob<=0){ k.state='fall'; k.shx=0; }
+    } else if(k.state==='fall'){
+      k.fr+=11*dt;
+      const cell=Math.floor(k.fr), rpy=GY+k.fr*TS+TS/2;
+      // crush anything overlapping
+      const crushAt=(e,isDig)=>{
+        if(!e.alive)return;
+        if(Math.abs(e.px-(GX+k.c*TS+TS/2))<TS*0.6&&Math.abs(e.py-rpy)<TS*0.7){
+          if(isDig)diggerDie(true); else crushMonster(e);
+        }
+      };
+      crushAt(digger,true);
+      for(const m of monsters)crushAt(m,false);
+      const below=Math.floor(k.fr)+1;
+      const landed=below>=ROWS||dirt[below][k.c];
+      if(landed){ k.r=Math.min(ROWS-1,Math.floor(k.fr)); k.fr=k.r; k.state='rest'; nz(0.15,0.2,300); spawnParts(GX+k.c*TS+TS/2,GY+k.r*TS+TS/2,8,'#777',90); }
+    }
+  }
+}
+
+// ================= collisions =================
+function checkCatches(){
+  const d=digger; if(!d||!d.alive||d.invuln>0)return;
+  for(const m of monsters){
+    if(!m.alive||m.frozen)continue;
+    if(dist2(m.px,m.py,d.px,d.py)<TS*0.55){ monsterCatch(m); break; }
+  }
+}
+
+// ================= master update =================
+let clearT=0, pumpKey=false;
+function cycleMonster(){
+  const n=monsters.length;
+  for(let i=1;i<=n;i++){ const j=(selMonster+i)%n; if(monsters[j].alive){ selMonster=j; sClick(); break; } }
+}
+function updateParts(dt){
+  for(let i=parts.length-1;i>=0;i--){ const p=parts[i]; p.t-=dt;
+    if(p.t<=0){parts.splice(i,1);continue;} p.x+=p.vx*dt; p.y+=p.vy*dt; p.vx*=0.98; p.vy*=0.98; }
+}
+function endRound(winner){
+  roundWinner=winner;
+  if(winner===1)wins.p1++; else if(winner===2)wins.p2++;
+  state='roundEnd'; roundEndT=3; sRound();
+  setBanner(winner===1?'P1 TAKES IT':winner===2?'P2 TAKES IT':'DRAW — REPLAY',
+    'round '+roundNum+' · P1 '+wins.p1+' – P2 '+wins.p2,2.6);
+}
+function nextRound(){
+  if(wins.p1>=2||wins.p2>=2){ state='win'; sWin(); return; }
+  if(roundWinner!==0)roundNum++;
+  setupVersus(); state='play'; setBanner('ROUND '+roundNum,'first to 2 rounds',2.0);
+}
+function update(dt){
+  if(banner){ banner.t-=dt; if(banner.t<=0)banner=null; }
+  updateParts(dt);
+  if(state==='menu'||state==='pause')return;
+  if(staticDirty)renderStatic();
+  if(state==='clear'){ clearT-=dt; if(clearT<=0){ setupDigger(level+1); state='play'; setBanner('SECTOR '+level,'faster. hungrier.',1.8);} return; }
+  if(state==='roundEnd'){ roundEndT-=dt; if(roundEndT<=0)nextRound(); return; }
+  if(state==='over'||state==='win')return;
+  // ---- play ----
+  if(digger&&!digger.isAI&&mode==='digger')digger.pumpHeld=pumpKey;
+  if(mode==='digger'){
+    updateDigger(dt);
+    for(const m of monsters){ updateMonster(m,dt,false,null); if(m.alive)aiMonsterThink(m,dt); }
+    updateRocks(dt); checkCatches();
+    if(monstersLeft<=0&&state==='play'){
+      const bonus=500*level; score+=bonus;
+      setBanner('SECTOR CLEAR','bonus +'+bonus,2.2); state='clear'; clearT=2.4; sWin();
+    }
+  } else if(mode==='burrow'){
+    burrowT+=dt;
+    aiDiggerThink(dt); updateDigger(dt);
+    monsters.forEach((m,i)=>{ updateMonster(m,dt,m.alive&&i===selMonster,inputDir); if(m.alive&&i!==selMonster)aiMonsterThink(m,dt); });
+    updateRocks(dt); checkCatches();
+    if(aiPops>=5&&state==='play'){ state='over'; sLose(); setBanner('THE DIGGER PREVAILS','',2.5); }
+  } else if(mode==='versus'){
+    roundT-=dt;
+    updateDigger(dt);
+    monsters.forEach((m,i)=>{ updateMonster(m,dt,m.alive&&i===selMonster,p2Dir); if(m.alive&&i!==selMonster)aiMonsterThink(m,dt); });
+    updateRocks(dt); checkCatches();
+    if(state==='play'){
+      if(monsters.every(m=>!m.alive)){ p1Score+=500; endRound(1); }
+      else if(roundT<=0){ endRound(p1Score>p2Score?1:(p2Score>p1Score?2:0)); }
+    }
+  }
+}
+
+// ================= render =================
+const cv=document.getElementById('c'), ctx=cv.getContext('2d');
+function rr(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function drawDigger(d){
+  if(d.invuln>0&&Math.floor(performance.now()/120)%2===0)return;
+  const x=d.px,y=d.py;
+  ctx.fillStyle='#ffb43c'; ctx.beginPath(); ctx.arc(x,y,13,0,7); ctx.fill();
+  ctx.fillStyle='#7a4a12'; ctx.beginPath(); ctx.arc(x,y,13,Math.PI,0); ctx.fill(); // helmet
+  ctx.fillStyle='#222'; ctx.fillRect(x-8,y-4,16,7); // visor
+  ctx.fillStyle='#cfe8ff'; ctx.fillRect(x-8,y-4,16,2);
+  const a=Math.atan2(d.dy,d.dx);
+  ctx.save(); ctx.translate(x,y); ctx.rotate(a);
+  ctx.fillStyle='#e08a1e'; ctx.beginPath(); ctx.moveTo(10,-6); ctx.lineTo(22,0); ctx.lineTo(10,6); ctx.closePath(); ctx.fill(); // drill
+  ctx.restore();
+}
+function drawMonster(m){
+  if(!m.alive)return;
+  const x=m.px,y=m.py;
+  ctx.save();
+  if(m.phaseT>0)ctx.globalAlpha=0.45;
+  const s=1+m.inflation*0.28;
+  ctx.translate(x,y); ctx.scale(s,s);
+  ctx.fillStyle=m.type==='grit'?(m.inflation>0?'#ff7a4d':'#e07b2a'):(m.inflation>0?'#c05ae0':'#8a4dd8');
+  ctx.beginPath(); ctx.arc(0,0,12,0,7); ctx.fill();
+  ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.arc(-4,4,5,0,7); ctx.fill();
+  if(m.type==='grit'){ // angry eyes
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(-4.5,-2,3.4,0,7); ctx.arc(4.5,-2,3.4,0,7); ctx.fill();
+    ctx.fillStyle='#1a0a00'; ctx.beginPath(); ctx.arc(-4.5,-1.6,1.6,0,7); ctx.arc(4.5,-1.6,1.6,0,7); ctx.fill();
+    ctx.strokeStyle='#3a1500'; ctx.lineWidth=2.4;
+    ctx.beginPath(); ctx.moveTo(-8,-7); ctx.lineTo(-1,-4.5); ctx.moveTo(8,-7); ctx.lineTo(1,-4.5); ctx.stroke();
+  } else { // one big eye
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(0,-1,5.5,0,7); ctx.fill();
+    ctx.fillStyle='#1a0a20'; ctx.beginPath(); ctx.arc(m.dx*1.6,-1+m.dy*1.6,2.6,0,7); ctx.fill();
+  }
+  if(m.frozen){ ctx.strokeStyle='rgba(160,220,255,0.9)'; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(0,0,14,0,7); ctx.stroke(); }
+  ctx.restore();
+  if((mode==='burrow'||mode==='versus')&&monsters[selMonster]===m&&m.alive){
+    ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.setLineDash([5,4]);
+    ctx.beginPath(); ctx.arc(x,y,18,0,7); ctx.stroke(); ctx.setLineDash([]);
+  }
+}
+function drawRock(k){
+  let x=GX+k.c*TS+TS/2, y=k.state==='fall'?GY+k.fr*TS+TS/2:cy(k.r);
+  if(k.state==='wobble')x+=k.shx;
+  ctx.fillStyle='#8d8d96'; ctx.beginPath(); ctx.arc(x,y,14,0,7); ctx.fill();
+  ctx.fillStyle='#6e6e78'; ctx.beginPath(); ctx.arc(x-4,y+5,6,0,7); ctx.fill();
+  ctx.strokeStyle='#4c4c55'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(x-8,y-4); ctx.lineTo(x+2,y+2); ctx.lineTo(x-3,y+9); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x+6,y-9); ctx.lineTo(x+9,y+1); ctx.stroke();
+  if(k.state==='wobble'){ ctx.fillStyle='rgba(255,120,60,0.5)'; ctx.font='11px monospace'; ctx.textAlign='center'; ctx.fillText('!',x,y-20); }
+}
+const pumpBtn={x:356,y:616,w:104,h:84,label:'PUMP'};
+const phaseBtn={x:356,y:616,w:104,h:84,label:'PHASE'};
+const phaseBtnV={x:366,y:76,w:102,h:52,label:'PHASE'};
+const pauseBtn={x:424,y:8,w:48,h:36}, muteBtn={x:368,y:8,w:48,h:36};
+function drawBtn(b,active){
+  ctx.globalAlpha=0.92; ctx.fillStyle=active?'#1d3a2a':'#10161f';
+  rr(b.x,b.y,b.w,b.h,12); ctx.fill(); ctx.globalAlpha=1;
+  ctx.strokeStyle='#00ff9d'; ctx.lineWidth=2; rr(b.x,b.y,b.w,b.h,12); ctx.stroke();
+  ctx.fillStyle='#00ff9d'; ctx.font='bold 15px monospace'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(b.label,b.x+b.w/2,b.y+b.h/2+1); ctx.textBaseline='alphabetic';
+}
+function drawHUD(){
+  ctx.fillStyle='#0a0f16'; ctx.fillRect(0,0,480,64);
+  ctx.fillStyle='#e8f5ee'; ctx.font='14px monospace'; ctx.textAlign='left';
+  if(mode==='digger'){
+    ctx.fillText('SCORE '+score,12,22); ctx.fillText('BEST '+Math.max(best.digger,score),12,42);
+    ctx.fillText('LV '+level+'  MON '+monstersLeft,200,22);
+    ctx.fillStyle='#ff5a5a'; let s=''; for(let i=0;i<3;i++)s+=i<lives?'●':'○'; ctx.fillText(s,200,42);
+  } else if(mode==='burrow'){
+    ctx.fillText('CAUGHT '+catches+'/3',12,22);
+    ctx.fillText('TIME '+burrowT.toFixed(1)+'s',12,42);
+    if(best.burrow)ctx.fillText('BEST '+best.burrow.toFixed(1)+'s',200,22);
+    ctx.fillStyle='#ff9a3c'; ctx.fillText('DIGGER POPS '+aiPops+'/5',200,42);
+  } else if(mode==='versus'){
+    ctx.fillStyle='#7adfff'; ctx.fillText('P1 '+p1Score,12,22);
+    ctx.fillStyle='#ff8ad8'; ctx.fillText('P2 '+p2Score,12,42);
+    ctx.fillStyle='#e8f5ee'; ctx.fillText('ROUND '+roundNum+'  '+Math.ceil(roundT)+'s',200,22);
+    ctx.fillText('WINS '+wins.p1+'-'+wins.p2,200,42);
+  }
+  ctx.fillStyle='#8fa89b'; ctx.textAlign='center';
+  ctx.fillText('M♪',muteBtn.x+24,muteBtn.y+24); ctx.fillText('II',pauseBtn.x+24,pauseBtn.y+24);
+  ctx.strokeStyle='rgba(143,168,155,0.4)'; ctx.lineWidth=1;
+  ctx.strokeRect(muteBtn.x,muteBtn.y,muteBtn.w,muteBtn.h); ctx.strokeRect(pauseBtn.x,pauseBtn.y,pauseBtn.w,pauseBtn.h);
+  ctx.textAlign='left';
+}
+function render(){
+  ctx.fillStyle='#05060a'; ctx.fillRect(0,0,480,720);
+  if(state==='menu'){ renderMenu(); return; }
+  if(staticDirty)renderStatic();
+  ctx.drawImage(staticC,GX,GY);
+  for(const k of rocks)drawRock(k);
+  if(digger)drawDigger(digger);
+  for(const m of monsters)drawMonster(m);
+  for(const p of parts){ ctx.globalAlpha=clamp(p.t*2,0,1); ctx.fillStyle=p.col; ctx.fillRect(p.x-2,p.y-2,4,4); ctx.globalAlpha=1; }
+  drawHUD();
+  // touch buttons
+  if(state==='play'){
+    if(mode==='digger')drawBtn(pumpBtn,p1Pump||pumpKey);
+    else if(mode==='burrow')drawBtn(phaseBtn,false);
+    else if(mode==='versus'){ drawBtn(pumpBtn,p1Pump); drawBtn(phaseBtnV,false); }
+  }
+  if(banner){
+    ctx.globalAlpha=clamp(banner.t,0,1);
+    ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.fillRect(40,300,400,90);
+    ctx.fillStyle='#ffd97a'; ctx.font='bold 26px monospace'; ctx.textAlign='center';
+    ctx.fillText(banner.text,240,336);
+    if(banner.sub){ ctx.fillStyle='#8fa89b'; ctx.font='14px monospace'; ctx.fillText(banner.sub,240,362); }
+    ctx.globalAlpha=1; ctx.textAlign='left';
+  }
+  if(state==='pause'){
+    ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(0,0,480,720);
+    ctx.fillStyle='#fff'; ctx.font='bold 30px monospace'; ctx.textAlign='center';
+    ctx.fillText('PAUSED',240,350); ctx.font='15px monospace'; ctx.fillStyle='#8fa89b';
+    ctx.fillText('P or tap II to resume',240,380); ctx.textAlign='left';
+  }
+  if(state==='over'||state==='win'){
+    ctx.fillStyle='rgba(0,0,0,0.72)'; ctx.fillRect(0,0,480,720);
+    ctx.textAlign='center';
+    let title='',sub='';
+    if(mode==='digger'){ title='GAME OVER'; sub='score '+score+' · best '+best.digger; }
+    else if(mode==='burrow'&&state==='win'){ title='MONSTERS FEAST'; sub='digger down in '+burrowT.toFixed(1)+'s'+(best.burrow?' · best '+best.burrow.toFixed(1)+'s':''); }
+    else if(mode==='burrow'){ title='THE DIGGER PREVAILS'; sub='caught '+catches+'/3'; }
+    else if(mode==='versus'){ const w=wins.p1>wins.p2?'P1':(wins.p2>wins.p1?'P2':'DRAW'); title=w==='DRAW'?'DRAW':w+' WINS THE MATCH'; sub='P1 '+p1Score+' · P2 '+p2Score; }
+    ctx.fillStyle='#ffd97a'; ctx.font='bold 30px monospace'; ctx.fillText(title,240,330);
+    ctx.fillStyle='#8fa89b'; ctx.font='15px monospace'; ctx.fillText(sub,240,362);
+    ctx.fillStyle='#00ff9d'; ctx.font='14px monospace'; ctx.fillText('tap to return',240,400);
+    ctx.textAlign='left';
+  }
+  ctx.fillStyle='rgba(120,140,130,0.5)'; ctx.font='11px monospace'; ctx.textAlign='center';
+  ctx.fillText('1982 — YOU ARE THE MONSTERS',240,712); ctx.textAlign='left';
+}
+const menuBtns=[
+  {x:90,y:300,w:300,h:56,label:'DIGGER',sub:'be the digger',mode:'digger'},
+  {x:90,y:372,w:300,h:56,label:'BURROW',sub:'be the monsters',mode:'burrow'},
+  {x:90,y:444,w:300,h:56,label:'VERSUS',sub:'2 players, one screen',mode:'versus'},
+];
+function renderMenu(){
+  ctx.fillStyle='#05060a'; ctx.fillRect(0,0,480,720);
+  ctx.textAlign='center'; ctx.fillStyle='#c9a0ff';
+  ctx.font='bold 64px monospace'; ctx.fillText('BURROW',240,170);
+  ctx.fillStyle='#8fa89b'; ctx.font='15px monospace';
+  ctx.fillText('a 1982 story, told twice',240,205);
+  ctx.fillStyle='#ffd97a'; ctx.font='13px monospace';
+  ctx.fillText('pump them. drop rocks. or be them.',240,240);
+  for(const b of menuBtns){
+    ctx.fillStyle='#0a0f16'; rr(b.x,b.y,b.w,b.h,12); ctx.fill();
+    ctx.strokeStyle='#c9a0ff'; ctx.lineWidth=2; rr(b.x,b.y,b.w,b.h,12); ctx.stroke();
+    ctx.fillStyle='#e8f5ee'; ctx.font='bold 20px monospace'; ctx.fillText(b.label,240,b.y+26);
+    ctx.fillStyle='#8fa89b'; ctx.font='12px monospace'; ctx.fillText(b.sub,240,b.y+44);
+  }
+  ctx.fillStyle='#54655c'; ctx.font='12px monospace';
+  ctx.fillText('arrows/WASD move · SPACE pump/hold · TAB switch · X phase',240,560);
+  ctx.fillText('P pause · M mute',240,582);
+  ctx.textAlign='left';
+}
+
+// ================= input =================
+const DIRS={up:{r:-1,c:0},down:{r:1,c:0},left:{r:0,c:-1},right:{r:0,c:1}};
+const keyStack=[];
+function keyDir(k){
+  switch(k){
+    case'ArrowUp':case'w':case'W':return DIRS.up;
+    case'ArrowDown':case's':case'S':return DIRS.down;
+    case'ArrowLeft':case'a':case'A':return DIRS.left;
+    case'ArrowRight':case'd':case'D':return DIRS.right;
+  } return null;
+}
+function refreshKeyDir(){
+  for(let i=keyStack.length-1;i>=0;i--){ const d=keyDir(keyStack[i]); if(d){
+    if(mode==='versus'){ p1Dir=d; } else inputDir=d; return; } }
+  if(mode==='versus')p1Dir={r:0,c:0}; else inputDir={r:0,c:0};
+}
+function selMon(){ return monsters[selMonster]&&monsters[selMonster].alive?monsters[selMonster]:null; }
+addEventListener('keydown',e=>{
+  const k=e.key;
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(k))e.preventDefault();
+  if(k==='Tab')e.preventDefault();
+  audio();
+  if(k==='m'||k==='M'){ muted=!muted; return; }
+  if(k==='p'||k==='P'){ if(state==='play')state='pause'; else if(state==='pause')state='play'; return; }
+  if(state==='menu'){
+    if(k==='1')startMode('digger'); else if(k==='2')startMode('burrow'); else if(k==='3')startMode('versus');
+    else if(k==='Enter')startMode('digger');
+    return;
+  }
+  if((state==='over'||state==='win')&&(k==='Enter'||k===' ')){ state='menu'; mode='menu'; return; }
+  const d=keyDir(k);
+  if(d){ if(!keyStack.includes(k))keyStack.push(k); refreshKeyDir(); return; }
+  if(k===' '){
+    if(mode==='digger')pumpKey=true;
+    else if(mode==='versus')p1Pump=true;
+    else if(mode==='burrow'){ const m=selMon(); if(m)activatePhase(m); }
+    return;
+  }
+  if(k==='Tab'){ if(mode==='burrow'||mode==='versus')cycleMonster(); return; }
+  if(k==='x'||k==='X'){ const m=selMon(); if(m&&(mode==='burrow'||mode==='versus'))activatePhase(m); return; }
+  if(k==='q'||k==='Q'){ const m=selMon(); if(m&&mode==='versus')activatePhase(m); return; }
+});
+addEventListener('keyup',e=>{
+  const k=e.key, i=keyStack.indexOf(k);
+  if(i>=0){ keyStack.splice(i,1); refreshKeyDir(); }
+  if(k===' '){ pumpKey=false; p1Pump=false; }
+});
+// ---- touch ----
+const touches={};
+function toCanvas(t){ const r=cv.getBoundingClientRect(); return {x:(t.clientX-r.left)*480/r.width, y:(t.clientY-r.top)*720/r.height}; }
+function hit(b,x,y){ return x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h; }
+function p2PhaseBtn(){ return mode==='versus'?phaseBtnV:null; }
+cv.addEventListener('touchstart',e=>{
+  e.preventDefault(); audio();
+  for(const t of e.changedTouches){
+    const p=toCanvas(t), id=t.identifier;
+    // menu
+    if(state==='menu'){
+      for(const b of menuBtns)if(hit(b,p.x,p.y)){ startMode(b.mode); break; }
+      continue;
+    }
+    if((state==='over'||state==='win')){ state='menu'; mode='menu'; continue; }
+    if(hit(pauseBtn,p.x,p.y)){ if(state==='play')state='pause'; else if(state==='pause')state='play'; continue; }
+    if(hit(muteBtn,p.x,p.y)){ muted=!muted; continue; }
+    if(state!=='play')continue;
+    const pb=p2PhaseBtn();
+    if(pb&&hit(pb,p.x,p.y)){ const m=selMon(); if(m)activatePhase(m); touches[id]={role:'btn'}; continue; }
+    if((mode==='digger'||mode==='versus')&&hit(pumpBtn,p.x,p.y)){
+      if(mode==='digger')pumpKey=true; else p1Pump=true;
+      touches[id]={role:'pump'}; continue;
+    }
+    if(mode==='burrow'&&hit(phaseBtn,p.x,p.y)){ const m=selMon(); if(m)activatePhase(m); touches[id]={role:'btn'}; continue; }
+    const pid=mode==='versus'?(p.y>360?1:2):0;
+    touches[id]={role:'steer',pid:pid,sx:p.x,sy:p.y,x:p.x,y:p.y,t0:performance.now(),moved:false};
+  }
+},{passive:false});
+function setPidDir(pid,d){
+  if(pid===1)p1Dir=d; else if(pid===2)p2Dir=d; else inputDir=d;
+}
+cv.addEventListener('touchmove',e=>{
+  e.preventDefault();
+  for(const t of e.changedTouches){
+    const tc=touches[t.identifier]; if(!tc||tc.role!=='steer')continue;
+    const p=toCanvas(t); tc.x=p.x; tc.y=p.y;
+    const dx=p.x-tc.sx, dy=p.y-tc.sy;
+    if(Math.hypot(dx,dy)>20){
+      tc.moved=true;
+      setPidDir(tc.pid, Math.abs(dx)>Math.abs(dy)?(dx>0?DIRS.right:DIRS.left):(dy>0?DIRS.down:DIRS.up));
+      tc.sx=p.x; tc.sy=p.y;
+    }
+  }
+},{passive:false});
+function touchEnd(e){
+  for(const t of e.changedTouches){
+    const tc=touches[t.identifier]; delete touches[t.identifier];
+    if(!tc)continue;
+    if(tc.role==='pump'){ if(mode==='digger')pumpKey=false; else p1Pump=false; }
+    if(tc.role==='steer'){
+      setPidDir(tc.pid,{r:0,c:0});
+      const dtms=performance.now()-tc.t0;
+      if(!tc.moved&&dtms<300&&(mode==='burrow'||(mode==='versus'&&tc.pid===2))){
+        const p=toCanvas(t); let bestI=-1,bestD=44;
+        monsters.forEach((m,i)=>{ if(!m.alive)return; const d=dist2(m.px,m.py,p.x,p.y); if(d<bestD){bestD=d;bestI=i;} });
+        if(bestI>=0){ selMonster=bestI; sClick(); }
+      }
+    }
+  }
+}
+cv.addEventListener('touchend',touchEnd); cv.addEventListener('touchcancel',touchEnd);
+// mouse (desktop click support for menu/buttons)
+cv.addEventListener('mousedown',e=>{
+  audio();
+  const r=cv.getBoundingClientRect(), x=(e.clientX-r.left)*480/r.width, y=(e.clientY-r.top)*720/r.height;
+  if(state==='menu'){ for(const b of menuBtns)if(hit(b,x,y)){startMode(b.mode);break;} return; }
+  if(state==='over'||state==='win'){ state='menu'; mode='menu'; return; }
+  if(hit(pauseBtn,x,y)){ if(state==='play')state='pause'; else if(state==='pause')state='play'; return; }
+  if(hit(muteBtn,x,y)){ muted=!muted; return; }
+});
+
+// ================= main loop =================
+let lastT=0, acc=0;
+function frame(t){
+  requestAnimationFrame(frame);
+  if(!lastT)lastT=t;
+  let dt=(t-lastT)/1000; lastT=t;
+  if(dt>0.1)dt=0.1;
+  acc+=dt;
+  while(acc>=1/60){ update(1/60); acc-=1/60; }
+  render();
+}
+newDirt(); renderStatic();
+requestAnimationFrame(frame);
+
+// ================= debug hooks =================
+window.GAME={
+  get state(){return state;}, get mode(){return mode;},
+  get score(){return mode==='versus'?p1Score:score;},
+  get lives(){return lives;}, get level(){return level;},
+  get monstersLeft(){return monstersLeft;},
+  get wins(){return wins;}, get catches(){return catches;},
+  get aiPops(){return aiPops;}, get roundT(){return roundT;},
+  get digger(){return digger;}, get monsters(){return monsters;}, get rocks(){return rocks;},
+  startMode(m){startMode(m);}
+};
+</script>
+</body>
+</html>
