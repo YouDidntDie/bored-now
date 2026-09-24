@@ -56,17 +56,17 @@ const sfx={
 
 /* ---------- constants ---------- */
 const UNIT={
-  harvester:{hp:60, speed:78, range:0,  dmg:0,  cd:1,   sight:0,   r:8,  label:'HARV'},
+  extractor:{hp:60, speed:78, range:0,  dmg:0,  cd:1,   sight:0,   r:8,  label:'EXTR'},
   trooper:  {hp:85, speed:102,range:95, dmg:8,  cd:0.8, sight:170, r:8,  label:'TROOP'},
   tank:     {hp:240,speed:56, range:115,dmg:18, cd:1.5, sight:190, r:11, label:'TANK'},
-  artillery:{hp:70, speed:64, range:210,dmg:32, cd:2.6, sight:250, r:9,  label:'ARTY'}
+  artillery:{hp:70, speed:64, range:210,dmg:32, cd:2.6, sight:250, r:9,  label:'MORT'}
 };
-const COST={harvester:60,trooper:50,tank:120,artillery:150};
-const BTIME={harvester:4,trooper:3,tank:6,artillery:7};
-const BUILDER={harvester:'hq',trooper:'hq',tank:'factory',artillery:'factory'};
+const COST={extractor:60,trooper:50,tank:120,artillery:150};
+const BTIME={extractor:4,trooper:3,tank:6,artillery:7};
+const BUILDER={extractor:'hq',trooper:'hq',tank:'factory',artillery:'factory'};
 const BSTAT={hq:{hp:1400,w:56,h:44},factory:{hp:700,w:44,h:36}};
 const COLORS=['#22d3ee','#f471b5'];
-const MAXSUP=20, HARV_RATE=3; // 1 crystal per 3s per harvester
+const MAXSUP=20, EXT_RATE=3; // 1 ore per 3s per extractor
 const FIELDS=[{x:110,y:330,r:26},{x:370,y:330,r:26},{x:240,y:265,r:24},{x:240,y:455,r:24}];
 
 /* ---------- state ---------- */
@@ -78,7 +78,7 @@ let aiT=0, aiPushT=0, uidc=1;
 let paused=false;
 
 function mkPlayer(team,isAI){
-  return {team, color:COLORS[team], isAI, crystals:150, units:[], buildings:[]};
+  return {team, color:COLORS[team], isAI, ore:150, units:[], buildings:[]};
 }
 function mkBuilding(team,type,x,y){
   const s=BSTAT[type];
@@ -88,7 +88,7 @@ function mkBuilding(team,type,x,y){
 function mkUnit(team,type,x,y){
   const s=UNIT[type];
   return {id:uidc++,team,type,x,y,hp:s.hp,maxhp:s.hp,speed:s.speed,range:s.range,
-    dmg:s.dmg,cd:s.cd,cdT:0,r:s.r,order:null,harvT:0,dead:false,flash:0};
+    dmg:s.dmg,cd:s.cd,cdT:0,r:s.r,order:null,extT:0,dead:false,flash:0};
 }
 function resetMatch(vsMode){
   players=[mkPlayer(0,false),mkPlayer(1,vsMode?false:true)];
@@ -100,7 +100,7 @@ function resetMatch(vsMode){
   for(const p of P){
     const hq=p.buildings[0];
     for(let i=0;i<3;i++){
-      const u=mkUnit(p.team,'harvester',hq.x+(i-1)*26,hq.y+(p.team===0?-40:40));
+      const u=mkUnit(p.team,'extractor',hq.x+(i-1)*26,hq.y+(p.team===0?-40:40));
       p.units.push(u); u.order={kind:'harvest'};
     }
     const t=mkUnit(p.team,'trooper',hq.x+40,hq.y+(p.team===0?-30:30));
@@ -123,7 +123,7 @@ function pruneSel(){for(let i=0;i<2;i++)sel[i]=sel[i].filter(u=>!u.dead);}
 /* ---------- orders ---------- */
 function issueOrder(p,units,order){
   for(const u of units){
-    if(u.type==='harvester'&&(order.kind==='attack')){u.order={kind:'move',tx:order.tx,ty:order.ty};continue;}
+    if(u.type==='extractor'&&(order.kind==='attack')){u.order={kind:'move',tx:order.tx,ty:order.ty};continue;}
     u.order=order;
   }
   markers.push({x:order.tx,ty:order.ty,t:0.6,color:p.color,kind:order.kind});
@@ -132,9 +132,9 @@ function issueOrder(p,units,order){
 function tryBuild(p,type){
   const b=p.buildings.find(b=>b.type===BUILDER[type]&&!b.dead);
   if(!b||b.queue.length>=3)return false;
-  if(p.crystals<COST[type])return false;
+  if(p.ore<COST[type])return false;
   if(p.units.length>=MAXSUP)return false;
-  p.crystals-=COST[type];b.queue.push({type,t:BTIME[type]});sfx.build();return true;
+  p.ore-=COST[type];b.queue.push({type,t:BTIME[type]});sfx.build();return true;
 }
 
 /* ---------- input ---------- */
@@ -145,8 +145,8 @@ function toGame(e){
 }
 let pd=null,lastTap={t:0,x:0,y:0,pl:0};
 const BTNS=[ // build buttons: {label,type} drawn bottom (P1) / top (P2 versus)
-  {label:'HARV',type:'harvester'},{label:'TROOP',type:'trooper'},
-  {label:'TANK',type:'tank'},{label:'ARTY',type:'artillery'}
+  {label:'EXTR',type:'extractor'},{label:'TROOP',type:'trooper'},
+  {label:'TANK',type:'tank'},{label:'MORT',type:'artillery'}
 ];
 function btnRect(i,pl){
   const bw=104,bh=52,gap=12,x0=(W-(bw*4+gap*3))/2;
@@ -190,14 +190,14 @@ function doTap(pl,x,y){
   const e=enemyAt(pl,x,y);
   if(e){ issueOrder(p,sel[pl],{kind:'attack',target:e,tx:e.x,ty:e.y}); return; }
   const f=fieldAt(x,y);
-  const harvs=sel[pl].filter(v=>v.type==='harvester');
-  const others=sel[pl].filter(v=>v.type!=='harvester');
-  if(f&&harvs.length){ issueOrder(p,harvs,{kind:'harvest',tx:f.x,ty:f.y}); }
+  const exts=sel[pl].filter(v=>v.type==='extractor');
+  const others=sel[pl].filter(v=>v.type!=='extractor');
+  if(f&&exts.length){ issueOrder(p,exts,{kind:'harvest',tx:f.x,ty:f.y}); }
   if(others.length||!f){
     const mv=others.length?others:sel[pl];
     issueOrder(p,mv,{kind:'amove',tx:x,ty:y});
-  } else if(harvs.length&&!f){
-    issueOrder(p,harvs,{kind:'move',tx:x,ty:y});
+  } else if(exts.length&&!f){
+    issueOrder(p,exts,{kind:'move',tx:x,ty:y});
   }
 }
 function doBox(pl,x0,y0,x1,y1){
@@ -247,9 +247,9 @@ document.addEventListener('keydown',e=>{
   if(state!=='play'||paused)return;
   const p=players[0];
   if(k==='escape'){sel[0]=[];sel[1]=[];}
-  else if(k==='a'){sel[0]=p.units.filter(u=>!u.dead&&u.type!=='harvester');sfx.select();}
-  else if(k==='h'){sel[0]=p.units.filter(u=>!u.dead&&u.type==='harvester');sfx.select();}
-  else if(k==='q')tryBuild(p,'harvester'); else if(k==='w')tryBuild(p,'trooper');
+  else if(k==='a'){sel[0]=p.units.filter(u=>!u.dead&&u.type!=='extractor');sfx.select();}
+  else if(k==='h'){sel[0]=p.units.filter(u=>!u.dead&&u.type==='extractor');sfx.select();}
+  else if(k==='q')tryBuild(p,'extractor'); else if(k==='w')tryBuild(p,'trooper');
   else if(k==='e')tryBuild(p,'tank'); else if(k==='r')tryBuild(p,'artillery');
 });
 
@@ -271,13 +271,13 @@ function aiThink(dt){
   const p=players[1],foe=players[0];
   if(!aliveHQ(p))return;
   aiT+=dt; if(aiT<0.6)return; aiT=0;
-  const cs={harvester:0,trooper:0,tank:0,artillery:0};
+  const cs={extractor:0,trooper:0,tank:0,artillery:0};
   for(const u of p.units)if(!u.dead)cs[u.type]++;
   // economy first
-  if(cs.harvester<3){tryBuildAI(p,'harvester');}
-  // idle harvesters -> fields
+  if(cs.extractor<3){tryBuildAI(p,'extractor');}
+  // idle extractors -> fields
   for(const u of p.units){
-    if(u.dead||u.type!=='harvester')continue;
+    if(u.dead||u.type!=='extractor')continue;
     if(!u.order||u.order.kind==='move'){u.order={kind:'harvest',tx:FIELDS[0].x,ty:FIELDS[0].y};}
   }
   // army composition
@@ -295,7 +295,7 @@ function aiThink(dt){
     aiPushT=t;
     const foeHQ=aliveHQ(foe);
     if(foeHQ)for(const u of p.units){
-      if(u.dead||u.type==='harvester')continue;
+      if(u.dead||u.type==='extractor')continue;
       u.order={kind:'amove',tx:foeHQ.x,ty:foeHQ.y};
     }
     setBanner('ENEMY ASSAULT INBOUND',2);
@@ -303,8 +303,8 @@ function aiThink(dt){
 }
 function tryBuildAI(p,type){
   const b=p.buildings.find(b=>b.type===BUILDER[type]&&!b.dead);
-  if(!b||b.queue.length>=2||p.crystals<COST[type]||p.units.length>=MAXSUP)return;
-  p.crystals-=COST[type];b.queue.push({type,t:BTIME[type]});
+  if(!b||b.queue.length>=2||p.ore<COST[type]||p.units.length>=MAXSUP)return;
+  p.ore-=COST[type];b.queue.push({type,t:BTIME[type]});
 }
 
 /* ---------- combat / update ---------- */
@@ -357,7 +357,7 @@ function updateUnit(u,dt,p){
   if(u.dead)return;
   u.cdT-=dt;if(u.flash>0)u.flash-=dt;
   const s=UNIT[u.type];
-  const combat=u.type!=='harvester';
+  const combat=u.type!=='extractor';
   let tgt=null;
   const ord=u.order;
   if(ord&&ord.kind==='attack'){
@@ -369,9 +369,9 @@ function updateUnit(u,dt,p){
     if(bf){
       if(bd>bf.r+6){moveToward(u,bf.x,bf.y,dt);}
       else{
-        u.harvT+=dt;
-        if(u.harvT>=HARV_RATE){u.harvT-=HARV_RATE;p.crystals+=1;
-          particles.push({x:u.x+(Math.random()-0.5)*16,y:u.y-10,vx:0,vy:-30,t:0.4,color:'#a5f3fc'});}
+        u.extT+=dt;
+        if(u.extT>=EXT_RATE){u.extT-=EXT_RATE;p.ore+=1;
+          particles.push({x:u.x+(Math.random()-0.5)*16,y:u.y-10,vx:0,vy:-30,t:0.4,color:'#fbbf24'});}
       }
     }
     return;
@@ -410,7 +410,7 @@ function update(dt){
       const a=Math.random()*Math.PI*2;
       const u=mkUnit(p.team,q.type,b.x+Math.cos(a)*(b.w/2+16),b.y+Math.sin(a)*(b.h/2+16));
       p.units.push(u);sfx.done();
-      if(q.type==='harvester')u.order={kind:'harvest',tx:FIELDS[0].x,ty:FIELDS[0].y};
+      if(q.type==='extractor')u.order={kind:'harvest',tx:FIELDS[0].x,ty:FIELDS[0].y};
       else u.order={kind:'move',tx:b.rally.x,ty:b.rally.y};
     }
   }
@@ -446,12 +446,12 @@ function drawField(f){
   for(let i=0;i<7;i++){
     const a=i/7*Math.PI*2+0.4,r2=6+((i*13)%14);
     const px=Math.cos(a)*r2,py=Math.sin(a)*r2*0.8;
-    ctx.fillStyle='rgba(165,243,252,0.85)';
+    ctx.fillStyle='rgba(251,191,36,0.85)';
     ctx.save();ctx.translate(px,py);ctx.rotate(a);
     const s=5+((i*7)%4);
     ctx.fillRect(-s/2,-s/2,s,s);ctx.restore();
   }
-  ctx.strokeStyle='rgba(165,243,252,0.25)';ctx.strokeRect(-f.r,-f.r,f.r*2,f.r*2);
+  ctx.strokeStyle='rgba(251,191,36,0.25)';ctx.strokeRect(-f.r,-f.r,f.r*2,f.r*2);
   ctx.restore();
 }
 function drawBuilding(b){
@@ -478,7 +478,7 @@ function drawUnit(u,plSel){
     ctx.beginPath();ctx.arc(0,0,u.r+5,0,Math.PI*2);ctx.stroke();}
   ctx.fillStyle=u.flash>0?'#ffffff':c;
   ctx.strokeStyle=c;ctx.lineWidth=2;
-  if(u.type==='harvester'){ctx.beginPath();ctx.arc(0,0,u.r,0,Math.PI*2);ctx.fill();}
+  if(u.type==='extractor'){ctx.beginPath();ctx.arc(0,0,u.r,0,Math.PI*2);ctx.fill();}
   else if(u.type==='trooper'){
     ctx.beginPath();ctx.moveTo(0,-u.r);ctx.lineTo(u.r,u.r);ctx.lineTo(-u.r,u.r);ctx.closePath();ctx.fill();
   }else if(u.type==='tank'){ctx.fillRect(-u.r,-u.r,u.r*2,u.r*2);
@@ -493,10 +493,10 @@ function drawUnit(u,plSel){
     ctx.fillStyle='#1e293b';ctx.fillRect(u.x-w/2,u.y-u.r-9,w,4);
     ctx.fillStyle=pr>0.4?'#4ade80':'#f87171';ctx.fillRect(u.x-w/2,u.y-u.r-9,w*pr,4);
   }
-  if(u.order&&u.order.kind==='harvest'&&u.type==='harvester'){
+  if(u.order&&u.order.kind==='harvest'&&u.type==='extractor'){
     const f=FIELDS[0];let bf=FIELDS[0],bd=1e9;
     for(const ff of FIELDS){const d=Math.hypot(ff.x-u.x,ff.y-u.y);if(d<bd){bd=d;bf=ff;}}
-    if(bd<bf.r+8){ctx.strokeStyle='rgba(165,243,252,0.5)';ctx.lineWidth=1;
+    if(bd<bf.r+8){ctx.strokeStyle='rgba(251,191,36,0.5)';ctx.lineWidth=1;
       ctx.beginPath();ctx.moveTo(u.x,u.y-8);ctx.lineTo(u.x,u.y-16);ctx.stroke();}
   }
 }
@@ -559,8 +559,8 @@ function renderHUD(){
   const t=Math.floor(matchT),mm=String(Math.floor(t/60)).padStart(2,'0'),ss=String(t%60).padStart(2,'0');
   ctx.fillText(mm+':'+ss,W/2,16);
   ctx.font='13px Courier New';
-  ctx.fillStyle=COLORS[0];ctx.fillText('*'+Math.floor(p0.crystals)+'  '+p0.units.length+'/'+MAXSUP,W/2-110,32);
-  ctx.fillStyle=COLORS[1];ctx.fillText('*'+Math.floor(p1.crystals)+'  '+p1.units.length+'/'+MAXSUP,W/2+110,32);
+  ctx.fillStyle=COLORS[0];ctx.fillText('*'+Math.floor(p0.ore)+'  '+p0.units.length+'/'+MAXSUP,W/2-110,32);
+  ctx.fillStyle=COLORS[1];ctx.fillText('*'+Math.floor(p1.ore)+'  '+p1.units.length+'/'+MAXSUP,W/2+110,32);
   if(mode==='versus'){
     ctx.fillStyle='#e2e8f0';
     ctx.fillText('P1 '+wins.p0+' - '+wins.p1+' P2',W/2,32);
@@ -575,7 +575,7 @@ function renderHUD(){
 }
 function drawBtn(i,pl){
   const p=players[pl],t=BTNS[i].type,r=btnRect(i,pl);
-  const afford=p.crystals>=COST[t]&&p.units.length<MAXSUP;
+  const afford=p.ore>=COST[t]&&p.units.length<MAXSUP;
   const b=p.buildings.find(b=>b.type===BUILDER[t]&&!b.dead);
   const ok=afford&&b&&b.queue.length<3;
   ctx.fillStyle=ok?'rgba(34,211,238,0.10)':'rgba(100,116,139,0.10)';
@@ -600,7 +600,7 @@ function renderMenu(){
   button(W/2-130,430,260,56,'VERSUS (2P)',()=>startMode('versus'));
   ctx.fillStyle='#475569';ctx.font='12px Courier New';
   ctx.fillText('P1: bottom half  |  P2: top half',W/2,530);
-  ctx.fillText('keys: A select army, H harvesters, Q/W/E/R build',W/2,552);
+  ctx.fillText('keys: A select army, H extractors, Q/W/E/R build',W/2,552);
 }
 function renderEnd(){
   ctx.fillStyle='rgba(0,0,0,0.65)';ctx.fillRect(0,0,W,H);
@@ -638,7 +638,7 @@ window.GAME={
   get mode(){return mode;},
   get wins(){return {p0:wins.p0,p1:wins.p1};},
   get paused(){return paused;},
-  get players(){return players.map(p=>({team:p.team,crystals:Math.floor(p.crystals),
+  get players(){return players.map(p=>({team:p.team,ore:Math.floor(p.ore),
     supply:p.units.length,units:p.units.filter(u=>!u.dead).length,
     hq:(()=>{const h=aliveHQ(p);return h?Math.round(h.hp):0;})(),
     buildings:p.buildings.filter(b=>!b.dead).length}));},
