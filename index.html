@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BORED? — Games Collection</title>
+<style>
+  :root { --neon:#00ff9d; --dim:#0a0f16; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; padding:0; min-height:100%; background:#05070c; color:#e8f5ee;
+    font-family:'Courier New', ui-monospace, monospace; }
+  body { display:flex; flex-direction:column; align-items:center; padding:48px 20px 32px; }
+  h1 { font-size:clamp(2.6rem, 9vw, 4.5rem); margin:0; letter-spacing:.12em; color:var(--neon);
+    text-shadow:0 0 18px rgba(0,255,157,.55); }
+  .tag { margin:14px 0 44px; color:#8fa89b; font-size:clamp(.85rem, 3.5vw, 1.05rem);
+    letter-spacing:.06em; text-align:center; }
+  .grid { display:grid; gap:22px; width:min(860px, 100%);
+    grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); }
+  .card { background:var(--dim); border:1px solid rgba(0,255,157,.25); border-radius:14px;
+    padding:28px 24px; text-decoration:none; color:inherit; display:flex;
+    flex-direction:column; gap:12px; transition:transform .15s ease, box-shadow .15s ease;
+    min-height:220px; }
+  .card:hover, .card:focus-visible { transform:translateY(-4px);
+    box-shadow:0 0 28px rgba(0,255,157,.22); outline:none; }
+  .card .kicker { font-size:.75rem; letter-spacing:.25em; color:var(--neon); }
+  .card h2 { margin:0; font-size:2rem; letter-spacing:.1em; }
+  .card p { margin:0; color:#8fa89b; line-height:1.55; font-size:.92rem; flex:1; }
+  .play { align-self:flex-start; padding:10px 26px; border:1px solid var(--neon);
+    border-radius:999px; color:var(--neon); letter-spacing:.18em; font-size:.85rem; }
+  .card:hover .play { background:var(--neon); color:#05070c; }
+  .soon { border-style:dashed; opacity:.55; cursor:default; }
+  .soon:hover { transform:none; box-shadow:none; }
+  footer { margin-top:56px; color:#54655c; font-size:.8rem; letter-spacing:.08em; text-align:center; }
+  footer a { color:var(--neon); }
+</style>
+</head>
+<body>
+  <h1>BORED?</h1>
+  <p class="tag">Games collection &mdash; when you're bored, play.</p>
+  <div class="grid">
+    <a class="card" href="pong/">
+      <span class="kicker">GAME 001</span>
+      <h2>PONG</h2>
+      <p>The classic. First to 7 takes it &mdash; against the machine or a friend on the same screen. Mouse, keys, or touch.</p>
+      <span class="play">PLAY &rarr;</span>
+    </a>
+    <div class="card soon">
+      <span class="kicker">GAME 002</span>
+      <h2>???</h2>
+      <p>Next game loading&hellip; check back soon.</p>
+    </div>
+  </div>
+  <footer>Built for killing time &middot; <a href="https://github.com/YouDidntDie/bored-now">bored-now</a></footer>
+</body>
+</html>
