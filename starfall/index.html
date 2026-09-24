@@ -83,7 +83,7 @@ const sBolt   = () => tone(300, 90, 0.14, 'sawtooth', 0.05);
 const sKill   = () => { noise(0.25, 0.22, 900); tone(220, 40, 0.25, 'triangle', 0.14); };
 const sDive   = () => tone(1200, 300, 0.45, 'sine', 0.08);
 const sHit    = () => { noise(0.3, 0.3, 500); tone(140, 30, 0.3, 'sawtooth', 0.18); };
-const sShield = () => tone(520, 180, 0.12, 'triangle', 0.12);
+const sRing   = () => tone(520, 180, 0.12, 'triangle', 0.12);
 const sUI     = () => tone(660, 660, 0.06, 'square', 0.06);
 const sOver   = () => tone(400, 1200, 0.2, 'square', 0.08);
 const sWin    = () => { tone(523,523,.12,'square',.1); tone(659,659,.12,'square',.1,.12); tone(784,784,.2,'square',.1,.24); };
@@ -145,7 +145,7 @@ let time = 0;
 const DEF_LINE = H - 150;   // swarm crossing this wins the round
 const BASE_Y = H - 56;      // cannon home
 
-let cannon, shields, units, divers, shots, bolts, frags, parts, stars;
+let cannon, ring, units, divers, shots, bolts, frags, parts, stars;
 
 function mkStars() {
   stars = [];
@@ -155,30 +155,69 @@ mkStars();
 
 function resetEntities() {
   cannon = { x: W/2, vx: 0, hp: 3, heat: 0, locked: 0, fireT: 0, inv: 0, w: 46, h: 20 };
-  shields = [
-    { dx: -62, dy: -52, hp: 2, r: 15, flash: 0 },
-    { dx: 0,   dy: -66, hp: 2, r: 15, flash: 0 },
-    { dx: 62,  dy: -52, hp: 2, r: 15, flash: 0 },
-  ];
+  // rotating defense ring: a single ward node orbits the cannon and
+  // absorbs bolts, divers and fragments. Integrity shown as an arc.
+  ring = { ang: -Math.PI / 2, rx: 50, ry: 56, hp: 4, maxHp: 4, broken: false, flash: 0 };
   units = []; divers = []; shots = []; bolts = []; frags = []; parts = [];
   trauma = 0; hitstop = 0;
 }
 
+function formationSlots(n, phase) {
+  // slot offsets (relative to the formation anchor) for each escalation phase
+  const sx = 62, sy = 44;
+  const grid = (counts) => {
+    const arr = [];
+    counts.forEach((cn, r) => {
+      for (let c = 0; c < cn; c++) arr.push({ x: (c - (cn - 1) / 2) * sx, y: r * sy });
+    });
+    return arr;
+  };
+  if (phase === 1) {          // WEDGE: point toward the station
+    const counts = []; let rem = n, c = 2;
+    while (rem > 0) { const k = Math.min(c, rem); counts.push(k); rem -= k; c += 2; }
+    return grid(counts);
+  }
+  if (phase === 2) {          // DIAMOND
+    const half = []; let rem = n, c = 1;
+    while (rem > 0) { const k = Math.min(c, rem); half.push(k); rem -= k; c += 2; }
+    return grid(half.concat(half.slice(0, -1).reverse()));
+  }
+  if (phase === 3) {          // SCATTER: loose cloud
+    const arr = [];
+    for (let i = 0; i < n; i++)
+      arr.push({ x: (Math.random() * 2 - 1) * 150, y: (Math.random() * 2 - 1) * 80 });
+    return arr;
+  }
+  const cols = 6, rows = Math.ceil(n / cols);   // phase 0: block
+  const counts = [];
+  for (let r = 0; r < rows; r++) counts.push(Math.min(cols, n - r * cols));
+  return grid(counts);
+}
+function setFormation(phase) {
+  swarm.phase = phase;
+  const order = units.slice().sort((a, b) => a.seed - b.seed);
+  const slots = formationSlots(order.length, phase);
+  order.forEach((u, i) => { u.tox = slots[i].x; u.toy = slots[i].y; });
+  const names = ['BLOCK', 'WEDGE', 'DIAMOND', 'SCATTER'];
+  if (state === 'play' && units.length) { banner = 'SWARM: ' + names[phase]; bannerT = 1.2; }
+  sDive();
+}
 function spawnSwarm(count, speedMul) {
   units = [];
-  const cols = 6;
-  const rows = Math.ceil(count / cols);
-  const sx = 62, sy = 44, ox = W/2 - (cols-1)*sx/2, oy = 96;
-  let n = 0;
-  for (let r = 0; r < rows && n < count; r++)
-    for (let c = 0; c < cols && n < count; c++, n++)
-      units.push({ x: ox + c*sx, y: oy + r*sy, r: 13, row: r, wob: Math.random()*6.28 });
+  const slots = formationSlots(count, 0);
+  for (let n = 0; n < count; n++)
+    units.push({ x: 0, y: 0, ox: slots[n].x, oy: slots[n].y,
+                 tox: slots[n].x, toy: slots[n].y,
+                 seed: n, r: 13, wob: Math.random() * 6.28 });
   swarm.dir = 1;
+  swarm.cx = W / 2; swarm.cy = 96;
+  swarm.total = count; swarm.phase = 0;
   swarm.baseSpeed = (34 + wave * 4) * (speedMul || 1);
   swarm.boltT = 1.2;
   swarm.diveT = 2.5;
+  for (const u of units) { u.x = swarm.cx + u.ox; u.y = swarm.cy + u.oy; }
 }
-const swarm = { dir: 1, baseSpeed: 34, boltT: 1, diveT: 2 };
+const swarm = { dir: 1, baseSpeed: 34, boltT: 1, diveT: 2, cx: W / 2, cy: 96, total: 0, phase: 0 };
 
 function startMode(m) {
   mode = m; round = 1; wave = 1; score = 0; lives = 3;
@@ -260,6 +299,7 @@ function explode(x, y, color, n, spd) {
 function addTrauma(n) { trauma = Math.min(1, trauma + n); }
 function killUnit(i, byPlayer) {
   const u = units[i];
+  if (!u) return;
   units.splice(i, 1);
   explode(u.x, u.y, '#ff5a3c', 16, 190);
   // starfall twist: kills shatter into falling fragments
@@ -279,10 +319,17 @@ function damageCannon(byDiver) {
   explode(cannon.x, BASE_Y, '#00e5ff', 22, 240);
   sHit(); addTrauma(0.65); hitstop = Math.max(hitstop, 0.09); flashT = 0.25;
 }
-function damageShield(s) {
-  s.hp--; s.flash = 0.2;
-  explode(cannon.x + s.dx, BASE_Y + s.dy, '#00e5ff', 8, 120);
-  if (s.hp <= 0) sShield(); else sShield();
+function ringNode() {
+  return { x: cannon.x + Math.cos(ring.ang) * ring.rx,
+           y: BASE_Y + Math.sin(ring.ang) * ring.ry };
+}
+function damageRing() {
+  if (ring.broken) return;
+  ring.hp--; ring.flash = 0.2;
+  const n = ringNode();
+  explode(n.x, n.y, '#00e5ff', 8, 120);
+  if (ring.hp <= 0) { ring.broken = true; sRing(); }
+  else sRing();
 }
 
 /* ---------- per-frame update (fixed dt) ---------- */
@@ -329,21 +376,33 @@ function update(dt) {
     sShoot();
     if (c.heat >= 100) { c.locked = 1; sOver(); }
   }
-  for (const s of shields) if (s.flash > 0) s.flash -= dt;
+  if (!ring.broken) { ring.ang += dt * 2.4; if (ring.flash > 0) ring.flash -= dt; }
 
-  /* --- swarm march --- */
+  /* --- swarm march: steady speed; escalation comes from formation phases --- */
   const alive = units.length;
-  const spd = (swarm.baseSpeed + (24 - Math.min(alive, 24)) * 5) * swarm.dir;
+  const spd = swarm.baseSpeed * swarm.dir;
+  swarm.cx += spd * dt;
+  let minO = 1e9, maxO = -1e9;
+  for (const u of units) { if (u.ox < minO) minO = u.ox; if (u.ox > maxO) maxO = u.ox; }
   let hitEdge = false;
-  for (const u of units) {
-    u.x += spd * dt; u.wob += dt * 3;
-    // hard walls: nothing can push the formation past the field edge, so an
-    // edge contact lasts exactly one frame and drops the swarm exactly once
-    if (u.x < 26) { u.x = 26; if (swarm.dir < 0) swarm.dir = 1; hitEdge = true; }
-    else if (u.x > W - 26) { u.x = W - 26; if (swarm.dir > 0) swarm.dir = -1; hitEdge = true; }
+  if (units.length) {
+    // hard walls: the anchor is clamped so the widest unit stops exactly at
+    // the field edge; a contact flips direction once and drops the swarm once
+    if (swarm.cx + minO < 26) { swarm.cx = 26 - minO; if (swarm.dir < 0) { swarm.dir = 1; hitEdge = true; } }
+    else if (swarm.cx + maxO > W - 26) { swarm.cx = W - 26 - maxO; if (swarm.dir > 0) { swarm.dir = -1; hitEdge = true; } }
   }
-  if (hitEdge) {
-    for (const u of units) u.y += 24;
+  if (hitEdge) swarm.cy += 24;
+  // formation-phase escalation at HP thresholds (block -> wedge -> diamond -> scatter)
+  const frac = swarm.total ? alive / swarm.total : 1;
+  const wantPhase = frac <= 0.2 ? 3 : frac <= 0.4 ? 2 : frac <= 0.66 ? 1 : 0;
+  if (wantPhase !== swarm.phase) setFormation(wantPhase);
+  for (const u of units) {
+    u.wob += dt * 3;
+    const k = Math.min(1, dt * 2.4);
+    u.ox += (u.tox - u.ox) * k;
+    u.oy += (u.toy - u.oy) * k;
+    u.x = swarm.cx + u.ox;
+    u.y = swarm.cy + u.oy;
   }
   // swarm reached the defense line -> invasion wins the round
   for (const u of units) {
@@ -407,7 +466,12 @@ function diveKeyPressed() {
   return p;
 }
 function shiftFormation(dir, dt) {
-  for (const u of units) u.x = Math.max(26, Math.min(W - 26, u.x + dir * 190 * dt));
+  // human invader nudges the formation; offsets are clamped, and the anchor
+  // clamp in update() keeps every unit inside the field (no wall-pin)
+  for (const u of units) {
+    u.ox = Math.max(-210, Math.min(210, u.ox + dir * 190 * dt));
+    u.tox = u.ox;
+  }
 }
 function pickDiveUnit() {
   if (!units.length) return -1;
@@ -502,9 +566,10 @@ function updateProjectiles(dt) {
     d.vy += ((dy / m * sp) - d.vy) * Math.min(1, dt * 3.2);
     d.x += d.vx * dt; d.y += d.vy * dt;
     let dead = false;
-    for (const sh of shields) {
-      if (sh.hp > 0 && circleHit(d.x, d.y, d.r, c.x + sh.dx, BASE_Y + sh.dy, sh.r)) {
-        damageShield(sh); explode(d.x, d.y, '#ff5a3c', 10, 150); divers.splice(i, 1); dead = true; break;
+    if (!ring.broken) {
+      const n = ringNode();
+      if (circleHit(d.x, d.y, d.r, n.x, n.y, 12)) {
+        damageRing(); explode(d.x, d.y, '#ff5a3c', 10, 150); divers.splice(i, 1); dead = true;
       }
     }
     if (dead) continue;
@@ -521,13 +586,10 @@ function updateProjectiles(dt) {
     const b = bolts[i];
     b.x += b.vx * dt; b.y += b.vy * dt;
     if (b.y > H + 10 || b.x < -10 || b.x > W + 10) { bolts.splice(i, 1); continue; }
-    let dead = false;
-    for (const sh of shields) {
-      if (sh.hp > 0 && circleHit(b.x, b.y, b.r, c.x + sh.dx, BASE_Y + sh.dy, sh.r)) {
-        damageShield(sh); bolts.splice(i, 1); dead = true; break;
-      }
+    if (!ring.broken) {
+      const n = ringNode();
+      if (circleHit(b.x, b.y, b.r, n.x, n.y, 12)) { damageRing(); bolts.splice(i, 1); continue; }
     }
-    if (dead) continue;
     if (circleHit(b.x, b.y, b.r, c.x, BASE_Y, 18)) { damageCannon(false); bolts.splice(i, 1); }
   }
 
@@ -537,13 +599,10 @@ function updateProjectiles(dt) {
     f.t += dt; f.vy += 320 * dt;
     f.x += f.vx * dt; f.y += f.vy * dt;
     if (f.y > H - 8 || f.t > 4) { frags.splice(i, 1); continue; }
-    let dead = false;
-    for (const sh of shields) {
-      if (sh.hp > 0 && circleHit(f.x, f.y, f.r, c.x + sh.dx, BASE_Y + sh.dy, sh.r)) {
-        damageShield(sh); frags.splice(i, 1); dead = true; break;
-      }
+    if (!ring.broken) {
+      const n = ringNode();
+      if (circleHit(f.x, f.y, f.r, n.x, n.y, 12)) { damageRing(); frags.splice(i, 1); continue; }
     }
-    if (dead) continue;
     if (circleHit(f.x, f.y, f.r, c.x, BASE_Y, 16)) { damageCannon(false); frags.splice(i, 1); }
   }
 }
@@ -640,7 +699,7 @@ function render() {
   ctx.fillStyle = '#12293a';
   for (let x = 0; x < W; x += 24) ctx.fillRect(x, H - 34, 12, 4);
 
-  drawCannon(); drawShields(); drawSwarm(); drawDivers(); drawShots(); drawBolts(); drawFrags(); drawParts();
+  drawCannon(); drawRing(); drawSwarm(); drawDivers(); drawShots(); drawBolts(); drawFrags(); drawParts();
   drawHUD();
 
   if (bannerT > 0 && banner) {
@@ -697,7 +756,7 @@ function renderMenu() {
   ctx.fillText('desktop: P1 arrows, P2 A/D + Space dive', W/2, 580);
   ctx.fillText('P pause · M mute', W/2, 612);
   ctx.fillStyle = '#2a3a44';
-  ctx.fillText('inspired by Space Invaders (1978) — not a copy', W/2, H - 40);
+  ctx.fillText('a 1978 arcade tale', W/2, H - 40);
 }
 
 function drawCannon() {
@@ -723,19 +782,21 @@ function drawCannon() {
     ctx.fillRect(c.x - 26 + i * 20, BASE_Y + 24, 14, 6);
   }
 }
-function drawShields() {
-  for (const s of shields) {
-    if (s.hp <= 0) continue;
-    const x = cannon.x + s.dx, y = BASE_Y + s.dy;
-    ctx.save();
-    ctx.strokeStyle = s.flash > 0 ? '#ffffff' : '#00e5ff';
-    ctx.lineWidth = 2.5; ctx.globalAlpha = 0.9;
-    ctx.beginPath(); ctx.arc(x, y, s.r, 0, 6.283); ctx.stroke();
-    ctx.globalAlpha = 0.25 * s.hp;
-    ctx.fillStyle = '#00e5ff';
-    ctx.beginPath(); ctx.arc(x, y, s.r, 0, 6.283); ctx.fill();
-    ctx.restore();
-  }
+function drawRing() {
+  if (ring.broken) return;
+  ctx.save();
+  // faint orbit path
+  ctx.strokeStyle = 'rgba(0,229,255,0.22)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.ellipse(cannon.x, BASE_Y, ring.rx, ring.ry, 0, 0, 6.283); ctx.stroke();
+  // the ward node; integrity shown as an arc fraction
+  const n = ringNode();
+  ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 10;
+  ctx.strokeStyle = ring.flash > 0 ? '#ffffff' : 'rgba(0,229,255,0.35)';
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(n.x, n.y, 13, 0, 6.283); ctx.stroke();
+  ctx.strokeStyle = ring.flash > 0 ? '#ffffff' : '#00e5ff';
+  ctx.beginPath(); ctx.arc(n.x, n.y, 13, -Math.PI / 2, -Math.PI / 2 + 6.283 * (ring.hp / ring.maxHp)); ctx.stroke();
+  ctx.restore();
 }
 function drawSwarm() {
   for (const u of units) {
@@ -835,6 +896,7 @@ window.GAME = {
   get units() { return units; }, get cannon() { return cannon; },
   get wins() { return wins; }, get score() { return score; },
   get divers() { return divers; }, get shots() { return shots; },
+  get ring() { return ring; }, get swarmInfo() { return { phase: swarm.phase, total: swarm.total, cx: swarm.cx, cy: swarm.cy }; },
   startMode, diveUnit, killUnit, damageCannon, endRound,
 };
 </script>
