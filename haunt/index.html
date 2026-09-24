@@ -67,7 +67,7 @@ const GHOST_DEFS = [
   { name: 'AMBUSH', ai: 'ambush', color: '#ff4dd2', shape: 'triangle' },
   { name: 'DRIFT',  ai: 'drift',  color: '#4dc9ff', shape: 'square'   },
 ];
-const EATER_SPEED = 7.0, GHOST_SPEED = 6.4, FRIGHT_SPEED = 4.2; // tiles/sec
+const EATER_SPEED = 7.0, GHOST_SPEED = 6.4, HEX_SPEED = 4.2; // tiles/sec
 
 /* ---------- canvas ---------- */
 const canvas = document.getElementById('c');
@@ -113,7 +113,7 @@ function noiseBurst(dur, vol, lp) {
 }
 let dotPitch = 0;
 const sDot   = () => { dotPitch = (dotPitch + 1) % 12; beep(320 + dotPitch * 28, 340 + dotPitch * 28, 0.05, 'square', 0.045); };
-const sOrb   = () => { beep(220, 220, 0.12, 'triangle', 0.09); beep(330, 330, 0.12, 'triangle', 0.09, 0.02); beep(440, 440, 0.16, 'triangle', 0.09, 0.04); };
+const sRelic = () => { beep(220, 220, 0.12, 'triangle', 0.09); beep(330, 330, 0.12, 'triangle', 0.09, 0.02); beep(440, 440, 0.16, 'triangle', 0.09, 0.04); };
 const sCatch = () => beep(420, 90, 0.35, 'sawtooth', 0.1);
 const sDeath = () => { noiseBurst(0.5, 0.22, 800); beep(160, 40, 0.5, 'sawtooth', 0.1); };
 const sEatGhost = () => beep(180, 900, 0.22, 'square', 0.09);
@@ -187,11 +187,11 @@ let state = 'menu';       // menu | serve | play | roundEnd | matchEnd | gameOve
 let mode = 'haunt';
 let stateT = 0, serveT = 0, paused = false, time = 0;
 let eater = null, ghosts = [];
-let dotSet = new Set(), orbSet = new Set(), dotsLeft = 0;
+let dotSet = new Set(), relicSet = new Set(), dotsLeft = 0;
 let score = 0, best = +(localStorage.getItem('haunt_best') || 0);
 let bestTime = +(localStorage.getItem('haunt_best_time') || 0);
 let lives = 3, level = 1, catches = 0, hauntT = 0;
-let frightT = 0, eatChain = 0, driftHunt = 0;
+let hexT = 0, driftHunt = 0;
 let round = 1, roundT = 90, wins = { eater: 0, ghost: 0 };
 let eaterScore = 0, ghostScore = 0, roundWinner = null;
 let selectedIdx = 0;
@@ -201,11 +201,11 @@ const SPLIT_Y = OY + (MH * TS) / 2;   // versus touch split
 
 /* ---------- entities ---------- */
 function resetDots() {
-  dotSet = new Set(); orbSet = new Set();
+  dotSet = new Set(); relicSet = new Set();
   for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
     const c = MAZE[y][x];
     if (c === '.') dotSet.add(key2(x, y));
-    else if (c === 'o') orbSet.add(key2(x, y));
+    else if (c === 'o') relicSet.add(key2(x, y));
   }
   dotsLeft = dotSet.size;
 }
@@ -227,11 +227,11 @@ function makeGhost(i, exitDelay) {
 function resetPositions() {
   eater = makeEater();
   ghosts = [makeGhost(0, 0.2), makeGhost(1, 1.4), makeGhost(2, 2.6)];
-  frightT = 0; eatChain = 0; driftHunt = 0; selectedIdx = 0;
+  hexT = 0; driftHunt = 0; selectedIdx = 0;
   dotPitch = 0;
 }
 function ghostSpeed() {
-  if (frightT > 0) return FRIGHT_SPEED * TS;
+  if (hexT > 0) return HEX_SPEED * TS;
   const bonus = mode === 'eater' ? Math.min((level - 1) * 0.25, 1.2) : 0;
   return (GHOST_SPEED + bonus) * TS;
 }
@@ -286,7 +286,7 @@ function decideGhostAI(g) {
   const use = opts.length ? opts : optsAll;
   if (!use.length) { g.dir = { x: 0, y: 0 }; return; }
   let pick;
-  if (frightT > 0) {
+  if (hexT > 0) {
     pick = use[(Math.random() * use.length) | 0];
   } else if (g.ai === 'ruin') {
     pick = bestDirToward(use, g, eater.tx, eater.ty);
@@ -303,12 +303,12 @@ function decideGhostAI(g) {
 function decideEaterAI(e) {
   const active = ghosts.filter(g => g.state === 'out');
   const near = active.filter(g => manhattanW(e.tx, e.ty, g.tx, g.ty) <= 5);
-  const threat = near.filter(() => frightT <= 0);
-  const prey = near.filter(() => frightT > 0);
+  const threat = near.filter(() => hexT <= 0);
+  const prey = near.filter(() => hexT > 0);
   const opts = validDirs(e.tx, e.ty, walkE);
   if (!opts.length) { e.dir = { x: 0, y: 0 }; return; }
-  if (prey.length && frightT > 1.2) {
-    // bold: hunt a frightened ghost
+  if (prey.length && hexT > 1.2) {
+    // bold: hunt a hexed ghost
     let t = prey[0], bd = 1e9;
     for (const g of prey) { const d = manhattanW(e.tx, e.ty, g.tx, g.ty); if (d < bd) { bd = d; t = g; } }
     e.dir = bestDirToward(opts, e, t.tx, t.ty);
@@ -326,8 +326,8 @@ function decideEaterAI(e) {
     e.dir = { x: best.x, y: best.y };
     return;
   }
-  if (orbSet.size && active.some(g => manhattanW(e.tx, e.ty, g.tx, g.ty) <= 6)) {
-    const d = bfsDir(e.tx, e.ty, walkE, (x, y) => orbSet.has(key2(x, y)));
+  if (relicSet.size && active.some(g => manhattanW(e.tx, e.ty, g.tx, g.ty) <= 6)) {
+    const d = bfsDir(e.tx, e.ty, walkE, (x, y) => relicSet.has(key2(x, y)));
     if (d) { e.dir = d; return; }
   }
   const d = bfsDir(e.tx, e.ty, walkE, (x, y) => dotSet.has(key2(x, y)));
@@ -392,20 +392,17 @@ function updatePenGhost(g, dt) {
     }
   } else { g.px += dx / d * move; g.py += dy / d * move; }
 }
-function triggerFright() {
-  frightT = mode === 'eater' ? Math.max(2, 6 - (level - 1) * 0.7)
-          : mode === 'versus' ? 5 : 6;
-  eatChain = 0;
+function triggerHex() {
+  hexT = mode === 'eater' ? Math.max(2, 6 - (level - 1) * 0.7)
+       : mode === 'versus' ? 5 : 6;
   for (const g of ghosts)
     if (g.state === 'out' && (g.dir.x || g.dir.y)) g.dir = { x: -g.dir.x, y: -g.dir.y };
 }
 function eatGhost(g) {
   g.state = 'eaten'; g.respawnT = 4;
-  const pts = [200, 400, 800][Math.min(eatChain, 2)];
-  eatChain++;
-  if (mode === 'eater') score += pts;
-  else if (mode === 'versus') eaterScore += pts;
-  banner = '+' + pts; bannerT = 0.9;
+  if (mode === 'eater') score += 150;
+  else if (mode === 'versus') eaterScore += 150;
+  banner = '+150'; bannerT = 0.9;
   sEatGhost();
 }
 function onCatch() {
@@ -456,18 +453,18 @@ function eatAtEaterTile() {
     if (mode === 'eater') score += 10;
     else if (mode === 'versus') eaterScore += 10;
     sDot();
-  } else if (orbSet.has(k)) {
-    orbSet.delete(k);
+  } else if (relicSet.has(k)) {
+    relicSet.delete(k);
     if (mode === 'eater') score += 50;
     else if (mode === 'versus') eaterScore += 50;
-    triggerFright(); sOrb();
+    triggerHex(); sRelic();
   }
 }
 function collisions() {
   for (const g of ghosts) {
     if (g.state !== 'out') continue;
     if (Math.hypot(g.px - eater.px, g.py - eater.py) > TS * 0.6) continue;
-    if (frightT > 0) eatGhost(g);
+    if (hexT > 0) eatGhost(g);
     else { onCatch(); break; }
   }
 }
@@ -489,7 +486,7 @@ function update(dt) {
     if (roundT <= 0) { endRound(scoreWinner()); return; }
   }
   if (mode === 'haunt') hauntT += dt;
-  if (frightT > 0) { frightT -= dt; if (frightT <= 0) eatChain = 0; }
+  if (hexT > 0) hexT -= dt;
   if (driftHunt > 0) driftHunt -= dt;
   if (Math.random() < dt * 0.12) driftHunt = 2; // DRIFT gets ideas
 
@@ -637,8 +634,8 @@ const mazeCv = document.createElement('canvas');
     if (!isWall(x + 1, y)) { m.moveTo(px + TS - ins, py + ins); m.lineTo(px + TS - ins, py + TS - ins); }
     m.stroke();
   }
-  // pen door bar
-  m.shadowColor = '#ff4dd2'; m.strokeStyle = '#ff4dd2'; m.lineWidth = 3;
+  // pen door bar (swamp-green)
+  m.shadowColor = '#46e07a'; m.strokeStyle = '#46e07a'; m.lineWidth = 3;
   m.beginPath();
   m.moveTo(DOOR.x * TS + 4, (DOOR.y + 0.5) * TS);
   m.lineTo((DOOR.x + 1) * TS - 4, (DOOR.y + 0.5) * TS);
@@ -650,11 +647,15 @@ function drawDots() {
     const c = k.indexOf(','), x = +k.slice(0, c), y = +k.slice(c + 1);
     ctx.fillRect(tileCX(x) - 1.5, tileCY(y) - 1.5, 3, 3);
   }
-  const pr = 5 + 2 * Math.sin(time * 5);
-  ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 12;
-  for (const k of orbSet) {
+  const pr = 6 + 2 * Math.sin(time * 5);
+  ctx.fillStyle = '#ffb02e'; ctx.shadowColor = '#ffb02e'; ctx.shadowBlur = 12;
+  for (const k of relicSet) {
     const c = k.indexOf(','), x = +k.slice(0, c), y = +k.slice(c + 1);
-    ctx.beginPath(); ctx.arc(tileCX(x), tileCY(y), pr, 0, TAU); ctx.fill();
+    const cx = tileCX(x), cy = tileCY(y);
+    ctx.beginPath();   // pulsing amber diamond
+    ctx.moveTo(cx, cy - pr); ctx.lineTo(cx + pr * 0.7, cy);
+    ctx.lineTo(cx, cy + pr); ctx.lineTo(cx - pr * 0.7, cy);
+    ctx.closePath(); ctx.fill();
   }
   ctx.shadowBlur = 0;
 }
@@ -679,9 +680,10 @@ function drawEater() {
 }
 function drawGhost(g) {
   const r = TS * 0.55;
-  const fright = frightT > 0;
-  const flash = fright && frightT < 2 && Math.floor(time * 6) % 2 === 0;
-  const col = flash ? '#ffffff' : fright ? '#a8d8ff' : g.color;
+  const hex = hexT > 0;
+  // HEXED: amber-orange; flickers back to the ghost's own color as it wears off
+  const flick = hex && hexT < 2 && Math.floor(time * 8) % 2 === 0;
+  const col = hex && !flick ? '#ff9a3c' : g.color;
   ctx.save(); ctx.translate(g.px, g.py);
   if ((mode === 'haunt' || mode === 'versus') && ghosts[selectedIdx] === g && g.state === 'out') {
     ctx.strokeStyle = 'rgba(255,255,255,.85)'; ctx.lineWidth = 2;
@@ -708,7 +710,7 @@ function drawGhost(g) {
   ctx.fillStyle = '#fff';
   ctx.beginPath(); ctx.arc(-eo + ex, -r * 0.1 + ey, r * 0.2, 0, TAU); ctx.fill();
   ctx.beginPath(); ctx.arc(eo + ex, -r * 0.1 + ey, r * 0.2, 0, TAU); ctx.fill();
-  ctx.fillStyle = fright ? '#a8d8ff' : '#0a0a12';
+  ctx.fillStyle = hex ? '#ff9a3c' : '#0a0a12';
   ctx.beginPath(); ctx.arc(-eo + ex * 1.6, -r * 0.1 + ey * 1.6, r * 0.1, 0, TAU); ctx.fill();
   ctx.beginPath(); ctx.arc(eo + ex * 1.6, -r * 0.1 + ey * 1.6, r * 0.1, 0, TAU); ctx.fill();
   ctx.restore();
@@ -833,7 +835,7 @@ function render() {
     ctx.fillText(banner, W / 2, OY + 60);
     ctx.globalAlpha = 1; ctx.textAlign = 'left';
   }
-  if (state === 'serve') centerText('READY!');
+  if (state === 'serve') centerText('BEWARE!');
   if (paused && (state === 'play' || state === 'serve')) {
     ctx.fillStyle = 'rgba(3,3,8,.6)'; ctx.fillRect(0, 0, W, H);
     centerText('PAUSED');
@@ -892,9 +894,10 @@ window.GAME = {
   get eater() { return eater ? { tx: eater.tx, ty: eater.ty } : null; },
   get wins() { return wins; },
   get catches() { return catches; }, get hauntT() { return hauntT; },
-  get roundT() { return roundT; }, get frightT() { return frightT; },
+  get roundT() { return roundT; }, get hexT() { return hexT; },
+  get relics() { return relicSet.size; },
   get eaterScore() { return eaterScore; }, get ghostScore() { return ghostScore; },
-  startMode,
+  startMode, triggerHex,
 };
 </script>
 </body>
