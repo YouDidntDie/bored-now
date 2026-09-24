@@ -55,10 +55,10 @@ const Sfx=(()=>{
     unlock(){ac();},
     jump(){tone(280,0.16,'square',0.09,640);},
     stomp(){tone(160,0.12,'sine',0.16,60);noise(0.08,0.08);},
-    coin(){tone(950,0.08,'sine',0.1);tone(1420,0.14,'sine',0.1,null,0.07);},
+    coin(){tone(660,0.07,'sine',0.1);tone(880,0.07,'sine',0.1,null,0.06);tone(1320,0.12,'sine',0.1,null,0.12);},
     hit(){noise(0.18,0.14);tone(220,0.18,'sawtooth',0.08,90);},
     death(){tone(420,0.5,'square',0.1,70);noise(0.3,0.08,0.05);},
-    flag(){[523,659,784,1046].forEach((f,i)=>tone(f,0.16,'square',0.09,null,i*0.1));},
+    gate(){[523,659,784,1046].forEach((f,i)=>tone(f,0.16,'square',0.09,null,i*0.1));},
     place(){tone(500,0.07,'triangle',0.1,700);},
     deny(){tone(180,0.12,'square',0.08,120);},
     click(){tone(700,0.05,'square',0.07);},
@@ -71,7 +71,7 @@ const G={
   state:'menu', mode:null, paused:false, muted:false,
   score:0, best:+(localStorage.getItem('stomp_best')||0),
   lives:3, stage:1, timer:0,
-  grid:[], cols:0, groundRow:14, flagX:0,
+  grid:[], cols:0, groundRow:14, gateX:0,
   runner:null, enemies:[], coins:[], parts:[],
   camX:0, budget:0, sel:0,
   wins:[0,0], round:1, roundT:0,
@@ -166,9 +166,9 @@ function genRunStage(stage){
       if(Math.random()<0.6)for(let i=0;i<3;i++)G.coins.push({x:c*TILE+i*30,y:gr*TILE-70,taken:false,ph:rand(0,6)});
     }
   }
-  for(let x=cols-10;x<cols;x++)for(let y=gr;y<ROWS;y++)G.grid[x][y]=1; // flag strip
-  G.flagX=(cols-5)*TILE;
-  G.coins.push({x:G.flagX-120,y:gr*TILE-70,taken:false,ph:0});
+  for(let x=cols-10;x<cols;x++)for(let y=gr;y<ROWS;y++)G.grid[x][y]=1; // gate strip
+  G.gateX=(cols-5)*TILE;
+  G.coins.push({x:G.gateX-120,y:gr*TILE-70,taken:false,ph:0});
 }
 function genBaseStage(){
   const cols=115;
@@ -177,7 +177,7 @@ function genBaseStage(){
   for(let c=0;c<cols;c++)for(let y=gr;y<ROWS;y++)G.grid[c][y]=1;
   carvePit(30,2); carvePit(58,3); carvePit(86,2);
   for(let i=0;i<5;i++)G.coins.push({x:(40+i)*TILE+5,y:gr*TILE-70,taken:false,ph:rand(0,6)});
-  G.flagX=(cols-5)*TILE;
+  G.gateX=(cols-5)*TILE;
 }
 function mkWalker(x){ const gt=groundTopAt(Math.floor(x/TILE));
   return {type:'w',x:x,y:gt*TILE-28,w:32,h:28,dir:Math.random()<0.5?-1:1,vx:70,dead:false,ph:rand(0,6),t:0}; }
@@ -261,8 +261,8 @@ function stepRunner(r,dt,ctl){
       cn.taken=true; G.score+=50; Sfx.coin(); burst(cn.x,cn.y,'#ffe45e',8); } }
   // pit death
   if(r.y>ROWS*TILE+80)return 'pit';
-  // flag
-  if(r.x+r.w>G.flagX)return 'flag';
+  // gate
+  if(r.x+r.w>G.gateX)return 'gate';
   return null;
 }
 function hurtRunner(r,e){
@@ -360,7 +360,7 @@ function endRound(winner){ // 0 = runner(P1), 1 = shaper(P2)
   G.wins[winner]++;
   if(G.wins[winner]>=2){
     G.state='over'; G.over={win:true,text:(winner===0?'P1 RUNNER':'P2 SHAPER')+' TAKES THE MATCH'};
-    Sfx.flag();
+    Sfx.gate();
   }else{ G.round++; setupVersusRound(); }
 }
 
@@ -374,16 +374,16 @@ function onRunnerDeath(cause){
     else setupRunStage();
   }else if(G.mode==='shaper'){
     G.lives--;
-    if(G.lives<=0){G.state='over';G.over={win:true,text:'SHAPER WINS — 3 KILLS'};Sfx.flag();}
+    if(G.lives<=0){G.state='over';G.over={win:true,text:'SHAPER WINS — 3 KILLS'};Sfx.gate();}
     else{G.runner=newRunner(60);banner('RUNNER DOWN — '+(3-G.lives)+'/3',1.4);}
   }else{ endRound(1); }
 }
-function onFlag(){
-  Sfx.flag();
+function onGate(){
+  Sfx.gate();
   const bonus=1000+Math.floor(Math.max(0,G.timer)*10);
   G.score+=bonus;
   if(G.score>G.best){G.best=G.score;localStorage.setItem('stomp_best',G.best);}
-  burst(G.flagX,G.groundRow*TILE-120,'#7dff8a',20);
+  burst(G.gateX,G.groundRow*TILE-120,'#7dff8a',20);
   if(G.mode==='run'){ G.stage++; setupRunStage(); }
   else if(G.mode==='shaper'){ G.state='over';G.over={win:false,text:'THE RUNNER ESCAPED'}; }
   else{ endRound(0); }
@@ -404,8 +404,8 @@ function drawRunner(r){
   ctx.fillStyle='#24478f'; ctx.fillRect(-13,-30-bob,26,5);
   // head
   ctx.fillStyle='#f2c89b'; ctx.fillRect(-10,-44-bob,20,15);
-  // headband
-  ctx.fillStyle='#ff3b3b'; ctx.fillRect(-11,-42-bob,22,5);
+  // headband (teal)
+  ctx.fillStyle='#17c3a8'; ctx.fillRect(-11,-42-bob,22,5);
   ctx.fillRect(r.face>0?8:-13,-42-bob,5,12);
   // eye
   ctx.fillStyle='#111'; ctx.fillRect(r.face>0?2:-6,-38-bob,4,5);
@@ -484,14 +484,36 @@ function render(){
     ctx.beginPath(); ctx.ellipse(x,cn.y,10*sq+3,12,0,0,7); ctx.fill();
     ctx.fillStyle='#c9962e'; ctx.beginPath(); ctx.ellipse(x,cn.y,5*sq+1.5,7,0,0,7); ctx.fill();
   }
-  // flag
-  const fx=G.flagX-camX;
-  if(fx>-40&&fx<VW+40){
-    const gy=G.groundRow*TILE;
-    ctx.fillStyle='#ddd'; ctx.fillRect(fx-3,gy-220,6,220);
-    ctx.fillStyle='#2ecc71';
-    ctx.beginPath(); ctx.moveTo(fx+3,gy-220); ctx.lineTo(fx+63,gy-200); ctx.lineTo(fx+3,gy-180); ctx.fill();
-    ctx.fillStyle='#888'; ctx.beginPath(); ctx.arc(fx,gy-222,8,0,7); ctx.fill();
+  // stone gate archway
+  const fx=G.gateX-camX;
+  if(fx>-90&&fx<VW+90){
+    const gy=G.groundRow*TILE, top=gy-224;
+    // pillars
+    ctx.fillStyle='#8d8d9a';
+    ctx.fillRect(fx-48,top+34,34,gy-(top+34));
+    ctx.fillRect(fx+14,top+34,34,gy-(top+34));
+    // stone courses
+    ctx.fillStyle='#6f6f7c';
+    for(let sy=top+54;sy<gy;sy+=28){ctx.fillRect(fx-48,sy,34,4);ctx.fillRect(fx+14,sy,34,4);}
+    // pillar caps
+    ctx.fillStyle='#a5a5b2';
+    ctx.fillRect(fx-52,top+26,42,10); ctx.fillRect(fx+10,top+26,42,10);
+    // lintel + keystone
+    ctx.fillStyle='#9a9aa6'; ctx.fillRect(fx-54,top,108,34);
+    ctx.fillStyle='#7c7c88'; ctx.fillRect(fx-54,top+26,108,8);
+    ctx.fillStyle='#b5b5c2'; ctx.fillRect(fx-10,top-6,20,44);
+    // hanging banner
+    const bw2=38,bh=66,bx=fx-bw2/2,by=top+34;
+    ctx.fillStyle='#8d8d9a'; ctx.fillRect(bx-4,by-5,bw2+8,6); // rod
+    ctx.fillStyle='#c0392b';
+    ctx.beginPath(); ctx.moveTo(bx,by); ctx.lineTo(bx+bw2,by); ctx.lineTo(bx+bw2,by+bh);
+    ctx.lineTo(bx+bw2/2,by+bh-13); ctx.lineTo(bx,by+bh); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#a93226';
+    ctx.fillRect(bx,by+bh-14,bw2,4);
+    ctx.fillStyle='#f4d03f';
+    ctx.beginPath(); ctx.arc(fx,by+24,10,0,7); ctx.fill();
+    ctx.fillStyle='#c0392b';
+    ctx.beginPath(); ctx.arc(fx,by+24,5,0,7); ctx.fill();
   }
   for(const e of G.enemies)drawEnemy(e);
   if(G.runner)drawRunner(G.runner);
@@ -577,7 +599,7 @@ function renderMenu(){
   ctx.fillText('STOMP',VW/2,180);
   ctx.fillStyle='#fff'; ctx.font='19px Courier New';
   ctx.fillText('1985 — YOU ARE THE LEVEL',VW/2,220);
-  const defs=[['RUN','Outrun the AI shaper. 3 lives, grab coins, hit the flag.'],
+  const defs=[['RUN','Outrun the AI shaper. 3 lives, grab coins, reach the gate.'],
               ['SHAPER','Spend budget, place hazards, kill the AI runner 3 times.'],
               ['VERSUS','P1 runs (bottom) vs P2 shapes (top). Best of 3.']];
   defs.forEach((d,i)=>{
@@ -613,12 +635,14 @@ window.GAME={
   get lives(){return G.lives;},
   get stage(){return G.stage;},
   get x(){return G.runner?Math.floor(G.runner.x):0;},
-  get dist(){return G.flagX?clamp(G.runner?G.runner.x/G.flagX:0,0,1):0;},
+  get dist(){return G.gateX?clamp(G.runner?G.runner.x/G.gateX:0,0,1):0;},
+  get gateX(){return G.gateX;},
   get wins(){return G.wins.slice();},
   get budget(){return Math.floor(G.budget);},
   get timer(){return G.mode==='versus'?Math.ceil(G.roundT):Math.ceil(G.timer||0);},
   startMode(m){startMode(m);},
   place(i,wx){return tryPlace(i,wx);},
+  warp(x){ if(G.runner){ G.runner.x=x; G.runner.vx=0; G.runner.vy=0; } },
 };
 /* ---------- main loop ---------- */
 let acc=0,lastT=0;
@@ -631,7 +655,7 @@ function frame(t){
   render();
 }
 function update(dt){
-  if(G.state!=='play')return; // death/flag may end the round mid-frame; never sim a corpse
+  if(G.state!=='play')return; // death/gate may end the round mid-frame; never sim a corpse
   G.bannerT-=dt;
   updateEnemies(dt);
   for(const p of G.parts){p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=600*dt;p.life-=dt;}
@@ -647,16 +671,16 @@ function update(dt){
     const res=stepRunner(r,dt,ctl);
     aiShaper(dt);
     if(res==='pit'||res==='dead'&&r.hp<=0){onRunnerDeath(res);return;}
-    if(res==='flag'){onFlag();return;}
+    if(res==='gate'){onGate();return;}
     G.camX=clamp(r.x-VW*0.38,0,Math.max(0,G.cols*TILE-VW));
   }
   else if(G.mode==='shaper'){
     G.timer-=dt; G.budget=Math.min(150,G.budget+5*dt);
-    if(G.timer<=0){G.state='over';G.over={win:true,text:'SHAPER WINS — TIME'};Sfx.flag();return;}
+    if(G.timer<=0){G.state='over';G.over={win:true,text:'SHAPER WINS — TIME'};Sfx.gate();return;}
     const r=G.runner;
     const res=stepRunner(r,dt,aiThink(r,dt));
     if(res==='pit'||(res==='dead'&&r.hp<=0)){onRunnerDeath(res);return;}
-    if(res==='flag'){onFlag();return;}
+    if(res==='gate'){onGate();return;}
     G.camX=clamp(r.x-VW*0.38,0,Math.max(0,G.cols*TILE-VW));
   }
   else{ // versus
@@ -668,7 +692,7 @@ function update(dt){
                right:keys['arrowright']||keys['d']||touch.right,jump:false};
     const res=stepRunner(r,dt,ctl);
     if(res==='pit'||(res==='dead'&&r.hp<=0)){onRunnerDeath(res);return;}
-    if(res==='flag'){onFlag();return;}
+    if(res==='gate'){onGate();return;}
     G.camX=clamp(r.x-VW*0.38,0,Math.max(0,G.cols*TILE-VW));
   }
 }
