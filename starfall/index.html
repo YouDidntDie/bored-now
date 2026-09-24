@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>STARFALL</title>
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#05070c; overflow:hidden;
+    touch-action:none; -webkit-user-select:none; user-select:none;
+    font-family:'Courier New', ui-monospace, monospace; }
+  body { display:flex; align-items:center; justify-content:center; }
+  #wrap { position:relative; }
+  canvas { display:block; background:#05070c; border:1px solid #12202a;
+    max-width:100vw; max-height:100vh; }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c"></canvas></div>
+<script>
+'use strict';
+/* STARFALL — a 1978 story, told twice.
+   Pick a side: DEFEND the station as the last orbital cannon,
+   INVADE as the swarm, or face a friend in 2P VERSUS. */
+const W = 480, H = 720;
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+function fit() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const aw = window.innerWidth, ah = window.innerHeight;
+  const s = Math.min(aw / W, ah / H);
+  canvas.style.width = (W * s) + 'px';
+  canvas.style.height = (H * s) + 'px';
+  canvas.width = Math.round(W * s * dpr);
+  canvas.height = Math.round(H * s * dpr);
+  ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+}
+window.addEventListener('resize', fit);
+window.addEventListener('orientationchange', fit);
+fit();
+
+/* ---------- audio (synth, no assets) ---------- */
+let AC = null, muted = false, noiseBuf = null;
+function audio() {
+  if (!AC) {
+    AC = new (window.AudioContext || window.webkitAudioContext)();
+    noiseBuf = AC.createBuffer(1, AC.sampleRate * 0.5, AC.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  if (AC.state === 'suspended') AC.resume();
+  return AC;
+}
+function tone(f0, f1, dur, type, vol, delay) {
+  if (muted) return;
+  try {
+    const ac = audio(), t = ac.currentTime + (delay || 0);
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = type || 'square';
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(f1, 1), t + dur);
+    g.gain.setValueAtTime(vol || 0.12, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(ac.destination);
+    o.start(t); o.stop(t + dur + 0.02);
+  } catch (e) {}
+}
+function noise(dur, vol, fc, delay) {
+  if (muted) return;
+  try {
+    const ac = audio(), t = ac.currentTime + (delay || 0);
+    const s = ac.createBufferSource(); s.buffer = noiseBuf; s.loop = true;
+    const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = fc || 1200;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(vol || 0.2, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(f); f.connect(g); g.connect(ac.destination);
+    s.start(t); s.stop(t + dur + 0.02);
+  } catch (e) {}
+}
+const sShoot  = () => tone(880, 220, 0.12, 'square', 0.07);
+const sBolt   = () => tone(300, 90, 0.14, 'sawtooth', 0.05);
+const sKill   = () => { noise(0.25, 0.22, 900); tone(220, 40, 0.25, 'triangle', 0.14); };
+const sDive   = () => tone(1200, 300, 0.45, 'sine', 0.08);
+const sHit    = () => { noise(0.3, 0.3, 500); tone(140, 30, 0.3, 'sawtooth', 0.18); };
+const sShield = () => tone(520, 180, 0.12, 'triangle', 0.12);
+const sUI     = () => tone(660, 660, 0.06, 'square', 0.06);
+const sOver   = () => tone(400, 1200, 0.2, 'square', 0.08);
+const sWin    = () => { tone(523,523,.12,'square',.1); tone(659,659,.12,'square',.1,.12); tone(784,784,.2,'square',.1,.24); };
+const sLose   = () => { tone(392,392,.15,'sawtooth',.1); tone(311,311,.15,'sawtooth',.1,.15); tone(233,180,.3,'sawtooth',.1,.3); };
+
+/* ---------- input ---------- */
+const keys = {};
+window.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(e.code)) e.preventDefault();
+  if (e.code === 'KeyM') { muted = !muted; }
+  if (e.code === 'KeyP' || e.code === 'Escape') { togglePause(); }
+  if (e.code === 'KeyR' && (state === 'matchEnd' || state === 'gameOver')) { toMenu(); }
+  if (e.code === 'Enter' && state === 'menu') { /* menu uses clicks/taps */ }
+  audio();
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// pointers: track active touches/mouse by id, mapped to canvas coords
+const pointers = new Map();
+function toGame(e) {
+  const r = canvas.getBoundingClientRect();
+  return { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H };
+}
+canvas.addEventListener('pointerdown', e => {
+  e.preventDefault(); audio();
+  const p = toGame(e);
+  pointers.set(e.pointerId, { x: p.x, y: p.y, sx: p.x, sy: p.y, t: performance.now(), moved: false, id: e.pointerId });
+  handleTap(p.x, p.y);
+  try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+});
+canvas.addEventListener('pointermove', e => {
+  const pt = pointers.get(e.pointerId); if (!pt) return;
+  const p = toGame(e);
+  if (Math.hypot(p.x - pt.sx, p.y - pt.sy) > 12) pt.moved = true;
+  pt.x = p.x; pt.y = p.y;
+});
+function endPointer(e) { pointers.delete(e.pointerId); }
+canvas.addEventListener('pointerup', endPointer);
+canvas.addEventListener('pointercancel', endPointer);
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+/* ---------- state ---------- */
+let state = 'menu';       // menu | serve | play | roundEnd | matchEnd | gameOver
+let mode = null;          // defend | invade | versus
+let paused = false;
+let round = 1, wave = 1;
+let wins = { def: 0, inv: 0 };
+let score = 0, lives = 3;
+let best = { defend: 0, invade: 0 };
+try {
+  best.defend = parseInt(localStorage.getItem('starfall_best_defend') || '0', 10) || 0;
+  best.invade = parseInt(localStorage.getItem('starfall_best_invade') || '0', 10) || 0;
+} catch (e) {}
+let banner = '', bannerT = 0, stateT = 0;
+let trauma = 0, hitstop = 0, flashT = 0;
+let time = 0;
+
+const DEF_LINE = H - 150;   // swarm crossing this wins the round
+const BASE_Y = H - 56;      // cannon home
+
+let cannon, shields, units, divers, shots, bolts, frags, parts, stars;
+
+function mkStars() {
+  stars = [];
+  for (let i = 0; i < 90; i++) stars.push({ x: Math.random()*W, y: Math.random()*H, s: Math.random()*1.6+0.4, v: Math.random()*14+4 });
+}
+mkStars();
+
+function resetEntities() {
+  cannon = { x: W/2, vx: 0, hp: 3, heat: 0, locked: 0, fireT: 0, inv: 0, w: 46, h: 20 };
+  shields = [
+    { dx: -62, dy: -52, hp: 2, r: 15, flash: 0 },
+    { dx: 0,   dy: -66, hp: 2, r: 15, flash: 0 },
+    { dx: 62,  dy: -52, hp: 2, r: 15, flash: 0 },
+  ];
+  units = []; divers = []; shots = []; bolts = []; frags = []; parts = [];
+  trauma = 0; hitstop = 0;
+}
+
+function spawnSwarm(count, speedMul) {
+  units = [];
+  const cols = 6;
+  const rows = Math.ceil(count / cols);
+  const sx = 62, sy = 44, ox = W/2 - (cols-1)*sx/2, oy = 96;
+  let n = 0;
+  for (let r = 0; r < rows && n < count; r++)
+    for (let c = 0; c < cols && n < count; c++, n++)
+      units.push({ x: ox + c*sx, y: oy + r*sy, r: 13, row: r, wob: Math.random()*6.28 });
+  swarm.dir = 1;
+  swarm.baseSpeed = (34 + wave * 4) * (speedMul || 1);
+  swarm.boltT = 1.2;
+  swarm.diveT = 2.5;
+}
+const swarm = { dir: 1, baseSpeed: 34, boltT: 1, diveT: 2 };
+
+function startMode(m) {
+  mode = m; round = 1; wave = 1; score = 0; lives = 3;
+  wins = { def: 0, inv: 0 };
+  resetEntities();
+  const n = m === 'defend' ? 12 : 15;
+  spawnSwarm(n);
+  banner = m === 'defend' ? 'DEFEND THE STATION' : m === 'invade' ? 'LEAD THE SWARM' : 'VERSUS — FIRST TO 3';
+  bannerT = 1.6; state = 'serve'; stateT = 0;
+  sUI();
+}
+
+function nextRound() {
+  round++;
+  resetEntities();
+  const extra = mode === 'defend' ? Math.min((wave - 1) * 2, 10) : 0;
+  spawnSwarm((mode === 'defend' ? 12 : 15) + extra);
+  banner = 'ROUND ' + round; bannerT = 1.4; state = 'serve'; stateT = 0;
+}
+function nextWave() {
+  wave++;
+  resetEntities();
+  spawnSwarm(12 + Math.min((wave - 1) * 2, 12));
+  banner = 'WAVE ' + wave; bannerT = 1.4; state = 'serve'; stateT = 0;
+}
+function togglePause() {
+  if (state === 'play' || state === 'serve') { paused = !paused; sUI(); }
+}
+function toMenu() { state = 'menu'; mode = null; paused = false; sUI(); }
+
+/* ---------- menu buttons (canvas hit areas) ---------- */
+const buttons = [];
+function drawButton(x, y, w, h, label, sub) {
+  buttons.push({ x, y, w, h, label });
+  ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 2;
+  ctx.fillStyle = 'rgba(0,229,255,0.06)';
+  roundRect(x, y, w, h, 10); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#00e5ff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = 'bold 22px "Courier New", monospace';
+  ctx.fillText(label, x + w/2, y + h/2 - (sub ? 10 : 0));
+  if (sub) { ctx.fillStyle = '#7d97a3'; ctx.font = '13px "Courier New", monospace'; ctx.fillText(sub, x + w/2, y + h/2 + 16); }
+}
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y); ctx.arcTo(x+w, y, x+w, y+h, r); ctx.arcTo(x+w, y+h, x, y+h, r);
+  ctx.arcTo(x, y+h, x, y, r); ctx.arcTo(x, y, x+w, y, r); ctx.closePath();
+}
+function handleTap(x, y) {
+  if (state === 'menu') {
+    for (const b of buttons) {
+      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) {
+        if (b.label === 'DEFEND') startMode('defend');
+        else if (b.label === 'INVADE') startMode('invade');
+        else if (b.label === 'VERSUS') startMode('versus');
+        return;
+      }
+    }
+  } else if (state === 'matchEnd' || state === 'gameOver') {
+    toMenu();
+  } else if (state === 'play' && !paused) {
+    // invader tap: dive-bomb a tapped unit (human invader side)
+    const humanInv = mode === 'invade' || mode === 'versus';
+    if (humanInv && y < H * 0.62) {
+      for (let i = units.length - 1; i >= 0; i--) {
+        const u = units[i];
+        if (Math.hypot(u.x - x, u.y - y) < 26) { diveUnit(i); return; }
+      }
+    }
+  }
+}
+
+/* ---------- combat helpers ---------- */
+function explode(x, y, color, n, spd) {
+  for (let i = 0; i < (n || 14); i++) {
+    const a = Math.random() * 6.283, s = (spd || 160) * (0.3 + Math.random() * 0.9);
+    parts.push({ x, y, vx: Math.cos(a)*s, vy: Math.sin(a)*s, life: 0.5 + Math.random()*0.4, t: 0, color: color || '#ffd166', r: 2 + Math.random()*2.5 });
+  }
+}
+function addTrauma(n) { trauma = Math.min(1, trauma + n); }
+function killUnit(i, byPlayer) {
+  const u = units[i];
+  units.splice(i, 1);
+  explode(u.x, u.y, '#ff5a3c', 16, 190);
+  // starfall twist: kills shatter into falling fragments
+  for (let k = 0; k < 3; k++)
+    frags.push({ x: u.x + (Math.random()-0.5)*10, y: u.y, vx: (Math.random()-0.5)*170, vy: 60 + Math.random()*120, r: 3.2, t: 0 });
+  sKill(); addTrauma(0.28); hitstop = Math.max(hitstop, 0.05);
+  if (byPlayer && mode === 'defend') { score += 100; }
+}
+function diveUnit(i) {
+  const u = units.splice(i, 1)[0];
+  divers.push({ x: u.x, y: u.y, vx: 0, vy: 0, r: 12, wob: 0 });
+  sDive();
+}
+function damageCannon(byDiver) {
+  if (cannon.inv > 0) return;
+  cannon.hp--; cannon.inv = 1.2;
+  explode(cannon.x, BASE_Y, '#00e5ff', 22, 240);
+  sHit(); addTrauma(0.65); hitstop = Math.max(hitstop, 0.09); flashT = 0.25;
+}
+function damageShield(s) {
+  s.hp--; s.flash = 0.2;
+  explode(cannon.x + s.dx, BASE_Y + s.dy, '#00e5ff', 8, 120);
+  if (s.hp <= 0) sShield(); else sShield();
+}
+
+/* ---------- per-frame update (fixed dt) ---------- */
+function humanDef() { return mode === 'defend' || mode === 'versus'; }
+function humanInv() { return mode === 'invade' || mode === 'versus'; }
+
+function update(dt) {
+  time += dt;
+  for (const s of stars) { s.y += s.v * dt; if (s.y > H) { s.y = 0; s.x = Math.random()*W; } }
+  if (bannerT > 0) bannerT -= dt;
+  if (flashT > 0) flashT -= dt;
+  trauma = Math.max(0, trauma - dt * 1.6);
+
+  if (state !== 'play' || paused) return;
+  stateT += dt;
+
+  /* --- cannon (defender) --- */
+  const c = cannon;
+  let move = 0;
+  if (humanDef()) {
+    if (keys.ArrowLeft || keys.KeyA) move -= 1;
+    if (keys.ArrowRight || keys.KeyD) move += 1;
+    // pointer drag on bottom half moves cannon
+    for (const p of pointers.values()) {
+      if (p.y > H * 0.5) { c.x += (p.x - c.x) * Math.min(1, dt * 14); }
+    }
+  } else {
+    move = aiCannon(dt);
+  }
+  c.vx = move * 360;
+  c.x = Math.max(30, Math.min(W - 30, c.x + c.vx * dt));
+  if (c.inv > 0) c.inv -= dt;
+  // heat + autofire
+  c.heat = Math.max(0, c.heat - 30 * dt);
+  if (c.locked > 0) { c.locked -= dt; if (c.heat < 25) c.locked = 0; }
+  c.fireT -= dt;
+  const wantFire = humanDef() ? true : aiWantsFire();
+  if (wantFire && c.fireT <= 0 && c.locked <= 0) {
+    c.fireT = 0.22;
+    c.heat += 11;
+    shots.push({ x: c.x - 8, y: BASE_Y - 16, vx: 0, vy: -660 });
+    shots.push({ x: c.x + 8, y: BASE_Y - 16, vx: 0, vy: -660 });
+    parts.push({ x: c.x, y: BASE_Y - 20, vx: 0, vy: -60, life: 0.12, t: 0, color: '#00e5ff', r: 5 });
+    sShoot();
+    if (c.heat >= 100) { c.locked = 1; sOver(); }
+  }
+  for (const s of shields) if (s.flash > 0) s.flash -= dt;
+
+  /* --- swarm march --- */
+  const alive = units.length;
+  const spd = (swarm.baseSpeed + (24 - Math.min(alive, 24)) * 5) * swarm.dir;
+  let hitEdge = false;
+  for (const u of units) {
+    u.x += spd * dt; u.wob += dt * 3;
+    if (u.x < 26 || u.x > W - 26) hitEdge = true;
+  }
+  if (hitEdge) {
+    swarm.dir *= -1;
+    for (const u of units) { u.y += 24; u.x += swarm.dir * 8 * dt; }
+  }
+  // swarm reached the defense line -> invasion wins the round
+  for (const u of units) {
+    if (u.y > DEF_LINE) { endRound('inv'); return; }
+  }
+
+  /* --- invader control --- */
+  if (humanInv()) {
+    if (mode === 'versus') {
+      if (keys.KeyA) shiftFormation(-1, dt);
+      if (keys.KeyD) shiftFormation(1, dt);
+      if (keys.Space) { /* dive handled on tap; keyboard dives random */ }
+    } else {
+      if (keys.ArrowLeft || keys.KeyA) shiftFormation(-1, dt);
+      if (keys.ArrowRight || keys.KeyD) shiftFormation(1, dt);
+    }
+    for (const p of pointers.values()) {
+      if (p.y < H * 0.5 && p.moved) { shiftFormation((p.x - W/2) / (W/2), dt); }
+    }
+  } else {
+    aiSwarm(dt);
+  }
+  // invader dive key (keyboard): dive a random front unit
+  if (humanInv() && diveKeyPressed()) {
+    const idx = pickDiveUnit();
+    if (idx >= 0) diveUnit(idx);
+  }
+
+  /* --- enemy bolts --- */
+  swarm.boltT -= dt;
+  if (swarm.boltT <= 0 && units.length) {
+    swarm.boltT = Math.max(0.45, 1.25 - wave * 0.06);
+    const u = units[(Math.random() * units.length) | 0];
+    const aim = c.x + (Math.random() - 0.5) * 130;
+    const dx = aim - u.x, dy = (BASE_Y - u.y);
+    const m = Math.hypot(dx, dy) || 1, sp = 265;
+    bolts.push({ x: u.x, y: u.y + 10, vx: dx / m * sp, vy: dy / m * sp, r: 4.5 });
+    sBolt();
+  }
+
+  /* --- AI / timed dives --- */
+  swarm.diveT -= dt;
+  if (swarm.diveT <= 0 && units.length > 3) {
+    swarm.diveT = humanInv() ? 9999 : 2.6 + Math.random() * 2.2;
+    if (!humanInv()) { const i = pickDiveUnit(); if (i >= 0) diveUnit(i); }
+  }
+
+  updateProjectiles(dt);
+  updateParticles(dt);
+
+  /* --- round end checks --- */
+  if (c.hp <= 0) { endRound('inv'); return; }
+  if (units.length === 0 && divers.length === 0) { endRound('def'); return; }
+}
+
+let _diveKeyLatch = false;
+function diveKeyPressed() {
+  const down = !!(keys.Space || keys.KeyS || keys.ArrowDown);
+  const p = down && !_diveKeyLatch;
+  _diveKeyLatch = down;
+  return p;
+}
+function shiftFormation(dir, dt) {
+  for (const u of units) u.x = Math.max(20, Math.min(W - 20, u.x + dir * 190 * dt));
+}
+function pickDiveUnit() {
+  if (!units.length) return -1;
+  let bi = 0, by = -1;
+  for (let i = 0; i < units.length; i++) if (units[i].y > by) { by = units[i].y; bi = i; }
+  return bi;
+}
+
+/* ---------- AI ---------- */
+function aiCannon(dt) {
+  const c = cannon;
+  // threats: divers first, then nearest bolt x, then nearest unit
+  let tx = W / 2, urgent = false;
+  let bestD = 1e9;
+  for (const d of divers) {
+    const dd = Math.abs(d.x - c.x) + (BASE_Y - d.y) * 0.4;
+    if (dd < bestD) { bestD = dd; tx = d.x; }
+  }
+  if (divers.length) urgent = true;
+  else {
+    for (const b of bolts) {
+      if (b.vy > 0 && b.y < BASE_Y && Math.abs(b.x - c.x) < 190) { tx = c.x + (c.x - b.x); urgent = true; break; }
+    }
+    if (!urgent && units.length) {
+      let bu = units[0]; bestD = 1e9;
+      for (const u of units) { const dd = Math.abs(u.x - c.x); if (dd < bestD) { bestD = dd; bu = u; } }
+      tx = bu.x;
+    }
+  }
+  const err = Math.sin(time * 0.9) * 36; // keeps the AI imperfect
+  const diff = (tx + err) - c.x;
+  if (Math.abs(diff) < 8) return 0;
+  return Math.sign(diff);
+}
+function aiWantsFire() {
+  if (!units.length && !divers.length) return false;
+  // fire when roughly aligned with something shootable
+  for (const u of units) if (Math.abs(u.x - cannon.x) < 60) return true;
+  for (const d of divers) if (Math.abs(d.x - cannon.x) < 60) return true;
+  return Math.random() < 0.02;
+}
+function aiSwarm(dt) {
+  // drift formation toward cannon, dive on cooldown
+  const cx = W / 2;
+  let avg = 0;
+  for (const u of units) avg += u.x;
+  if (units.length) avg /= units.length;
+  const diff = (cannon.x - avg);
+  if (Math.abs(diff) > 30) shiftFormation(Math.sign(diff) * 0.7, dt);
+  cannon._aiErr = Math.sin(time * 0.7) * 40; // keeps AI cannon imperfect
+}
+
+/* ---------- projectiles & collisions ---------- */
+function circleHit(ax, ay, ar, bx, by, br) {
+  const dx = ax - bx, dy = ay - by, r = ar + br;
+  return dx * dx + dy * dy < r * r;
+}
+function updateProjectiles(dt) {
+  const c = cannon;
+
+  // player shots
+  for (let i = shots.length - 1; i >= 0; i--) {
+    const s = shots[i];
+    s.x += s.vx * dt; s.y += s.vy * dt;
+    if (s.y < -20) { shots.splice(i, 1); continue; }
+    let hit = false;
+    for (let j = units.length - 1; j >= 0; j--) {
+      if (circleHit(s.x, s.y, 5, units[j].x, units[j].y, units[j].r)) {
+        killUnit(j, true); hit = true; break;
+      }
+    }
+    if (!hit) for (let j = divers.length - 1; j >= 0; j--) {
+      const d = divers[j];
+      if (circleHit(s.x, s.y, 5, d.x, d.y, d.r)) {
+        explode(d.x, d.y, '#ff5a3c', 14, 180);
+        divers.splice(j, 1); sKill(); addTrauma(0.2);
+        if (mode === 'defend') score += 150;
+        hit = true; break;
+      }
+    }
+    if (hit) shots.splice(i, 1);
+  }
+
+  // divers: steer toward cannon, crash at bottom
+  for (let i = divers.length - 1; i >= 0; i--) {
+    const d = divers[i];
+    d.wob += dt * 6;
+    const tx = c.x + c.vx * 0.25, ty = BASE_Y;
+    const dx = tx - d.x, dy = ty - d.y, m = Math.hypot(dx, dy) || 1;
+    const sp = 430;
+    d.vx += ((dx / m * sp) - d.vx) * Math.min(1, dt * 3.2);
+    d.vy += ((dy / m * sp) - d.vy) * Math.min(1, dt * 3.2);
+    d.x += d.vx * dt; d.y += d.vy * dt;
+    let dead = false;
+    for (const sh of shields) {
+      if (sh.hp > 0 && circleHit(d.x, d.y, d.r, c.x + sh.dx, BASE_Y + sh.dy, sh.r)) {
+        damageShield(sh); explode(d.x, d.y, '#ff5a3c', 10, 150); divers.splice(i, 1); dead = true; break;
+      }
+    }
+    if (dead) continue;
+    if (circleHit(d.x, d.y, d.r - 2, c.x, BASE_Y, 20)) {
+      damageCannon(true); divers.splice(i, 1); continue;
+    }
+    if (d.y > H - 12) { // crashed into the dirt
+      explode(d.x, H - 14, '#ff5a3c', 12, 160); divers.splice(i, 1);
+    }
+  }
+
+  // enemy bolts
+  for (let i = bolts.length - 1; i >= 0; i--) {
+    const b = bolts[i];
+    b.x += b.vx * dt; b.y += b.vy * dt;
+    if (b.y > H + 10 || b.x < -10 || b.x > W + 10) { bolts.splice(i, 1); continue; }
+    let dead = false;
+    for (const sh of shields) {
+      if (sh.hp > 0 && circleHit(b.x, b.y, b.r, c.x + sh.dx, BASE_Y + sh.dy, sh.r)) {
+        damageShield(sh); bolts.splice(i, 1); dead = true; break;
+      }
+    }
+    if (dead) continue;
+    if (circleHit(b.x, b.y, b.r, c.x, BASE_Y, 18)) { damageCannon(false); bolts.splice(i, 1); }
+  }
+
+  // fragments: kill debris, dangerous to the station
+  for (let i = frags.length - 1; i >= 0; i--) {
+    const f = frags[i];
+    f.t += dt; f.vy += 320 * dt;
+    f.x += f.vx * dt; f.y += f.vy * dt;
+    if (f.y > H - 8 || f.t > 4) { frags.splice(i, 1); continue; }
+    let dead = false;
+    for (const sh of shields) {
+      if (sh.hp > 0 && circleHit(f.x, f.y, f.r, c.x + sh.dx, BASE_Y + sh.dy, sh.r)) {
+        damageShield(sh); frags.splice(i, 1); dead = true; break;
+      }
+    }
+    if (dead) continue;
+    if (circleHit(f.x, f.y, f.r, c.x, BASE_Y, 16)) { damageCannon(false); frags.splice(i, 1); }
+  }
+}
+function updateParticles(dt) {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    p.t += dt;
+    if (p.t >= p.life) { parts.splice(i, 1); continue; }
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vx *= (1 - dt * 2); p.vy *= (1 - dt * 2);
+  }
+}
+
+/* ---------- round / match flow ---------- */
+function endRound(winner) {
+  state = 'roundEnd'; stateT = 0;
+  addTrauma(0.5);
+  if (mode === 'versus') {
+    wins[winner === 'def' ? 'def' : 'inv']++;
+    banner = winner === 'def' ? 'STATION HOLDS' : 'SWARM PREVAILS';
+    sWin(); bannerT = 2.2;
+    if (wins.def >= 3 || wins.inv >= 3) { /* match decided at banner end */ }
+  } else if (mode === 'defend') {
+    if (winner === 'def') {
+      score += 250 * wave; sWin();
+      banner = 'WAVE CLEARED  +' + (250 * wave); bannerT = 2.0;
+    } else {
+      sLose(); gameOver('defend');
+    }
+  } else { // invade 1P
+    if (winner === 'inv') {
+      const bonus = 500 + units.length * 100;
+      score += bonus; sWin();
+      banner = 'STATION DOWN  +' + bonus; bannerT = 2.0;
+    } else {
+      lives--; sLose();
+      if (lives <= 0) { gameOver('invade'); }
+      else { banner = 'SWARM BROKEN — ' + lives + ' LEFT'; bannerT = 2.0; }
+    }
+  }
+}
+function gameOver(which) {
+  state = 'gameOver'; stateT = 0; bannerT = 0;
+  const k = which === 'defend' ? 'starfall_best_defend' : 'starfall_best_invade';
+  if (score > best[which]) {
+    best[which] = score;
+    try { localStorage.setItem(k, String(score)); } catch (e) {}
+    banner = 'NEW BEST!';
+  }
+}
+function advanceAfterBanner() {
+  if (mode === 'versus') {
+    if (wins.def >= 3 || wins.inv >= 3) {
+      state = 'matchEnd'; stateT = 0;
+      banner = wins.def >= 3 ? 'THE STATION STANDS' : 'THE SWARM FEASTS';
+      wins.def >= 3 ? sWin() : sLose();
+    } else nextRound();
+  } else if (mode === 'defend') {
+    if (state === 'roundEnd' && cannon.hp > 0) nextWave();
+  } else {
+    if (state === 'roundEnd') nextWave();
+  }
+}
+
+/* ---------- render ---------- */
+function render() {
+  buttons.length = 0;
+  ctx.save();
+  if (hitstop <= 0) {
+    const sh = trauma * trauma * 14;
+    ctx.translate((Math.random() - 0.5) * sh, (Math.random() - 0.5) * sh);
+  }
+
+  // bg
+  ctx.fillStyle = '#05070c';
+  ctx.fillRect(-20, -20, W + 40, H + 40);
+  for (const s of stars) {
+    ctx.fillStyle = 'rgba(160,200,220,' + (0.25 + s.s * 0.2) + ')';
+    ctx.fillRect(s.x, s.y, s.s, s.s);
+  }
+  if (flashT > 0) { ctx.fillStyle = 'rgba(255,60,60,' + (flashT * 1.2) + ')'; ctx.fillRect(-20,-20,W+40,H+40); }
+
+  if (state === 'menu') { renderMenu(); ctx.restore(); return; }
+
+  // defense line
+  ctx.strokeStyle = 'rgba(255,90,60,0.5)'; ctx.lineWidth = 2; ctx.setLineDash([10, 8]);
+  ctx.beginPath(); ctx.moveTo(14, DEF_LINE); ctx.lineTo(W - 14, DEF_LINE); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(255,90,60,0.55)'; ctx.font = '11px "Courier New", monospace'; ctx.textAlign = 'left';
+  ctx.fillText('DEFENSE LINE', 18, DEF_LINE - 6);
+
+  // station base
+  ctx.fillStyle = '#0b1520'; ctx.fillRect(0, H - 34, W, 34);
+  ctx.fillStyle = '#12293a';
+  for (let x = 0; x < W; x += 24) ctx.fillRect(x, H - 34, 12, 4);
+
+  drawCannon(); drawShields(); drawSwarm(); drawDivers(); drawShots(); drawBolts(); drawFrags(); drawParts();
+  drawHUD();
+
+  if (bannerT > 0 && banner) {
+    ctx.fillStyle = 'rgba(5,7,12,0.72)'; ctx.fillRect(0, H/2 - 52, W, 104);
+    ctx.fillStyle = '#00e5ff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = 'bold 30px "Courier New", monospace';
+    ctx.fillText(banner, W/2, H/2 - 8);
+    if (mode === 'versus' && state === 'roundEnd') {
+      ctx.fillStyle = '#7d97a3'; ctx.font = '18px "Courier New", monospace';
+      ctx.fillText(wins.def + ' — ' + wins.inv, W/2, H/2 + 26);
+    }
+  }
+  if (paused) {
+    ctx.fillStyle = 'rgba(5,7,12,0.7)'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#e8f5ee'; ctx.textAlign = 'center'; ctx.font = 'bold 34px "Courier New", monospace';
+    ctx.fillText('PAUSED', W/2, H/2);
+  }
+  if (state === 'matchEnd' || state === 'gameOver') {
+    ctx.fillStyle = 'rgba(5,7,12,0.82)'; ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#00e5ff'; ctx.font = 'bold 30px "Courier New", monospace';
+    ctx.fillText(banner || '', W/2, H/2 - 60);
+    if (state === 'matchEnd') {
+      ctx.fillStyle = '#e8f5ee'; ctx.font = '22px "Courier New", monospace';
+      ctx.fillText('STATION ' + wins.def + ' — ' + wins.inv + ' SWARM', W/2, H/2 - 16);
+    } else {
+      ctx.fillStyle = '#e8f5ee'; ctx.font = '22px "Courier New", monospace';
+      ctx.fillText('SCORE ' + score, W/2, H/2 - 16);
+      ctx.fillStyle = '#7d97a3'; ctx.font = '15px "Courier New", monospace';
+      ctx.fillText('BEST ' + best[mode === 'defend' ? 'defend' : 'invade'], W/2, H/2 + 14);
+    }
+    ctx.fillStyle = '#54655c'; ctx.font = '14px "Courier New", monospace';
+    ctx.fillText('tap or press R for menu', W/2, H/2 + 52);
+  }
+  ctx.restore();
+}
+
+function renderMenu() {
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#00e5ff';
+  ctx.font = 'bold 64px "Courier New", monospace';
+  ctx.fillText('STARFALL', W/2, 150);
+  ctx.fillStyle = '#ff5a3c';
+  ctx.font = '15px "Courier New", monospace';
+  ctx.fillText('a 1978 story, told twice', W/2, 184);
+  ctx.fillStyle = '#54655c'; ctx.font = '13px "Courier New", monospace';
+  ctx.fillText('CHOOSE YOUR SIDE', W/2, 240);
+  drawButton(W/2 - 150, 270, 300, 64, 'DEFEND', '1P — hold the station');
+  drawButton(W/2 - 150, 350, 300, 64, 'INVADE', '1P — lead the swarm');
+  drawButton(W/2 - 150, 430, 300, 64, 'VERSUS', '2P — same screen');
+  ctx.fillStyle = '#54655c'; ctx.font = '12px "Courier New", monospace'; ctx.textAlign = 'center';
+  ctx.fillText('P1 cannon: drag bottom half / A D', W/2, 540);
+  ctx.fillText('P2 swarm: drag top half, tap a unit to dive', W/2, 560);
+  ctx.fillText('desktop: P1 arrows, P2 A/D + Space dive', W/2, 580);
+  ctx.fillText('P pause · M mute', W/2, 612);
+  ctx.fillStyle = '#2a3a44';
+  ctx.fillText('inspired by Space Invaders (1978) — not a copy', W/2, H - 40);
+}
+
+function drawCannon() {
+  const c = cannon;
+  if (c.inv > 0 && (time * 14 | 0) % 2 === 0) return; // blink while invulnerable
+  ctx.save();
+  ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 14;
+  ctx.fillStyle = '#00e5ff';
+  // hull
+  ctx.fillRect(c.x - 23, BASE_Y - 10, 46, 16);
+  ctx.fillRect(c.x - 8, BASE_Y - 24, 16, 16);
+  // barrel
+  ctx.fillRect(c.x - 3, BASE_Y - 34, 6, 12);
+  ctx.restore();
+  // heat bar
+  const hw = 60;
+  ctx.fillStyle = '#10202a'; ctx.fillRect(c.x - hw/2, BASE_Y + 12, hw, 6);
+  ctx.fillStyle = c.locked > 0 ? '#ff3b30' : (c.heat > 70 ? '#ffb340' : '#00e5ff');
+  ctx.fillRect(c.x - hw/2, BASE_Y + 12, hw * Math.min(1, c.heat / 100), 6);
+  // hp pips
+  for (let i = 0; i < 3; i++) {
+    ctx.fillStyle = i < c.hp ? '#00e5ff' : '#1c2a34';
+    ctx.fillRect(c.x - 26 + i * 20, BASE_Y + 24, 14, 6);
+  }
+}
+function drawShields() {
+  for (const s of shields) {
+    if (s.hp <= 0) continue;
+    const x = cannon.x + s.dx, y = BASE_Y + s.dy;
+    ctx.save();
+    ctx.strokeStyle = s.flash > 0 ? '#ffffff' : '#00e5ff';
+    ctx.lineWidth = 2.5; ctx.globalAlpha = 0.9;
+    ctx.beginPath(); ctx.arc(x, y, s.r, 0, 6.283); ctx.stroke();
+    ctx.globalAlpha = 0.25 * s.hp;
+    ctx.fillStyle = '#00e5ff';
+    ctx.beginPath(); ctx.arc(x, y, s.r, 0, 6.283); ctx.fill();
+    ctx.restore();
+  }
+}
+function drawSwarm() {
+  for (const u of units) {
+    const wob = Math.sin(u.wob) * 3;
+    ctx.save();
+    ctx.shadowColor = '#ff5a3c'; ctx.shadowBlur = 10;
+    ctx.fillStyle = '#ff5a3c';
+    ctx.beginPath(); ctx.arc(u.x, u.y + wob * 0.3, u.r, 0, 6.283); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#05070c';
+    // eyes
+    ctx.fillRect(u.x - 7, u.y - 4 + wob * 0.3, 5, 6);
+    ctx.fillRect(u.x + 2, u.y - 4 + wob * 0.3, 5, 6);
+    // legs
+    ctx.fillStyle = '#ff5a3c';
+    ctx.fillRect(u.x - 10, u.y + 8, 4, 7);
+    ctx.fillRect(u.x + 6, u.y + 8, 4, 7);
+    ctx.restore();
+  }
+}
+function drawDivers() {
+  for (const d of divers) {
+    ctx.save();
+    ctx.translate(d.x, d.y);
+    ctx.rotate(Math.atan2(d.vy, d.vx) + Math.PI / 2);
+    ctx.shadowColor = '#ff5a3c'; ctx.shadowBlur = 12;
+    ctx.fillStyle = '#ff7a4d';
+    ctx.beginPath();
+    ctx.moveTo(0, -14); ctx.lineTo(10, 8); ctx.lineTo(0, 3); ctx.lineTo(-10, 8);
+    ctx.closePath(); ctx.fill();
+    ctx.restore();
+  }
+}
+function drawShots() {
+  ctx.fillStyle = '#aef7ff';
+  for (const s of shots) ctx.fillRect(s.x - 2, s.y - 8, 4, 14);
+}
+function drawBolts() {
+  ctx.save(); ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 8; ctx.fillStyle = '#ffd166';
+  for (const b of bolts) { ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, 6.283); ctx.fill(); }
+  ctx.restore();
+}
+function drawFrags() {
+  ctx.fillStyle = '#ff9a5a';
+  for (const f of frags) {
+    ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(f.t * 7);
+    ctx.fillRect(-3, -1.5, 6, 3); ctx.restore();
+  }
+}
+function drawParts() {
+  for (const p of parts) {
+    ctx.globalAlpha = Math.max(0, 1 - p.t / p.life);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - p.r/2, p.y - p.r/2, p.r, p.r);
+  }
+  ctx.globalAlpha = 1;
+}
+function drawHUD() {
+  ctx.fillStyle = '#7d97a3'; ctx.font = '14px "Courier New", monospace'; ctx.textAlign = 'left';
+  let left;
+  if (mode === 'versus') left = 'R' + round + '   STATION ' + wins.def + ' — ' + wins.inv + ' SWARM';
+  else if (mode === 'defend') left = 'WAVE ' + wave + '   SCORE ' + score;
+  else left = 'WAVE ' + wave + '   SCORE ' + score + '   LIVES ' + lives;
+  ctx.fillText(left, 14, 26);
+  ctx.textAlign = 'right';
+  ctx.fillText(muted ? 'M:muted' : 'M:sound', W - 14, 26);
+  ctx.textAlign = 'left';
+}
+
+/* ---------- main loop (fixed timestep) ---------- */
+let last = performance.now(), acc = 0;
+const STEP = 1 / 120;
+function frame(now) {
+  requestAnimationFrame(frame);
+  let dt = (now - last) / 1000;
+  last = now;
+  if (dt > 0.25) dt = 0.25;
+  if (hitstop > 0) { hitstop -= dt; render(); return; }
+  acc += dt;
+  let n = 0;
+  while (acc >= STEP && n < 8) { update(STEP); acc -= STEP; n++; }
+  if (state === 'serve' || state === 'roundEnd') {
+    stateT += dt;
+    const need = state === 'serve' ? 1.6 : 2.2;
+    if (stateT >= need && bannerT <= 0) {
+      if (state === 'serve') { state = 'play'; }
+      else advanceAfterBanner();
+    }
+  }
+  render();
+}
+requestAnimationFrame(frame);
+
+/* debug hooks for automated playtesting */
+window.GAME = {
+  get state() { return state; }, get mode() { return mode; },
+  get units() { return units; }, get cannon() { return cannon; },
+  get wins() { return wins; }, get score() { return score; },
+  get divers() { return divers; }, get shots() { return shots; },
+  startMode, diveUnit, killUnit, damageCannon, endRound,
+};
+</script>
+</body>
+</html>
