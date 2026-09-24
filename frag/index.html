@@ -413,7 +413,7 @@ function moveEntity(e,dx,dy,dt,r){
   if(!solidAt(e.x,ny+Math.sign(dy)*r)&&!solidAt(e.x,ny-Math.sign(dy)*r))e.y=ny;
 }
 function playerVec(p){return{dx:Math.cos(p.angle),dy:Math.sin(p.angle)};}
-function planeVec(p){const v=playerVec(p);return{px:v.dy*0.66,py:-v.dx*0.66};}
+function planeVec(p){const v=playerVec(p);return{px:-v.dy*0.66,py:v.dx*0.66};}
 function activePlayer(){return world.players[0]||null;}
 const UI={
   list:[],
