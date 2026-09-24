@@ -52,7 +52,7 @@ const SFX={
   grab(){tone(300,720,0.16,'sine',0.14);tone(480,960,0.16,'sine',0.09,0.07);},
   convert(){tone(380,1250,0.32,'square',0.10);tone(190,625,0.32,'triangle',0.08,0.05);},
   save(){tone(520,1040,0.2,'sine',0.14);},
-  bomb(){nz(0.9,0.55,480);tone(80,24,0.8,'sine',0.35);},
+  nova(){nz(0.9,0.55,480);tone(80,24,0.8,'sine',0.35);},
   click(){tone(1250,900,0.05,'square',0.07);},
   wave(){tone(440,440,0.12,'square',0.09);tone(660,660,0.16,'square',0.09,0.13);},
   death(){tone(320,40,0.6,'sawtooth',0.22);nz(0.5,0.35,700);},
@@ -70,7 +70,7 @@ function onKeyDown(code){
   if(G.state==='menu'){if(code==='Digit1')startMode('ship');else if(code==='Digit2')startMode('abduct');else if(code==='Digit3')startMode('versus');return;}
   if((G.state==='over'||G.state==='roundend')&&(code==='Space'||code==='Enter')){toMenu();return;}
   if(G.state!=='play')return;
-  if(code==='KeyB'&&(G.mode==='ship'||G.mode==='versus'))tryBomb();
+  if(code==='KeyB'&&(G.mode==='ship'||G.mode==='versus'))tryNova();
 }
 addEventListener('keydown',e=>{ac();
   if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code))e.preventDefault();
@@ -86,7 +86,7 @@ function ptrUp(e){const p=pt(e);hUp(e.pointerId,p.x,p.y);}
 cv.addEventListener('pointerup',ptrUp);
 cv.addEventListener('pointercancel',ptrUp);
 
-const BTN_FIRE={x:404,y:600,r:46},BTN_BOMB={x:404,y:492,r:34};
+const BTN_FIRE={x:404,y:600,r:46},BTN_NOVA={x:404,y:492,r:34};
 function inCircle(x,y,c){return Math.hypot(x-c.x,y-c.y)<=c.r+6;}
 
 function hDown(id,x,y){
@@ -104,13 +104,13 @@ function hDown(id,x,y){
     // P2 commander zone
     const cam=camX(),wx=(cam+x)%WORLD_W;
     let best=null,bd=36;
-    for(const l of G.landers){const sx=scrX(l.x,cam);const d=Math.hypot(sx-x,(l.y)-y);if(d<bd){bd=d;best=l;}}
+    for(const l of G.snatchers){const sx=scrX(l.x,cam);const d=Math.hypot(sx-x,(l.y)-y);if(d<bd){bd=d;best=l;}}
     if(best){p2sel=best;p2steer={id:id};}
     else p2Spawn(wx);
     return;
   }
   if(inCircle(x,y,BTN_FIRE)){firePtrs.add(id);return;}
-  if(inCircle(x,y,BTN_BOMB)){if(G.mode==='ship'||G.mode==='versus')tryBomb();return;}
+  if(inCircle(x,y,BTN_NOVA)){if(G.mode==='ship'||G.mode==='versus')tryNova();return;}
   // stick zone
   const stickOK=G.mode==='abduct'?true:(G.mode==='versus'?(y>340&&x<330):x<300);
   if(!stick.active&&stickOK){
@@ -149,8 +149,9 @@ function fireHeld(){return keys.Space||firePtrs.size>0;}
 const G={
   state:'menu',mode:null,t:0,modeT:0,
   score:0,score2:0,lives:3,wave:1,
-  humans:[],landers:[],mutants:[],bullets:[],ebullets:[],parts:[],floats:[],
-  ship:null,playerLander:null,aiShip:null,
+  colonists:[],snatchers:[],hollows:[],bullets:[],ebullets:[],parts:[],floats:[],novas:[],
+  novaId:0,
+  ship:null,playerSnatcher:null,aiShip:null,
   spawnQueue:0,spawnT:0,wavePause:0,
   conversions:0,saves:0,kills:0,
   round:1,wins:[0,0],roundT:90,roundOver:0,
@@ -168,12 +169,12 @@ function camX(){
   return (camXv%WORLD_W+WORLD_W)%WORLD_W;
 }
 function focusEnt(){
-  if(G.mode==='abduct')return G.playerLander&&G.playerLander.alive?G.playerLander:null;
+  if(G.mode==='abduct')return G.playerSnatcher&&G.playerSnatcher.alive?G.playerSnatcher:null;
   if(G.ship&&G.ship.alive)return G.ship;
   return null;
 }
-function humansLeft(){let n=0;for(const h of G.humans)if(h.state==='standing'||h.state==='carried'||h.state==='falling')n++;return n;}
-function humansStanding(){let n=0;for(const h of G.humans)if(h.state==='standing')n++;return n;}
+function colonistsLeft(){let n=0;for(const h of G.colonists)if(h.state==='standing'||h.state==='carried'||h.state==='falling')n++;return n;}
+function colonistsStanding(){let n=0;for(const h of G.colonists)if(h.state==='standing')n++;return n;}
 function banner(txt,t){G.banner=txt;G.bannerT=t||2;}
 function floater(x,y,txt,col){G.floats.push({x:x,y:y,txt:txt,col:col||'#fff',t:1.2});}
 function boom(x,y,big){
@@ -188,15 +189,15 @@ function spark(x,y,col,n){for(let i=0;i<(n||8);i++){const a=rnd(0,Math.PI*2),s=r
 
 /* ================= SETUP ================= */
 function resetWorld(){
-  G.humans=[];G.landers=[];G.mutants=[];G.bullets=[];G.ebullets=[];G.parts=[];G.floats=[];
-  for(let i=0;i<10;i++)G.humans.push({x:(i+0.5)*(WORLD_W/10)+rnd(-40,40),y:SURF_Y-8,state:'standing',vy:0,seed:Math.random()*9});
-  G.ship=null;G.playerLander=null;G.aiShip=null;
+  G.colonists=[];G.snatchers=[];G.hollows=[];G.bullets=[];G.ebullets=[];G.parts=[];G.floats=[];G.novas=[];
+  for(let i=0;i<10;i++)G.colonists.push({x:(i+0.5)*(WORLD_W/10)+rnd(-40,40),y:SURF_Y-8,state:'standing',vy:0,seed:Math.random()*9});
+  G.ship=null;G.playerSnatcher=null;G.aiShip=null;
   G.score=0;G.score2=0;G.conversions=0;G.saves=0;G.kills=0;
   G.shake=0;G.flash=0;G.banner='';G.bannerT=0;
   camXv=WORLD_W/2-240;
 }
-function mkShip(x,y){return{x:x,y:y,vx:0,vy:0,angle:-Math.PI/2,fireT:0,alive:true,respawnT:0,bombs:3};}
-function mkLander(x,y){return{x:x,y:y,vx:0,vy:0,tx:0,ty:0,manual:false,carrying:null,target:null,alive:true,seed:Math.random()*9,sel:false};}
+function mkShip(x,y){return{x:x,y:y,vx:0,vy:0,angle:-Math.PI/2,fireT:0,alive:true,respawnT:0,novas:3};}
+function mkSnatcher(x,y){return{x:x,y:y,vx:0,vy:0,tx:0,ty:0,manual:false,carrying:null,target:null,alive:true,seed:Math.random()*9,sel:false};}
 function startMode(m){
   resetWorld();
   G.mode=m;G.t=0;G.modeT=0;G.state='play';
@@ -204,11 +205,11 @@ function startMode(m){
   if(m==='ship'){
     G.lives=3;G.wave=1;G.ship=mkShip(WORLD_W/2,300);
     G.spawnQueue=Math.min(4+2*G.wave,14);G.spawnT=0.5;
-    banner('WAVE 1 — SAVE THE HUMANS');
+    banner('WAVE 1 — SAVE THE COLONISTS');
   }else if(m==='abduct'){
-    G.lives=3;G.playerLander=mkLander(WORLD_W/2,140);G.playerLander.alive=true;
+    G.lives=3;G.playerSnatcher=mkSnatcher(WORLD_W/2,140);G.playerSnatcher.alive=true;
     G.aiShip={x:WORLD_W/2+500,y:320,vx:0,vy:0,angle:0,fireT:1.5,burst:0,burstT:0,alive:true};
-    banner('CONVERT 8 HUMANS');
+    banner('CONVERT 8 COLONISTS');
   }else if(m==='versus'){
     G.round=1;G.wins=[0,0];startRound();
   }
@@ -219,10 +220,10 @@ function startRound(){
   const keepScore=0;
   resetWorld();
   G.wins=keepWins;G.round=keepRound;G.score=0;G.score2=0;
-  G.ship=mkShip(WORLD_W/2,300);G.ship.bombs=3;G.ship.infinite=true;
+  G.ship=mkShip(WORLD_W/2,300);G.ship.novas=3;G.ship.infinite=true;
   G.roundT=90;G.roundOver=0;G.p2budget=6;G.p2budgetT=0;
-  // seed a few AI landers for P2
-  for(let i=0;i<3;i++){const l=mkLander(rnd(0,WORLD_W),rnd(60,200));G.landers.push(l);G.p2budget--;}
+  // seed a few AI snatchers for P2
+  for(let i=0;i<3;i++){const l=mkSnatcher(rnd(0,WORLD_W),rnd(60,200));G.snatchers.push(l);G.p2budget--;}
   banner('ROUND '+G.round+' — 90s');
 }
 function toMenu(){G.state='menu';G.mode=null;SFX.click();}
@@ -240,16 +241,34 @@ function saveBests(){
 function getBest(k){try{return localStorage.getItem(k)||'—';}catch(e){return '—';}}
 
 /* ================= ACTIONS ================= */
-function tryBomb(){
+function tryNova(){
   const s=G.ship;
-  if(!s||!s.alive||s.bombs<=0||G.state!=='play')return;
-  s.bombs--;G.flash=0.7;G.shake=10;SFX.bomb();
-  const R=460;
-  const kill=e=>{const d=Math.hypot(wdx(e.x,s.x),e.y-s.y);return d<R;};
-  for(const l of G.landers){if(kill(l)&&l.alive){l.alive=false;dropCarried(l);boom(l.x,l.y,false);addKill(150,l.x,l.y);}}
-  for(const m of G.mutants){if(kill(m)&&m.alive){m.alive=false;boom(m.x,m.y,false);addKill(250,m.x,m.y);}}
-  G.landers=G.landers.filter(l=>l.alive);
-  G.mutants=G.mutants.filter(m=>m.alive);
+  if(!s||!s.alive||s.novas<=0||G.state!=='play')return;
+  s.novas--;G.shake=4;SFX.nova();
+  // directed nova pulse: an expanding ring swept through a forward cone only
+  G.novas.push({x:s.x,y:s.y,angle:s.angle,r:24,maxR:540,thick:64,half:0.55,t:0,dur:0.6,id:++G.novaId});
+}
+function angD(a,b){let d=(b-a)%(Math.PI*2);if(d>Math.PI)d-=Math.PI*2;if(d<-Math.PI)d+=Math.PI*2;return d;}
+function updateNovas(dt){
+  for(const n of G.novas){
+    n.t+=dt;n.r+=(n.maxR-24)/n.dur*dt;
+    const inArc=e=>{
+      const d=Math.hypot(wdx(e.x,n.x),e.y-n.y);
+      const da=Math.abs(angD(n.angle,Math.atan2(e.y-n.y,wdx(e.x,n.x))));
+      return Math.abs(d-n.r)<n.thick&&da<n.half;
+    };
+    for(const l of G.snatchers){
+      if(!l.alive||l._nova===n.id||!inArc(l))continue;
+      l._nova=n.id;l.alive=false;dropCarried(l);boom(l.x,l.y,false);addKill(150,l.x,l.y);
+    }
+    for(const m of G.hollows){
+      if(m.dead||m._nova===n.id||!inArc(m))continue;
+      m._nova=n.id;m.dead=true;boom(m.x,m.y,false);addKill(250,m.x,m.y);
+    }
+  }
+  G.snatchers=G.snatchers.filter(l=>l.alive);
+  G.hollows=G.hollows.filter(m=>!m.dead);
+  G.novas=G.novas.filter(n=>n.r<n.maxR);
 }
 function addKill(pts,x,y){
   if(G.mode==='versus'){G.score+=pts;}
@@ -259,8 +278,8 @@ function addKill(pts,x,y){
 function dropCarried(l){
   if(l.carrying){const h=l.carrying;l.carrying=null;h.state='falling';h.vy=40;h.x=l.x;h.y=l.y+14;}
 }
-function grabHuman(l,h){h.state='carried';l.carrying=h;SFX.grab();}
-function convertHuman(l){
+function grabColonist(l,h){h.state='carried';l.carrying=h;SFX.grab();}
+function convertColonist(l){
   const h=l.carrying;if(!h)return;
   l.carrying=null;h.state='converted';
   G.conversions++;
@@ -268,9 +287,9 @@ function convertHuman(l){
   floater(l.x,TOP_Y+20,'CONVERTED','#c77dff');
   if(G.mode==='versus'){G.score2+=400;floater(l.x,TOP_Y+40,'+400 P2','#ff5a8a');}
   const cap=G.mode==='abduct'?3:4;
-  if(G.mutants.length<cap)G.mutants.push({x:l.x,y:TOP_Y+30,vx:0,vy:0,seed:Math.random()*9});
+  if(G.hollows.length<cap)G.hollows.push({x:l.x,y:TOP_Y+30,vx:0,vy:0,seed:Math.random()*9});
   l.target=null;
-  // lander continues hunting (or leaves in versus? keep hunting)
+  // snatcher continues hunting (or leaves in versus? keep hunting)
 }
 function killShip(){
   const s=G.ship;if(!s||!s.alive)return;
@@ -278,24 +297,24 @@ function killShip(){
   if(G.mode==='versus'){G.score=Math.max(0,G.score-200);floater(s.x,s.y,'-200','#ff5a5a');s.respawnT=1.5;}
   else{G.lives--;if(G.lives<=0){gameOver('SHIP DOWN','final score '+G.score);}else s.respawnT=1.6;}
 }
-function killPlayerLander(){
-  const l=G.playerLander;if(!l||!l.alive)return;
+function killPlayerSnatcher(){
+  const l=G.playerSnatcher;if(!l||!l.alive)return;
   l.alive=false;dropCarried(l);boom(l.x,l.y,true);SFX.death();
   G.lives--;
-  if(G.lives<=0){gameOver('LANDERS LOST',G.conversions+' / 8 converted');}
+  if(G.lives<=0){gameOver('SNATCHERS LOST',G.conversions+' / 8 converted');}
   else l.respawnT=1.6;
 }
 function p2Spawn(wx){
   if(G.p2budget<=0){floater(wx,120,'NO BUDGET','#ff5a8a');SFX.deny();return;}
   G.p2budget--;
-  G.landers.push(mkLander(wx,60));
+  G.snatchers.push(mkSnatcher(wx,60));
   SFX.click();
 }
 
 /* ================= UPDATE ================= */
-function nearestHuman(x,onlyStanding){
+function nearestColonist(x,onlyStanding){
   let best=null,bd=1e9;
-  for(const h of G.humans){
+  for(const h of G.colonists){
     if(onlyStanding&&h.state!=='standing')continue;
     if(h.state!=='standing')continue;
     const d=Math.abs(wdx(h.x,x));
@@ -320,7 +339,7 @@ function updateShip(dt){
   if(!s.alive){
     s.respawnT-=dt;
     if(s.respawnT<=0){
-      if(G.mode==='versus'||G.lives>0){const sh=G.ship;Object.assign(sh,mkShip(WORLD_W/2,300));sh.bombs=3;if(G.mode==='versus')sh.infinite=true;}
+      if(G.mode==='versus'||G.lives>0){const sh=G.ship;Object.assign(sh,mkShip(WORLD_W/2,300));sh.novas=3;if(G.mode==='versus')sh.infinite=true;}
     }
     return;
   }
@@ -341,20 +360,20 @@ function updateShip(dt){
   }
 }
 
-function updateLanderAI(l,dt,foe){
+function updateSnatcherAI(l,dt,foe){
   if(!l.alive)return;
   if(l.carrying){
     steer(l,wdx(l.x,l.x)*0,-190,190,3,dt); // ascend: mostly vertical
     l.vx+=(0-l.vx)*Math.min(1,dt*2);
-    if(l.y<TOP_Y)convertHuman(l);
+    if(l.y<TOP_Y)convertColonist(l);
   }else if(l.manual){
     steer(l,wdx(l.tx,l.x)*4,(l.ty-l.y)*4,200,4,dt);
   }else{
-    if(!l.target||l.target.state!=='standing')l.target=nearestHuman(l.x,true);
+    if(!l.target||l.target.state!=='standing')l.target=nearestColonist(l.x,true);
     if(l.target){
       const dx=wdx(l.target.x,l.x),dy=(SURF_Y-46)-l.y;
       steer(l,dx*3.2,dy*3.2+70,165,3,dt);
-      if(Math.hypot(dx,dy)<26)grabHuman(l,l.target);
+      if(Math.hypot(dx,dy)<26)grabColonist(l,l.target);
     }else{
       steer(l,Math.sin(G.t*0.9+l.seed)*90,-70,150,2,dt);
     }
@@ -368,8 +387,8 @@ function updateLanderAI(l,dt,foe){
   if(l.carrying){l.carrying.x=l.x;l.carrying.y=l.y+15;}
 }
 
-function updateMutants(dt,target){
-  for(const m of G.mutants){
+function updateHollows(dt,target){
+  for(const m of G.hollows){
     if(!target||!target.alive){
       steer(m,Math.sin(G.t*1.1+m.seed)*120,Math.cos(G.t*0.8+m.seed)*120,200,2,dt);
     }else{
@@ -383,7 +402,7 @@ function updateMutants(dt,target){
 }
 
 function updateAIShip(dt){
-  const s=G.aiShip,L=G.playerLander;
+  const s=G.aiShip,L=G.playerSnatcher;
   if(!s||!s.alive)return;
   if(L&&L.alive){
     const dx=wdx(L.x,s.x),dy=L.y-s.y,d=Math.hypot(dx,dy)||1;
@@ -392,9 +411,9 @@ function updateAIShip(dt){
     else if(d<230){ax-=dx/d*560;ay-=dy/d*560;}
     const sw=Math.sin(G.t*1.4)*300;
     ax+=-dy/d*sw;ay+=dx/d*sw;
-    // prioritize catching falling humans
+    // prioritize catching falling colonists
     let fh=null,fd=1e9;
-    for(const h of G.humans){if(h.state==='falling'){const dd=Math.abs(wdx(h.x,s.x));if(dd<fd){fd=dd;fh=h;}}}
+    for(const h of G.colonists){if(h.state==='falling'){const dd=Math.abs(wdx(h.x,s.x));if(dd<fd){fd=dd;fh=h;}}}
     if(fh&&fd<300){ax=wdx(fh.x,s.x)*5-s.vx*2;ay=((fh.y-6)-s.y)*5-s.vy*2;}
     s.vx+=clamp(ax,-1000,1000)*dt;s.vy+=clamp(ay,-1000,1000)*dt;
     const sp=Math.hypot(s.vx,s.vy),mx=235;
@@ -423,11 +442,11 @@ function aiFire(s,L){
   SFX.ezap();
 }
 
-function updatePlayerLander(dt){
-  const l=G.playerLander;if(!l)return;
+function updatePlayerSnatcher(dt){
+  const l=G.playerSnatcher;if(!l)return;
   if(!l.alive){
     l.respawnT=(l.respawnT||0)-dt;
-    if(l.respawnT<=0&&G.lives>0){const nl=mkLander(WORLD_W/2,140);nl.alive=true;G.playerLander=nl;}
+    if(l.respawnT<=0&&G.lives>0){const nl=mkSnatcher(WORLD_W/2,140);nl.alive=true;G.playerSnatcher=nl;}
     return;
   }
   const th=thrustVec();
@@ -440,10 +459,10 @@ function updatePlayerLander(dt){
   l.y=clamp(l.y,20,SURF_Y-16);
   if(l.carrying){
     l.carrying.x=l.x;l.carrying.y=l.y+15;
-    if(l.y<TOP_Y+6)convertHuman(l);
+    if(l.y<TOP_Y+6)convertColonist(l);
   }else{
-    for(const h of G.humans){
-      if(h.state==='standing'&&Math.abs(wdx(h.x,l.x))<20&&Math.abs(h.y-l.y)<26){grabHuman(l,h);break;}
+    for(const h of G.colonists){
+      if(h.state==='standing'&&Math.abs(wdx(h.x,l.x))<20&&Math.abs(h.y-l.y)<26){grabColonist(l,h);break;}
     }
   }
 }
@@ -460,8 +479,8 @@ function updateBullets(dt){
   }
   G.ebullets=G.ebullets.filter(b=>b.life>0&&b.y>0&&b.y<H);
 }
-function updateHumans(dt){
-  for(const h of G.humans){
+function updateColonists(dt){
+  for(const h of G.colonists){
     if(h.state==='falling'){
       h.vy+=820*dt;h.y+=h.vy*dt;
       if(h.y>=SURF_Y-8){h.state='dead';spark(h.x,SURF_Y-8,'#ff5a5a',6);}
@@ -478,57 +497,57 @@ function updateParts(dt){
 function hitR(a,b,r){return Math.abs(wdx(a.x,b.x))<r&&Math.abs(a.y-b.y)<r;}
 
 function collisions(){
-  // ship bullets vs landers & mutants
+  // ship bullets vs snatchers & hollows
   for(const b of G.bullets){
     if(b.dead)continue;
-    for(const l of G.landers){
+    for(const l of G.snatchers){
       if(!l.alive||b.dead)continue;
       if(hitR(b,l,20)){b.dead=true;l.alive=false;dropCarried(l);boom(l.x,l.y,false);
         if(G.mode==='versus')G.score+=150;else G.score+=150;
         G.kills++;floater(l.x,l.y,'+150','#ffd75a');break;}
     }
     if(b.dead)continue;
-    for(const m of G.mutants){
+    for(const m of G.hollows){
       if(b.dead)continue;
       if(hitR(b,m,18)){b.dead=true;m.dead=true;boom(m.x,m.y,false);
         G.score+=250;G.kills++;floater(m.x,m.y,'+250','#ffd75a');break;}
     }
   }
   G.bullets=G.bullets.filter(b=>!b.dead);
-  G.mutants=G.mutants.filter(m=>!m.dead);
-  G.landers=G.landers.filter(l=>l.alive);
+  G.hollows=G.hollows.filter(m=>!m.dead);
+  G.snatchers=G.snatchers.filter(l=>l.alive);
 
   const s=G.ship;
   if(s&&s.alive){
     // enemies ram ship
-    for(const l of G.landers){if(hitR(s,l,22)){killShip();break;}}
-    if(s.alive)for(const m of G.mutants){if(hitR(s,m,20)){killShip();break;}}
-    // catch falling humans
-    if(s.alive)for(const h of G.humans){
+    for(const l of G.snatchers){if(hitR(s,l,22)){killShip();break;}}
+    if(s.alive)for(const m of G.hollows){if(hitR(s,m,20)){killShip();break;}}
+    // catch falling colonists
+    if(s.alive)for(const h of G.colonists){
       if(h.state==='falling'&&hitR(s,h,26)){
         h.state='standing';h.y=SURF_Y-8;h.vy=0;
-        G.saves++;G.score+=500;SFX.save();floater(h.x,h.y-24,'SAVED +500','#7dff9a');
+        G.saves++;G.score+=500;SFX.save();floater(h.x,h.y-24,'RESCUED +500','#7dff9a');
         spark(h.x,h.y,'#7dff9a',10);
       }
     }
   }
-  // AI ship catches falling humans (abduct mode) / rams player lander
+  // AI ship catches falling colonists (abduct mode) / rams player snatcher
   const A=G.aiShip;
   if(A&&A.alive){
-    for(const h of G.humans){
+    for(const h of G.colonists){
       if(h.state==='falling'&&hitR(A,h,26)){
         h.state='standing';h.y=SURF_Y-8;h.vy=0;SFX.deny();floater(h.x,h.y-24,'DENIED','#ff5a8a');
       }
     }
-    const L=G.playerLander;
-    if(L&&L.alive&&hitR(A,L,24)){killPlayerLander();}
+    const L=G.playerSnatcher;
+    if(L&&L.alive&&hitR(A,L,24)){killPlayerSnatcher();}
   }
-  // enemy bullets vs player lander (abduct) / ship can't be hit (landers unarmed in ship mode)
-  const L=G.playerLander;
+  // enemy bullets vs player snatcher (abduct) / ship can't be hit (snatchers unarmed in ship mode)
+  const L=G.playerSnatcher;
   if(L&&L.alive){
-    for(const b of G.ebullets){if(hitR(b,L,18)){b.dead=true;killPlayerLander();break;}}
+    for(const b of G.ebullets){if(hitR(b,L,18)){b.dead=true;killPlayerSnatcher();break;}}
     G.ebullets=G.ebullets.filter(b=>!b.dead);
-    for(const m of G.mutants){if(hitR(L,m,20)){killPlayerLander();break;}}
+    for(const m of G.hollows){if(hitR(L,m,20)){killPlayerSnatcher();break;}}
   }
 }
 
@@ -537,19 +556,19 @@ function waveLogic(dt){
   if(G.spawnQueue>0){
     G.spawnT-=dt;
     if(G.spawnT<=0){G.spawnT=Math.max(0.5,1.4-G.wave*0.08);
-      const l=mkLander(rnd(0,WORLD_W),rnd(40,120));G.landers.push(l);G.spawnQueue--;}
-  }else if(G.landers.length===0&&G.mutants.length===0){
-    if(humansLeft()<=0){gameOver('PLANET LOST','all humans gone — score '+G.score);return;}
+      const l=mkSnatcher(rnd(0,WORLD_W),rnd(40,120));G.snatchers.push(l);G.spawnQueue--;}
+  }else if(G.snatchers.length===0&&G.hollows.length===0){
+    if(colonistsLeft()<=0){gameOver('COLONY LOST','all colonists gone — score '+G.score);return;}
     G.wavePause+=dt;
     if(G.wavePause>2.6){
       G.wavePause=0;G.wave++;
       const bonus=500*G.wave;G.score+=bonus;
       G.spawnQueue=Math.min(4+2*G.wave,14);G.spawnT=0.5;
-      if(G.ship&&G.ship.alive)G.ship.bombs=3;
+      if(G.ship&&G.ship.alive)G.ship.novas=3;
       banner('WAVE '+G.wave+'  +'+bonus);SFX.wave();
     }
   }
-  if(humansLeft()<=0&&G.state==='play'){gameOver('PLANET LOST','all humans gone — score '+G.score);}
+  if(colonistsLeft()<=0&&G.state==='play'){gameOver('COLONY LOST','all colonists gone — score '+G.score);}
 }
 
 function versusLogic(dt){
@@ -566,7 +585,7 @@ function versusLogic(dt){
     }
     return;
   }
-  if(G.roundT<=0||humansLeft()<=0)endRound();
+  if(G.roundT<=0||colonistsLeft()<=0)endRound();
 }
 function endRound(){
   let w=G.score>=G.score2?0:1; // ties go to the ship (defense holds)
@@ -584,26 +603,27 @@ function update(dt){
 
   if(G.mode==='ship'){
     updateShip(dt);
-    for(const l of G.landers)updateLanderAI(l,dt,G.ship);
-    updateMutants(dt,G.ship&&G.ship.alive?G.ship:null);
+    for(const l of G.snatchers)updateSnatcherAI(l,dt,G.ship);
+    updateHollows(dt,G.ship&&G.ship.alive?G.ship:null);
     waveLogic(dt);
   }else if(G.mode==='abduct'){
-    updatePlayerLander(dt);
+    updatePlayerSnatcher(dt);
     updateAIShip(dt);
-    updateMutants(dt,G.playerLander&&G.playerLander.alive?G.playerLander:null);
-    for(const l of G.landers)updateLanderAI(l,dt,null);
+    updateHollows(dt,G.playerSnatcher&&G.playerSnatcher.alive?G.playerSnatcher:null);
+    for(const l of G.snatchers)updateSnatcherAI(l,dt,null);
     if(G.conversions>=8&&G.state==='play'){gameOver('8 CONVERTED','time '+G.modeT.toFixed(1)+'s');}
   }else if(G.mode==='versus'){
     updateShip(dt);
-    for(const l of G.landers)updateLanderAI(l,dt,G.ship);
-    updateMutants(dt,G.ship&&G.ship.alive?G.ship:null);
+    for(const l of G.snatchers)updateSnatcherAI(l,dt,G.ship);
+    updateHollows(dt,G.ship&&G.ship.alive?G.ship:null);
     versusLogic(dt);
   }
   updateBullets(dt);
-  updateHumans(dt);
+  updateColonists(dt);
   updateParts(dt);
+  updateNovas(dt);
   collisions();
-  if(G.state==='play'&&(G.mode==='ship'||G.mode==='versus')&&humansLeft()<=0&&G.mode==='ship'){
+  if(G.state==='play'&&(G.mode==='ship'||G.mode==='versus')&&colonistsLeft()<=0&&G.mode==='ship'){
     // handled in waveLogic; versus handled in versusLogic
   }
 }
@@ -616,18 +636,28 @@ function drawShipShape(col){
   ctx.moveTo(16,0);ctx.lineTo(-10,11);ctx.lineTo(-5,0);ctx.lineTo(-10,-11);ctx.closePath();ctx.stroke();
   ctx.fillStyle=col;ctx.beginPath();ctx.arc(4,0,3,0,7);ctx.fill();
 }
-function drawLanderShape(col,eye){
+function drawSnatcherShape(col,eye){
+  // violet manta-ray silhouette with dangling tendrils
   ctx.strokeStyle=col;ctx.lineWidth=2;
   ctx.beginPath();
-  for(let i=0;i<6;i++){const a=i/6*Math.PI*2+Math.PI/6;const px=Math.cos(a)*10,py=Math.sin(a)*10;
-    i?ctx.lineTo(px,py):ctx.moveTo(px,py);}
+  ctx.moveTo(-15,3);
+  ctx.quadraticCurveTo(-8,-9,0,-3);
+  ctx.quadraticCurveTo(8,-9,15,3);
+  ctx.quadraticCurveTo(7,9,0,7);
+  ctx.quadraticCurveTo(-7,9,-15,3);
   ctx.closePath();ctx.stroke();
+  // wing ridge
+  ctx.beginPath();ctx.moveTo(0,-3);ctx.lineTo(0,7);ctx.stroke();
+  // dangling tendrils, swaying
   ctx.beginPath();
-  for(const lx of[-7,0,7]){ctx.moveTo(lx*0.9,8);ctx.lineTo(lx*1.3,16);}
+  for(const tx of[-9,-4,4,9]){
+    const sw=Math.sin(G.t*3.2+tx*1.7)*3;
+    ctx.moveTo(tx*0.9,7);ctx.quadraticCurveTo(tx*0.9+sw,13,tx*0.9+sw*0.5,19);
+  }
   ctx.stroke();
-  ctx.fillStyle=eye||'#ff3b3b';ctx.beginPath();ctx.arc(0,-2,3.4,0,7);ctx.fill();
+  ctx.fillStyle=eye||'#ff3b3b';ctx.beginPath();ctx.arc(0,-1,3.2,0,7);ctx.fill();
 }
-function drawHumanShape(){
+function drawColonistShape(){
   ctx.strokeStyle='#fff';ctx.lineWidth=2;
   ctx.beginPath();ctx.arc(0,-7,3,0,7);ctx.stroke();
   ctx.beginPath();ctx.moveTo(0,-4);ctx.lineTo(0,4);ctx.moveTo(-4,0);ctx.lineTo(4,0);ctx.moveTo(0,4);ctx.lineTo(-3,9);ctx.moveTo(0,4);ctx.lineTo(3,9);ctx.stroke();
@@ -671,36 +701,39 @@ function render(){
     ctx.fillRect(sx,SURF_Y+18+((wx*13)%22),26,4);}
 
   const SX=x=>scrX(x,cam);
-  // humans
-  for(const h of G.humans){
+  // colonists
+  for(const h of G.colonists){
     if(h.state==='dead'||h.state==='converted')continue;
     const sx=SX(h.x);if(sx>W+20)continue;
-    ctx.save();ctx.translate(sx,h.y);drawHumanShape();ctx.restore();
+    ctx.save();ctx.translate(sx,h.y);drawColonistShape();ctx.restore();
   }
-  // landers
-  for(const l of G.landers){
+  // snatchers
+  for(const l of G.snatchers){
     if(!l.alive)continue;
     const sx=SX(l.x);if(sx>W+24)continue;
     ctx.save();ctx.translate(sx,l.y);
-    drawLanderShape(p2sel===l?'#ffffff':'#ff5a8a');
+    drawSnatcherShape(p2sel===l?'#ffffff':'#ff5a8a');
     if(p2sel===l){ctx.strokeStyle='#fff';ctx.beginPath();ctx.arc(0,0,17+Math.sin(G.t*6)*2,0,7);ctx.stroke();}
     ctx.restore();
   }
-  // player lander (abduct mode)
-  const PL=G.playerLander;
+  // player snatcher (abduct mode)
+  const PL=G.playerSnatcher;
   if(PL&&PL.alive&&G.mode==='abduct'){
     const sx=SX(PL.x);
     ctx.save();ctx.translate(sx,PL.y);
-    drawLanderShape('#7dff9a','#123');
+    drawSnatcherShape('#7dff9a','#123');
     ctx.strokeStyle='#7dff9a';ctx.beginPath();ctx.arc(0,0,16,0,7);ctx.stroke();
     ctx.restore();
   }
-  // mutants
-  for(const m of G.mutants){
+  // hollows — rotating jagged shard-drones in sickly green
+  for(const m of G.hollows){
     const sx=SX(m.x);if(sx>W+24)continue;
-    ctx.save();ctx.translate(sx,m.y);ctx.rotate(Math.atan2(m.vy,m.vx));
-    ctx.strokeStyle='#ff2e2e';ctx.lineWidth=2;ctx.beginPath();
-    ctx.moveTo(12,0);ctx.lineTo(-8,8);ctx.lineTo(-4,0);ctx.lineTo(-8,-8);ctx.closePath();ctx.stroke();
+    ctx.save();ctx.translate(sx,m.y);ctx.rotate(G.t*3.1+m.seed);
+    ctx.strokeStyle='#9dff4d';ctx.lineWidth=2;ctx.beginPath();
+    const jp=[14,3, 10,12, 4,8, -5,13, -10,6, -7,-2, -13,-7, -5,-6, -2,-13, 5,-8, 11,-11];
+    for(let i=0;i<jp.length;i+=2){i?ctx.lineTo(jp[i],jp[i+1]):ctx.moveTo(jp[i],jp[i+1]);}
+    ctx.closePath();ctx.stroke();
+    ctx.fillStyle='#e4ff9a';ctx.beginPath();ctx.arc(0,0,2.8,0,7);ctx.fill();
     ctx.restore();
   }
   // AI ship (abduct mode)
@@ -732,6 +765,19 @@ function render(){
     const sx=SX(b.x);if(sx>W+10)continue;
     ctx.fillStyle='#ff4d4d';ctx.beginPath();ctx.arc(sx,b.y,3.4,0,7);ctx.fill();
   }
+  // nova pulses: expanding ring arcs in a forward cone
+  for(const n of G.novas){
+    const sx=SX(n.x),sy=n.y;
+    const a=clamp(1-n.t/n.dur,0,1);
+    ctx.save();ctx.globalAlpha=0.25+0.6*a;
+    ctx.strokeStyle='#d9a7ff';ctx.lineWidth=15;
+    ctx.beginPath();ctx.arc(sx,sy,n.r,n.angle-n.half,n.angle+n.half);ctx.stroke();
+    ctx.strokeStyle='#ffffff';ctx.lineWidth=4;
+    ctx.beginPath();ctx.arc(sx,sy,n.r,n.angle-n.half,n.angle+n.half);ctx.stroke();
+    ctx.globalAlpha=0.75*a;ctx.fillStyle='#e8ccff';
+    ctx.beginPath();ctx.arc(sx,sy,12*(1-n.t/n.dur)+3,0,7);ctx.fill();
+    ctx.restore();
+  }
   // particles
   ctx.globalCompositeOperation='lighter';
   for(const p of G.parts){
@@ -750,7 +796,7 @@ function render(){
   ctx.globalAlpha=1;
   ctx.restore();
 
-  drawRadar(cam);
+  drawThermal(cam);
   drawHUD();
   if(TOUCH&&G.state==='play')drawTouchUI();
   if(G.flash>0){ctx.fillStyle='rgba(255,240,220,'+clamp(G.flash,0,0.75)+')';ctx.fillRect(0,0,W,H);}
@@ -778,19 +824,29 @@ function render(){
   }
 }
 
-function drawRadar(cam){
-  ctx.fillStyle='rgba(8,4,18,0.92)';ctx.fillRect(0,0,W,RADAR_H);
-  ctx.strokeStyle='#5a3a7a';ctx.lineWidth=1;ctx.strokeRect(1,1,W-2,RADAR_H-2);
+function drawThermal(cam){
+  // thermal-band scanner: warm gradient strip with labeled zones
+  const tg=ctx.createLinearGradient(0,0,0,RADAR_H);
+  tg.addColorStop(0,'#160404');tg.addColorStop(0.55,'#4a1408');tg.addColorStop(1,'#8a2f0a');
+  ctx.fillStyle=tg;ctx.fillRect(0,0,W,RADAR_H);
+  ctx.strokeStyle='#a05a2a';ctx.lineWidth=1;ctx.strokeRect(1,1,W-2,RADAR_H-2);
   const rx=x=>8+(x/WORLD_W)*(W-16);
+  // labeled thermal zones
+  ctx.font='9px Courier New';ctx.textAlign='center';ctx.fillStyle='rgba(255,178,102,0.85)';
+  const zones=['ZONE A','ZONE B','ZONE C','ZONE D'];
+  for(let i=1;i<4;i++){const zx=8+(W-16)*i/4;
+    ctx.strokeStyle='rgba(255,160,80,0.35)';ctx.beginPath();ctx.moveTo(zx,4);ctx.lineTo(zx,RADAR_H-4);ctx.stroke();}
+  for(let i=0;i<4;i++)ctx.fillText(zones[i],8+(W-16)*(i+0.5)/4,RADAR_H-5);
+  ctx.textAlign='left';
   ctx.fillStyle='#d4692a';ctx.fillRect(8,RADAR_H-8,W-16,3);
-  for(const h of G.humans){
+  for(const h of G.colonists){
     if(h.state!=='standing')continue;
     ctx.fillStyle='#fff';ctx.fillRect(rx(h.x)-1,RADAR_H-13,2,4);
   }
-  for(const l of G.landers){if(!l.alive)continue;ctx.fillStyle='#ff5a8a';ctx.fillRect(rx(l.x)-1.5,10,3,3);}
-  const PL=G.playerLander;
+  for(const l of G.snatchers){if(!l.alive)continue;ctx.fillStyle='#c77dff';ctx.fillRect(rx(l.x)-1.5,10,3,3);}
+  const PL=G.playerSnatcher;
   if(PL&&PL.alive&&G.mode==='abduct'){ctx.fillStyle='#7dff9a';ctx.fillRect(rx(PL.x)-2,9,4,4);}
-  for(const m of G.mutants){ctx.fillStyle='#ff2e2e';ctx.fillRect(rx(m.x)-1.5,14,3,3);}
+  for(const m of G.hollows){ctx.fillStyle='#9dff4d';ctx.fillRect(rx(m.x)-1.5,14,3,3);}
   const s=G.ship;
   if(s&&s.alive){ctx.fillStyle='#4df3ff';ctx.beginPath();ctx.arc(rx(s.x),20,3,0,7);ctx.fill();}
   const A=G.aiShip;
@@ -808,15 +864,15 @@ function drawHUD(){
   if(G.mode==='ship'){
     ctx.fillText('SCORE '+G.score,10,y0);
     ctx.fillText('WAVE '+G.wave,10,y0+20);
-    ctx.fillText('HUMANS '+humansLeft(),10,y0+40);
+    ctx.fillText('COLONISTS '+colonistsLeft(),10,y0+40);
     ctx.textAlign='right';
     ctx.fillText('SHIPS '+Math.max(0,G.lives),W-10,y0);
-    ctx.fillText('BOMBS '+(G.ship?G.ship.bombs:0),W-10,y0+20);
+    ctx.fillText('NOVAS '+(G.ship?G.ship.novas:0),W-10,y0+20);
   }else if(G.mode==='abduct'){
     ctx.fillText('CONVERTED '+G.conversions+'/8',10,y0);
     ctx.fillText('TIME '+G.modeT.toFixed(1)+'s',10,y0+20);
     ctx.textAlign='right';
-    ctx.fillText('LANDERS '+Math.max(0,G.lives),W-10,y0);
+    ctx.fillText('SNATCHERS '+Math.max(0,G.lives),W-10,y0);
   }else if(G.mode==='versus'){
     ctx.fillStyle='#4df3ff';ctx.fillText('P1 '+G.score,10,y0);
     ctx.fillStyle='#ff5a8a';ctx.fillText('P2 '+G.score2,10,y0+20);
@@ -846,20 +902,20 @@ function drawTouchUI(){
     ctx.beginPath();ctx.arc(BTN_FIRE.x,BTN_FIRE.y,BTN_FIRE.r,0,7);ctx.stroke();
     ctx.fillStyle='#4df3ff';ctx.textAlign='center';ctx.font='bold 15px Courier New';
     ctx.fillText('FIRE',BTN_FIRE.x,BTN_FIRE.y+5);
-    ctx.strokeStyle='#ffb347';ctx.beginPath();ctx.arc(BTN_BOMB.x,BTN_BOMB.y,BTN_BOMB.r,0,7);ctx.stroke();
-    ctx.fillStyle='#ffb347';ctx.fillText('BOMB',BTN_BOMB.x,BTN_BOMB.y+5);
+    ctx.strokeStyle='#ffb347';ctx.beginPath();ctx.arc(BTN_NOVA.x,BTN_NOVA.y,BTN_NOVA.r,0,7);ctx.stroke();
+    ctx.fillStyle='#ffb347';ctx.fillText('NOVA',BTN_NOVA.x,BTN_NOVA.y+5);
     ctx.globalAlpha=1;ctx.textAlign='left';
   }
   if(G.mode==='versus'){
     ctx.fillStyle='rgba(255,90,138,0.7)';ctx.textAlign='center';ctx.font='13px Courier New';
-    ctx.fillText('P2: tap sky = spawn lander ('+G.p2budget+') · tap lander = steer',W/2,70);
+    ctx.fillText('P2: tap sky = spawn snatcher ('+G.p2budget+') · tap snatcher = steer',W/2,70);
     ctx.textAlign='left';
   }
 }
 
 const menuBtns=[
-  {x:90,y:296,w:300,h:66,mode:'ship',label:'1 · SHIP',sub:'defend the humans'},
-  {x:90,y:376,w:300,h:66,mode:'abduct',label:'2 · ABDUCT',sub:'steal the humans'},
+  {x:90,y:296,w:300,h:66,mode:'ship',label:'1 · SHIP',sub:'defend the colonists'},
+  {x:90,y:376,w:300,h:66,mode:'abduct',label:'2 · ABDUCT',sub:'steal the colonists'},
   {x:90,y:456,w:300,h:66,mode:'versus',label:'3 · VERSUS',sub:'2 players, one screen'}
 ];
 function drawMenu(){
@@ -871,7 +927,7 @@ function drawMenu(){
   ctx.fillStyle='#c9a86a';ctx.font='15px Courier New';
   ctx.fillText('1980 — YOU ARE THE ABDUCTORS',W/2,182);
   ctx.fillStyle='#8fa89b';ctx.font='13px Courier New';
-  ctx.fillText('landers rise · humans vanish · mutants hunt',W/2,206);
+  ctx.fillText('snatchers rise · colonists vanish · hollows hunt',W/2,206);
   for(const b of menuBtns){
     ctx.fillStyle='rgba(20,10,32,0.9)';ctx.fillRect(b.x,b.y,b.w,b.h);
     ctx.strokeStyle='#ff9a3c';ctx.lineWidth=2;ctx.strokeRect(b.x,b.y,b.w,b.h);
@@ -881,8 +937,8 @@ function drawMenu(){
     ctx.fillText(b.sub,W/2,b.y+50);
   }
   ctx.fillStyle='#5f6f66';ctx.font='12px Courier New';
-  ctx.fillText('WASD/arrows thrust · SPACE fire · B bomb',W/2,556);
-  ctx.fillText('P pause · M mute · touch: left stick, FIRE/BOMB',W/2,576);
+  ctx.fillText('WASD/arrows thrust · SPACE fire · B nova',W/2,556);
+  ctx.fillText('P pause · M mute · touch: left stick, FIRE/NOVA',W/2,576);
   ctx.fillText('best ship '+getBest('ab_best_ship')+' · best steal '+getBest('ab_best_time')+'s',W/2,606);
   ctx.textAlign='left';
 }
@@ -894,12 +950,16 @@ window.GAME={
   get score(){return G.score;},
   get score2(){return G.score2;},
   get lives(){return G.lives;},
-  get humansLeft(){return humansLeft();},
+  get colonistsLeft(){return colonistsLeft();},
   get wave(){return G.wave;},
   get wins(){return G.wins.slice();},
   get conversions(){return G.conversions;},
   get roundT(){return Math.max(0,G.roundT);},
-  get landers(){return G.landers.length;},
+  get snatchers(){return G.snatchers.length;},
+  get hollows(){return G.hollows.length;},
+  get novas(){return G.ship?G.ship.novas:0;},
+  get novaFx(){return G.novas.length;},
+  get debug(){return G;},
   startMode(m){startMode(m);}
 };
 
