@@ -46,8 +46,8 @@ function nz(dur,vol,fc,delay){
 }
 const sClick=()=>tone(660,660,0.06,'square',0.08);
 const sDig=()=>{const n=performance.now();if(n-lastDigSfx<110)return;lastDigSfx=n;nz(0.07,0.10,700);};
-const sPump=st=>tone(300+st*160,520+st*200,0.12,'square',0.10);
-const sPop=()=>{nz(0.12,0.22,2500);tone(900,1800,0.12,'square',0.10);};
+const sProd=()=>tone(520,180,0.10,'square',0.10);
+const sSquash=()=>{nz(0.12,0.22,2500);tone(900,1800,0.12,'square',0.10);};
 const sRumble=()=>nz(0.5,0.14,220);
 const sCrash=()=>{nz(0.35,0.30,500);tone(120,40,0.3,'sawtooth',0.14);};
 const sCatch=()=>{tone(500,140,0.35,'sawtooth',0.14);};
@@ -70,7 +70,7 @@ let dirt=[];               // [r][c] bool
 let digger=null, monsters=[], rocks=[], parts=[];
 let score=0, best={digger:0, burrow:0};
 let lives=3, level=1, monstersLeft=0;
-let catches=0, aiPops=0, burrowT=0;
+let catches=0, aiFalls=0, burrowT=0;
 let roundT=90, roundNum=1, p1Score=0, p2Score=0, wins={p1:0,p2:0}, roundEndT=0, roundWinner=0;
 let banner=null;           // {text, sub, t}
 let staticDirty=true;
@@ -111,14 +111,14 @@ function renderStatic(){
 // ================= entities =================
 function makeDigger(r,c,isAI){
   return {kind:'d', r:r,c:c, tr:r,tc:c, px:cx(c),py:cy(r), dx:0,dy:0,
-    speed:4.6, alive:true, invuln:0, pumpHeld:false, pumpAcc:0, isAI:!!isAI,
+    speed:4.6, alive:true, invuln:0, prodHeld:false, isAI:!!isAI,
     thinkT:0, wanderT:0};
 }
 function makeMonster(type,r,c){
   const t=type==='grit';
   return {kind:'m', type:type, r:r,c:c, tr:r,tc:c, px:cx(c),py:cy(r), dx:0,dy:0,
     tunSpd:t?4.6:5.2, dirtSpd:t?1.5:1.7, phaseSpd:3.4,
-    inflation:0, pumpAcc:0, decayAcc:0, pumpedNow:false, frozen:false,
+    stunT:0, frozen:false,
     phaseT:0, phaseCD:0, alive:true, respawnT:0, thinkT:rnd(0,0.25), homeR:r, homeC:c};
 }
 function makeRock(r,c){ return {r:r,c:c, fr:r, state:'rest', wob:0, shx:0}; }
@@ -192,7 +192,7 @@ function setupBurrow(){
   digger=makeDigger(DIG_SPAWN.r,DIG_SPAWN.c,true);
   const spots=[[13,13],[13,0]];
   monsters=[makeMonster('murk',spots[0][0],spots[0][1]),makeMonster('grit',spots[1][0],spots[1][1])];
-  monstersLeft=2; catches=0; aiPops=0; burrowT=0; selMonster=0;
+  monstersLeft=2; catches=0; aiFalls=0; burrowT=0; selMonster=0;
 }
 function setupVersus(){
   setupCommon(); mode='versus';
@@ -203,7 +203,7 @@ function setupVersus(){
 }
 function startMode(m){
   sClick();
-  if(m==='digger'){ score=0; lives=3; setupDigger(1); setBanner('DIGGER','pump them or drop rocks',2.0); }
+  if(m==='digger'){ score=0; lives=3; setupDigger(1); setBanner('DIGGER','prod them or drop rocks',2.0); }
   else if(m==='burrow'){ setupBurrow(); setBanner('BURROW','catch the digger 3 times',2.0); }
   else if(m==='versus'){ setupVersus(); wins={p1:0,p2:0}; roundNum=1; setBanner('ROUND 1','digger vs monsters',2.0); }
   state='play';
@@ -235,11 +235,13 @@ function digAt(r,c){
 function addScore(n){ score+=n; }
 function popMonster(m,byCrush){
   if(!m.alive)return;
-  m.alive=false; m.inflation=0; m.frozen=false;
-  spawnParts(m.px,m.py,14,m.type==='grit'?'#ff9a3c':'#b46ae0',130); sPop();
-  if(mode==='digger'){ addScore(byCrush?1000:200); monstersLeft--; }
-  else if(mode==='versus'){ p1Score+=byCrush?500:200; }
-  else if(mode==='burrow'){ aiPops++; setBanner('POPPED','the digger got one — '+aiPops+'/5',1.4); }
+  const wasStunned=m.stunT>0;
+  m.alive=false; m.stunT=0; m.frozen=false;
+  spawnParts(m.px,m.py,14,m.type==='grit'?'#ff9a3c':'#b46ae0',130); sSquash();
+  // rocks are the only kill method: crush = 750, stunned shatter bonus +150
+  if(mode==='digger'){ addScore(byCrush?(750+(wasStunned?150:0)):0); monstersLeft--; }
+  else if(mode==='versus'){ p1Score+=byCrush?(750+(wasStunned?150:0)):0; }
+  else if(mode==='burrow'){ aiFalls++; setBanner('SQUASHED','the digger got one — '+aiFalls+'/5',1.4); }
   if(mode!=='digger'){ m.respawnT=4; }
 }
 function crushMonster(m){
@@ -262,7 +264,7 @@ function diggerDie(crushed){
 }
 function respawnDigger(){
   const d=digger; d.r=DIG_SPAWN.r;d.c=DIG_SPAWN.c;d.tr=d.r;d.tc=d.c;
-  d.px=cx(d.c);d.py=cy(d.r);d.invuln=2.5;d.pumpHeld=false;d.pumpAcc=0;
+  d.px=cx(d.c);d.py=cy(d.r);d.invuln=2.5;d.prodHeld=false;
 }
 function monsterCatch(m){
   // a live monster touches the digger
@@ -278,7 +280,7 @@ function monsterCatch(m){
 }
 
 // ================= digger update =================
-let inputDir={r:0,c:0}, p1Dir={r:0,c:0}, p2Dir={r:0,c:0}, p1Pump=false;
+let inputDir={r:0,c:0}, p1Dir={r:0,c:0}, p2Dir={r:0,c:0}, p1Prod=false;
 function adjacentMonster(d){
   for(const m of monsters){
     if(!m.alive||m.phaseT>0)continue;
@@ -295,18 +297,13 @@ function updateDigger(dt){
     digAt(d.r,d.c);
     if(dir.r||dir.c)tryStep(d,dir.r,dir.c);
   }
-  // pumping
-  const wantPump=(mode==='versus')?p1Pump:d.pumpHeld;
-  if(wantPump){
+  // prodding: a quick jab stuns an adjacent monster for 2.5s
+  const wantProd=(mode==='versus')?p1Prod:d.prodHeld;
+  if(wantProd){
     const m=adjacentMonster(d);
-    if(m){
-      m.pumpAcc+=dt; m.pumpT=m.pumpT||0;
-      while(m.pumpAcc>=0.33){
-        m.pumpAcc-=0.33;
-        if(m.inflation<3){ m.inflation++; sPump(m.inflation); spawnParts(m.px,m.py,4,'#cfe8ff',70); }
-        if(m.inflation>=3){ popMonster(m,false); break; }
-      }
-      m.pumpedNow=true; m.frozen=m.inflation>=1;
+    if(m&&m.stunT<=0){
+      m.stunT=2.5; m.frozen=true; sProd();
+      spawnParts(m.px,m.py,6,'#aee2ff',90);
     }
   }
 }
@@ -316,17 +313,16 @@ function updateMonster(m,dt,controlled,ctrlDir){
   if(!m.alive){
     if(m.respawnT>0){ m.respawnT-=dt;
       if(m.respawnT<=0){ const p=freeCellNear(m.homeR,m.homeC); m.r=p.r;m.c=p.c;m.tr=p.r;m.tc=p.c;
-        m.px=cx(p.c);m.py=cy(p.r); m.alive=true; m.inflation=0; m.frozen=false; m.phaseT=0; }
+        m.px=cx(p.c);m.py=cy(p.r); m.alive=true; m.stunT=0; m.frozen=false; m.phaseT=0; }
     }
     return;
   }
   if(m.phaseT>0)m.phaseT-=dt;
   if(m.phaseCD>0)m.phaseCD-=dt;
-  if(!m.pumpedNow&&m.inflation>0){
-    m.decayAcc+=dt;
-    if(m.decayAcc>=1.4){ m.decayAcc=0; m.inflation--; if(m.inflation<=0){m.inflation=0;m.frozen=false;} }
+  if(m.stunT>0){
+    m.stunT-=dt;
+    if(m.stunT<=0){ m.stunT=0; m.frozen=false; }
   }
-  m.pumpedNow=false;
   if(m.frozen)return;
   const arrived=stepTo(m,dt,monSpeed(m));
   if(arrived&&controlled){
@@ -373,12 +369,12 @@ function aiDiggerThink(dt){
     if(opts.length){const o=opts[irnd(0,opts.length-1)];tryStep(d,o[0],o[1]);return;}
   }
   if(bestM){
-    if(bestD===1){ // adjacent: pump, with human-like flakiness
-      if(!d.pumpHeld||Math.random()<0.82){ d.pumpHeld=true; }
-      else { d.pumpHeld=false; } // mistake: lets go early
+    if(bestD===1){ // adjacent: prod, with human-like flakiness
+      if(!d.prodHeld||Math.random()<0.82){ d.prodHeld=true; }
+      else { d.prodHeld=false; } // mistake: lets go early
       return;
     }
-    d.pumpHeld=false;
+    d.prodHeld=false;
     // rock-drop opportunity: monster below a rock in same column, dig under the rock
     if(Math.random()<0.5){
       for(const k of rocks){
@@ -406,7 +402,7 @@ function aiDiggerThink(dt){
       const[nr,nc]=path[0];
       if(!monAt(nr,nc))tryStep(d,nr-d.r,nc-d.c);
     }
-  } else { d.pumpHeld=false; }
+  } else { d.prodHeld=false; }
 }
 
 // ================= rocks =================
@@ -448,7 +444,7 @@ function checkCatches(){
 }
 
 // ================= master update =================
-let clearT=0, pumpKey=false;
+let clearT=0, prodKey=false;
 function cycleMonster(){
   const n=monsters.length;
   for(let i=1;i<=n;i++){ const j=(selMonster+i)%n; if(monsters[j].alive){ selMonster=j; sClick(); break; } }
@@ -478,13 +474,13 @@ function update(dt){
   if(state==='roundEnd'){ roundEndT-=dt; if(roundEndT<=0)nextRound(); return; }
   if(state==='over'||state==='win')return;
   // ---- play ----
-  if(digger&&!digger.isAI&&mode==='digger')digger.pumpHeld=pumpKey;
+  if(digger&&!digger.isAI&&mode==='digger')digger.prodHeld=prodKey;
   if(mode==='digger'){
     updateDigger(dt);
     for(const m of monsters){ updateMonster(m,dt,false,null); if(m.alive)aiMonsterThink(m,dt); }
     updateRocks(dt); checkCatches();
     if(monstersLeft<=0&&state==='play'){
-      const bonus=500*level; score+=bonus;
+      const bonus=400*level; score+=bonus;
       setBanner('SECTOR CLEAR','bonus +'+bonus,2.2); state='clear'; clearT=2.4; sWin();
     }
   } else if(mode==='burrow'){
@@ -492,7 +488,7 @@ function update(dt){
     aiDiggerThink(dt); updateDigger(dt);
     monsters.forEach((m,i)=>{ updateMonster(m,dt,m.alive&&i===selMonster,inputDir); if(m.alive&&i!==selMonster)aiMonsterThink(m,dt); });
     updateRocks(dt); checkCatches();
-    if(aiPops>=5&&state==='play'){ state='over'; sLose(); setBanner('THE DIGGER PREVAILS','',2.5); }
+    if(aiFalls>=5&&state==='play'){ state='over'; sLose(); setBanner('THE DIGGER PREVAILS','',2.5); }
   } else if(mode==='versus'){
     roundT-=dt;
     updateDigger(dt);
@@ -525,9 +521,8 @@ function drawMonster(m){
   const x=m.px,y=m.py;
   ctx.save();
   if(m.phaseT>0)ctx.globalAlpha=0.45;
-  const s=1+m.inflation*0.28;
-  ctx.translate(x,y); ctx.scale(s,s);
-  ctx.fillStyle=m.type==='grit'?(m.inflation>0?'#ff7a4d':'#e07b2a'):(m.inflation>0?'#c05ae0':'#8a4dd8');
+  ctx.translate(x,y);
+  ctx.fillStyle=m.type==='grit'?'#e07b2a':'#8a4dd8';
   ctx.beginPath(); ctx.arc(0,0,12,0,7); ctx.fill();
   ctx.fillStyle='rgba(0,0,0,0.25)'; ctx.beginPath(); ctx.arc(-4,4,5,0,7); ctx.fill();
   if(m.type==='grit'){ // angry eyes
@@ -539,7 +534,14 @@ function drawMonster(m){
     ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(0,-1,5.5,0,7); ctx.fill();
     ctx.fillStyle='#1a0a20'; ctx.beginPath(); ctx.arc(m.dx*1.6,-1+m.dy*1.6,2.6,0,7); ctx.fill();
   }
-  if(m.frozen){ ctx.strokeStyle='rgba(160,220,255,0.9)'; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(0,0,14,0,7); ctx.stroke(); }
+  if(m.frozen){ // stun ring + orbiting sparks
+    ctx.strokeStyle='rgba(160,220,255,0.9)'; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.arc(0,0,14,0,7); ctx.stroke();
+    const t0=performance.now()*0.006;
+    ctx.strokeStyle='rgba(255,240,150,0.95)'; ctx.lineWidth=1.8;
+    for(let i=0;i<3;i++){ const a=t0+i*2.094;
+      ctx.beginPath(); ctx.arc(Math.cos(a)*18,Math.sin(a)*18,2.4,0,7); ctx.stroke(); }
+  }
   ctx.restore();
   if((mode==='burrow'||mode==='versus')&&monsters[selMonster]===m&&m.alive){
     ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.setLineDash([5,4]);
@@ -556,7 +558,7 @@ function drawRock(k){
   ctx.beginPath(); ctx.moveTo(x+6,y-9); ctx.lineTo(x+9,y+1); ctx.stroke();
   if(k.state==='wobble'){ ctx.fillStyle='rgba(255,120,60,0.5)'; ctx.font='11px monospace'; ctx.textAlign='center'; ctx.fillText('!',x,y-20); }
 }
-const pumpBtn={x:356,y:616,w:104,h:84,label:'PUMP'};
+const prodBtn={x:356,y:616,w:104,h:84,label:'PROD'};
 const phaseBtn={x:356,y:616,w:104,h:84,label:'PHASE'};
 const phaseBtnV={x:366,y:76,w:102,h:52,label:'PHASE'};
 const pauseBtn={x:424,y:8,w:48,h:36}, muteBtn={x:368,y:8,w:48,h:36};
@@ -578,7 +580,7 @@ function drawHUD(){
     ctx.fillText('CAUGHT '+catches+'/3',12,22);
     ctx.fillText('TIME '+burrowT.toFixed(1)+'s',12,42);
     if(best.burrow)ctx.fillText('BEST '+best.burrow.toFixed(1)+'s',200,22);
-    ctx.fillStyle='#ff9a3c'; ctx.fillText('DIGGER POPS '+aiPops+'/5',200,42);
+    ctx.fillStyle='#ff9a3c'; ctx.fillText('ROCK FALLS '+aiFalls+'/5',200,42);
   } else if(mode==='versus'){
     ctx.fillStyle='#7adfff'; ctx.fillText('P1 '+p1Score,12,22);
     ctx.fillStyle='#ff8ad8'; ctx.fillText('P2 '+p2Score,12,42);
@@ -603,9 +605,9 @@ function render(){
   drawHUD();
   // touch buttons
   if(state==='play'){
-    if(mode==='digger')drawBtn(pumpBtn,p1Pump||pumpKey);
+    if(mode==='digger')drawBtn(prodBtn,p1Prod||prodKey);
     else if(mode==='burrow')drawBtn(phaseBtn,false);
-    else if(mode==='versus'){ drawBtn(pumpBtn,p1Pump); drawBtn(phaseBtnV,false); }
+    else if(mode==='versus'){ drawBtn(prodBtn,p1Prod); drawBtn(phaseBtnV,false); }
   }
   if(banner){
     ctx.globalAlpha=clamp(banner.t,0,1);
@@ -649,7 +651,7 @@ function renderMenu(){
   ctx.fillStyle='#8fa89b'; ctx.font='15px monospace';
   ctx.fillText('a 1982 story, told twice',240,205);
   ctx.fillStyle='#ffd97a'; ctx.font='13px monospace';
-  ctx.fillText('pump them. drop rocks. or be them.',240,240);
+  ctx.fillText('prod them. drop rocks. or be them.',240,240);
   for(const b of menuBtns){
     ctx.fillStyle='#0a0f16'; rr(b.x,b.y,b.w,b.h,12); ctx.fill();
     ctx.strokeStyle='#c9a0ff'; ctx.lineWidth=2; rr(b.x,b.y,b.w,b.h,12); ctx.stroke();
@@ -657,7 +659,7 @@ function renderMenu(){
     ctx.fillStyle='#8fa89b'; ctx.font='12px monospace'; ctx.fillText(b.sub,240,b.y+44);
   }
   ctx.fillStyle='#54655c'; ctx.font='12px monospace';
-  ctx.fillText('arrows/WASD move · SPACE pump/hold · TAB switch · X phase',240,560);
+  ctx.fillText('arrows/WASD move · SPACE prod · TAB switch · X phase',240,560);
   ctx.fillText('P pause · M mute',240,582);
   ctx.textAlign='left';
 }
@@ -695,8 +697,8 @@ addEventListener('keydown',e=>{
   const d=keyDir(k);
   if(d){ if(!keyStack.includes(k))keyStack.push(k); refreshKeyDir(); return; }
   if(k===' '){
-    if(mode==='digger')pumpKey=true;
-    else if(mode==='versus')p1Pump=true;
+    if(mode==='digger')prodKey=true;
+    else if(mode==='versus')p1Prod=true;
     else if(mode==='burrow'){ const m=selMon(); if(m)activatePhase(m); }
     return;
   }
@@ -707,7 +709,7 @@ addEventListener('keydown',e=>{
 addEventListener('keyup',e=>{
   const k=e.key, i=keyStack.indexOf(k);
   if(i>=0){ keyStack.splice(i,1); refreshKeyDir(); }
-  if(k===' '){ pumpKey=false; p1Pump=false; }
+  if(k===' '){ prodKey=false; p1Prod=false; }
 });
 // ---- touch ----
 const touches={};
@@ -729,9 +731,9 @@ cv.addEventListener('touchstart',e=>{
     if(state!=='play')continue;
     const pb=p2PhaseBtn();
     if(pb&&hit(pb,p.x,p.y)){ const m=selMon(); if(m)activatePhase(m); touches[id]={role:'btn'}; continue; }
-    if((mode==='digger'||mode==='versus')&&hit(pumpBtn,p.x,p.y)){
-      if(mode==='digger')pumpKey=true; else p1Pump=true;
-      touches[id]={role:'pump'}; continue;
+    if((mode==='digger'||mode==='versus')&&hit(prodBtn,p.x,p.y)){
+      if(mode==='digger')prodKey=true; else p1Prod=true;
+      touches[id]={role:'prod'}; continue;
     }
     if(mode==='burrow'&&hit(phaseBtn,p.x,p.y)){ const m=selMon(); if(m)activatePhase(m); touches[id]={role:'btn'}; continue; }
     const pid=mode==='versus'?(p.y>360?1:2):0;
@@ -758,7 +760,7 @@ function touchEnd(e){
   for(const t of e.changedTouches){
     const tc=touches[t.identifier]; delete touches[t.identifier];
     if(!tc)continue;
-    if(tc.role==='pump'){ if(mode==='digger')pumpKey=false; else p1Pump=false; }
+    if(tc.role==='prod'){ if(mode==='digger')prodKey=false; else p1Prod=false; }
     if(tc.role==='steer'){
       setPidDir(tc.pid,{r:0,c:0});
       const dtms=performance.now()-tc.t0;
@@ -802,7 +804,7 @@ window.GAME={
   get lives(){return lives;}, get level(){return level;},
   get monstersLeft(){return monstersLeft;},
   get wins(){return wins;}, get catches(){return catches;},
-  get aiPops(){return aiPops;}, get roundT(){return roundT;},
+  get aiFalls(){return aiFalls;}, get aiPops(){return aiFalls;}, get roundT(){return roundT;},
   get digger(){return digger;}, get monsters(){return monsters;}, get rocks(){return rocks;},
   startMode(m){startMode(m);}
 };
