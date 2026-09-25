@@ -7,10 +7,20 @@
 <style>
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html, body { margin:0; padding:0; height:100%; background:#05070c; overflow:hidden;
-    font-family:'Courier New', ui-monospace, monospace; }
+    font-family:'Courier New', ui-monospace, monospace;
+    padding-left:env(safe-area-inset-left); padding-right:env(safe-area-inset-right);
+    padding-top:env(safe-area-inset-top); padding-bottom:env(safe-area-inset-bottom); }
   body { display:flex; align-items:center; justify-content:center; }
   #wrap { position:relative; }
   canvas { display:block; background:#05070c; touch-action:none; }
+  #touch { position:fixed; left:0; right:0; bottom:calc(env(safe-area-inset-bottom, 0px) + 10px);
+    display:none; justify-content:space-between; padding:0 16px; pointer-events:none; z-index:5; }
+  #touch.on { display:flex; }
+  #touch .grp { display:flex; gap:16px; }
+  #touch button { pointer-events:auto; width:76px; height:76px; border-radius:50%;
+    border:2px solid rgba(232,244,255,.45); background:rgba(20,28,40,.55); color:#e8f4ff;
+    font:bold 22px 'Courier New', monospace; touch-action:none; user-select:none; -webkit-user-select:none; }
+  #touch button:active { background:rgba(120,160,200,.55); }
   #hint { position:absolute; left:0; right:0; bottom:-34px; text-align:center;
     color:#3a3f45; font-size:11px; letter-spacing:.14em; pointer-events:none;
     font-family:'Courier New', ui-monospace, monospace; }
@@ -20,6 +30,10 @@
 <div id="wrap">
   <canvas id="c"></canvas>
   <div id="hint">1981 &mdash; YOU ARE THE APE</div>
+</div>
+<div id="touch">
+  <div class="grp"><button id="tL" aria-label="move left">&#9664;</button><button id="tR" aria-label="move right">&#9654;</button></div>
+  <div class="grp"><button id="tJ" aria-label="jump">JMP</button></div>
 </div>
 <script>
 'use strict';
@@ -34,17 +48,20 @@ const W = 480, H = 720;
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 function fit() {
+  const vv = window.visualViewport;
+  const aw = Math.max(1, (vv ? vv.width : window.innerWidth) - 8);
+  const ah = Math.max(1, (vv ? vv.height : window.innerHeight) - 44); // room for the hint line
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const pad = 8;
-  const aw = window.innerWidth - pad, ah = window.innerHeight - pad - 40;
-  const s = Math.min(aw / W, ah / H);
-  canvas.width = Math.round(W * s * dpr);
-  canvas.height = Math.round(H * s * dpr);
-  canvas.style.width = Math.round(W * s) + 'px';
-  canvas.style.height = Math.round(H * s) + 'px';
-  ctx.setTransform(dpr * s, 0, 0, dpr * s, 0, 0);
+  const s = Math.min(aw / W, ah / H); // contain: never overflows the viewport
+  const cw = Math.max(1, Math.floor(W * s)), ch = Math.max(1, Math.floor(H * s));
+  canvas.width = Math.round(cw * dpr); canvas.height = Math.round(ch * dpr);
+  canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
+  ctx.setTransform(dpr * cw / W, 0, 0, dpr * ch / H, 0, 0);
 }
-window.addEventListener('resize', fit); fit();
+window.addEventListener('resize', fit);
+window.addEventListener('orientationchange', () => setTimeout(fit, 80));
+if (window.visualViewport) window.visualViewport.addEventListener('resize', fit);
+fit();
 
 /* ---------- audio (tiny synth, no assets) ---------- */
 let AC = null;
@@ -81,7 +98,18 @@ const sHit   = () => { noiseBurst(0.25, 0.2, 800); beep(160, 60, 0.2, 'sawtooth'
 const sDeath = () => { noiseBurst(0.5, 0.28, 600); beep(220, 40, 0.5, 'sawtooth', 0.12); };
 const sClear = () => { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => beep(f, f, 0.16, 'square', 0.07), i * 130)); };
 const sWin   = () => { beep(440, 880, 0.18, 'square', 0.08); setTimeout(() => beep(660, 1320, 0.22, 'square', 0.08), 160); };
+const sAlarm = () => { beep(660, 660, 0.12, 'square', 0.09); setTimeout(() => beep(520, 520, 0.16, 'square', 0.09), 150); };
 let muted = false;
+/* ---------- music: a tiny 8-step loop, very quiet ---------- */
+let musStep = 0, musT = 0;
+const BASSLINE = [110, 0, 110, 130.81, 0, 98, 0, 123.47];
+function musicTick() {
+  if (!AC || muted) return;
+  const f = BASSLINE[musStep % BASSLINE.length];
+  if (f) beep(f, f, 0.16, 'triangle', 0.032);
+  if (musStep % 2 === 0) noiseBurst(0.03, 0.018, 6000);
+  musStep++;
+}
 
 /* ---------- helpers ---------- */
 const TAU = Math.PI * 2;
@@ -113,14 +141,81 @@ let paused = false, time = 0;
 let climber = null, barrels = [], parts = [], floats = [];
 let ape = { x: 240, throwT: 0 };
 let score = 0, dodges = 0, best = +(localStorage.getItem('apex_best') || 0);
-let bestTime = +(localStorage.getItem('apex_besttime') || 0);
+
 let lives = 3, stage = 1, hits = 0, matchT = 0;
 let round = 1, wins = { p1: 0, p2: 0 }, roundT = 0, roundWinner = null;
-let banner = '', bannerT = 0, shake = 0;
+let alarms = 0, stageT = 0, apexBest = 0;
+try { apexBest = +(localStorage.getItem('apex_bestscore') || 0); } catch (_) {}
+const APEX_STAGES = 8, CLIMB_STAGES = 8;
+// apex campaign escalation: the climber gets faster and wilier every stage
+const aiSpeed = () => 150 + stage * 9;
+const aiWhiff = () => Math.max(0.03, 0.16 - stage * 0.016);
+const aiClimbV = () => CLIMBV * (1 + stage * 0.05);
+function saveApexBest() {
+  if (score > apexBest) { apexBest = score; try { localStorage.setItem('apex_bestscore', apexBest); } catch (_) {} }
+}
+let banner = '', bannerT = 0, shake = 0, bellT = 0;
 let throwCd = 0, aiThrowT = 2, tickT = 0, aiSide = 1;
+let lastInputT = 0, idleWarned = false;
+let aimG = 1, aimEdge = 1; // keyboard aim reticle for the human ape
 let pauseBtn = null, muteBtn = null;
 let stars = [];
 for (let i = 0; i < 70; i++) stars.push([rnd(0, W), rnd(0, H), rnd(0.4, 1.4)]);
+/* night-city backdrop, generated once */
+const skylineFar = [], skylineNear = [];
+(function genSkyline() {
+  let x = -30;
+  while (x < W + 60) {
+    const w = rnd(36, 72), h = rnd(100, 230), wins = [];
+    for (let wy = H - h + 14; wy < H - 12; wy += 16)
+      for (let wx = x + 6; wx < x + w - 6; wx += 12)
+        if (Math.random() < 0.26) wins.push([wx, wy]);
+    skylineFar.push({ x, w, h, wins });
+    x += w + rnd(6, 20);
+  }
+  x = -40;
+  while (x < W + 70) {
+    const w = rnd(50, 96), h = rnd(50, 150), wins = [];
+    for (let wy = H - h + 16; wy < H - 14; wy += 20)
+      for (let wx = x + 8; wx < x + w - 8; wx += 16)
+        if (Math.random() < 0.18) wins.push([wx, wy]);
+    skylineNear.push({ x, w, h, wins });
+    x += w + rnd(10, 30);
+  }
+})();
+function drawSkyline() {
+  const mg = ctx.createRadialGradient(398, 84, 8, 398, 84, 72);
+  mg.addColorStop(0, 'rgba(232,240,255,0.45)');
+  mg.addColorStop(1, 'rgba(232,240,255,0)');
+  ctx.fillStyle = mg; ctx.fillRect(318, 4, 160, 160);
+  ctx.fillStyle = '#dfe8f5';
+  ctx.beginPath(); ctx.arc(398, 84, 22, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#c2cde0';
+  ctx.beginPath(); ctx.arc(390, 78, 5, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(406, 92, 3.5, 0, TAU); ctx.fill();
+  for (const b of skylineFar) {
+    ctx.fillStyle = '#0a1322';
+    ctx.fillRect(b.x, H - b.h, b.w, b.h);
+    ctx.fillStyle = 'rgba(255,205,110,0.5)';
+    for (const q of b.wins) ctx.fillRect(q[0], q[1], 3, 5);
+  }
+  for (const b of skylineNear) {
+    ctx.fillStyle = '#0e1828';
+    ctx.fillRect(b.x, H - b.h, b.w, b.h);
+    ctx.fillStyle = 'rgba(255,205,110,0.32)';
+    for (const q of b.wins) ctx.fillRect(q[0], q[1], 4, 6);
+  }
+}
+function drawVignette() {
+  const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.30, W / 2, H / 2, H * 0.72);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.42)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+}
+function confetti(n) {
+  const colors = ['#ffd75a', '#7dff9a', '#7fb2dd', '#ff5a5a', '#e8f4ff'];
+  for (let i = 0; i < n; i++) burst(rnd(60, W - 60), rnd(120, 320), 3, colors[i % colors.length]);
+}
 
 const humanClimber = () => mode === 'climb' || mode === 'versus';
 const humanApe     = () => mode === 'apex' || mode === 'versus';
@@ -129,19 +224,21 @@ const humanApe     = () => mode === 'apex' || mode === 'versus';
 function resetClimber() {
   climber = { x: 60, y: surfY(0, 60), vx: 0, vy: 0, w: 18, h: 32,
     onGround: true, girder: 0, climbing: false, ladder: -1,
-    face: 1, inv: 2, stun: 0, jumpPrev: false, celeb: 0, _topFlag: false };
+    face: 1, inv: 2, stun: 0, jumpPrev: false };
 }
 function resetStage() {
   barrels = []; parts = []; floats = [];
   ape = { x: 240, throwT: 0 };
   throwCd = 0; aiThrowT = 1.6; tickT = 0;
+  hits = 0; alarms = 0; stageT = 0;
+  lastInputT = time; idleWarned = false;
   resetClimber();
 }
 function throwDrum(gi, edge, speedMul) {
   if (barrels.length >= 24) return;
   const x = edge < 0 ? GX0 + 14 : GX1 - 14;
   const sp = (ROLL_BASE + (mode === 'climb' ? Math.min(stage * 9, 60) : 0)) * (speedMul || 1);
-  barrels.push({ x, y: surfY(gi, x) - 11, vx: sp * GDIR[gi], vy: 0,
+  barrels.push({ x, y: surfY(gi, x) - 11, vx: -edge * sp, vy: 0,
     r: 11, girder: gi, state: 'roll', rot: 0, jumped: false });
   ape.throwT = 0.35;
   sThrow();
@@ -162,51 +259,58 @@ const keys = {};
 window.addEventListener('keydown', e => {
   if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(e.code)) e.preventDefault();
   keys[e.code] = true; audio();
-  if (e.code === 'KeyM') muted = !muted;
-  if (e.code === 'KeyP' && state === 'play') paused = !paused;
+  if (e.code === 'KeyM') { muted = !muted; return; }
+  if (e.code === 'KeyP' && state === 'play') { paused = !paused; return; }
+  if (state !== 'play' || paused) return;
+  if (mode === 'apex') {
+    if (e.code === 'ArrowUp') aimG = Math.min(5, aimG + 1);
+    else if (e.code === 'ArrowDown') aimG = Math.max(0, aimG - 1);
+    else if (e.code === 'ArrowLeft') aimEdge = -1;
+    else if (e.code === 'ArrowRight') aimEdge = 1;
+    else if (e.code === 'Space') aimThrow();
+  } else if (mode === 'versus') {
+    // P2 ape aims with W/S/A/D and throws with F (P1 climber owns the arrows)
+    if (e.code === 'KeyW') aimG = Math.min(5, aimG + 1);
+    else if (e.code === 'KeyS') aimG = Math.max(3, aimG - 1);
+    else if (e.code === 'KeyA') aimEdge = -1;
+    else if (e.code === 'KeyD') aimEdge = 1;
+    else if (e.code === 'KeyF') aimThrow();
+  }
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
-const pointers = new Map(); // pointerId -> {x, y}
-const heldBtns = new Map(); // pointerId -> 'left'|'right'|'jump'
 function toGame(e) {
   const r = canvas.getBoundingClientRect();
   return { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H };
 }
-const btnLeft  = { x: 64,  y: 676, r: 32 };
-const btnRight = { x: 148, y: 676, r: 32 };
-const btnJump  = { x: 412, y: 676, r: 38 };
-function showClimbBtns() { return (mode === 'climb' || mode === 'versus') && (state === 'play' || state === 'serve'); }
-function btnAt(x, y) {
-  if (!showClimbBtns()) return null;
-  if (Math.hypot(x - btnLeft.x, y - btnLeft.y) < btnLeft.r + 6) return 'left';
-  if (Math.hypot(x - btnRight.x, y - btnRight.y) < btnRight.r + 6) return 'right';
-  if (Math.hypot(x - btnJump.x, y - btnJump.y) < btnJump.r + 6) return 'jump';
-  return null;
+/* DOM touch controls: fixed physical size (>=44px) in any orientation */
+const touchHeld = { left: false, right: false, jump: false };
+const coarsePointer = () => (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || 'ontouchstart' in window;
+function syncTouch() {
+  const el = document.getElementById('touch');
+  const want = coarsePointer() && (mode === 'climb' || mode === 'versus') &&
+               (state === 'play' || state === 'serve') && !paused;
+  if (want !== el.classList.contains('on')) el.classList.toggle('on', want);
+  if (!want) { touchHeld.left = touchHeld.right = touchHeld.jump = false; }
 }
+[['tL', 'left'], ['tR', 'right'], ['tJ', 'jump']].forEach(([id, name]) => {
+  const el = document.getElementById(id);
+  el.addEventListener('pointerdown', e => { e.preventDefault(); audio(); touchHeld[name] = true; try { el.setPointerCapture(e.pointerId); } catch (_) {} });
+  const off = e => { e.preventDefault(); touchHeld[name] = false; };
+  el.addEventListener('pointerup', off);
+  el.addEventListener('pointercancel', off);
+  el.addEventListener('lostpointercapture', off);
+  el.addEventListener('contextmenu', e => e.preventDefault());
+});
 canvas.addEventListener('pointerdown', e => {
   e.preventDefault(); audio();
   const p = toGame(e);
-  pointers.set(e.pointerId, { x: p.x, y: p.y });
-  const b = btnAt(p.x, p.y);
-  if (b) { heldBtns.set(e.pointerId, b); }
-  else handleTap(p.x, p.y);
+  handleTap(p.x, p.y);
   try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
 });
-canvas.addEventListener('pointermove', e => {
-  const pt = pointers.get(e.pointerId); if (!pt) return;
-  const p = toGame(e); pt.x = p.x; pt.y = p.y;
+window.addEventListener('blur', () => {
+  for (const k in keys) keys[k] = false;
+  touchHeld.left = touchHeld.right = touchHeld.jump = false;
 });
-function releasePointer(e) {
-  pointers.delete(e.pointerId); heldBtns.delete(e.pointerId);
-}
-canvas.addEventListener('pointerup', releasePointer);
-canvas.addEventListener('pointercancel', releasePointer);
-window.addEventListener('blur', () => { pointers.clear(); heldBtns.clear(); for (const k in keys) keys[k] = false; });
-
-function btnHeld(name) {
-  for (const b of heldBtns.values()) if (b === name) return true;
-  return false;
-}
 
 /* ---------- mode setup ---------- */
 function startMode(m) {
@@ -214,10 +318,12 @@ function startMode(m) {
   round = 1; wins = { p1: 0, p2: 0 }; roundWinner = null;
   resetStage(); paused = false;
   if (m === 'apex') {
-    banner = 'YOU ARE THE APE — 3 HITS TO WIN'; bannerT = 2.0;
+    banner = 'YOU ARE THE APE — HOLD THE TOWER'; bannerT = 2.2;
+    aimG = 1; aimEdge = 1;
   } else if (m === 'climb') {
     banner = 'CLIMB — REACH THE TOP'; bannerT = 2.0;
   } else {
+    aimG = 5; aimEdge = 1;
     banner = 'VERSUS — CLIMBER VS APE'; bannerT = 2.0;
     startRound();
     return;
@@ -246,9 +352,10 @@ function toMenu() { state = 'menu'; paused = false; sUI(); }
 
 /* ---------- tap handling ---------- */
 const menuBtns = [
-  { id: 'apex',   y: 392, label: 'APEX',   sub: '1P — you are the ape vs the AI climber' },
-  { id: 'climb',  y: 470, label: 'CLIMB',  sub: '1P — climb the tower vs the AI ape' },
-  { id: 'versus', y: 548, label: 'VERSUS', sub: '2P — climber vs ape, same screen' },
+  { id: 'apex',   y: 380, label: 'APEX',   sub: '1P — you are the ape vs the AI climber' },
+  { id: 'climb',  y: 458, label: 'CLIMB',  sub: '1P — climb the tower vs the AI ape' },
+  { id: 'versus', y: 536, label: 'VERSUS', sub: '2P — climber vs ape, same screen' },
+  { id: 'howto',  y: 614, label: 'HOW TO', sub: 'learn the tower' },
 ];
 function nearestGirder(y, maxD, topOnly) {
   let bi = -1, bd = maxD;
@@ -259,7 +366,12 @@ function nearestGirder(y, maxD, topOnly) {
   }
   return bi;
 }
-/* player-ape spool throw from a tap */
+/* player-ape spool throw: tap sets the reticle, keyboard aims it, both throw through aimThrow */
+function aimThrow() {
+  if (!humanApe() || throwCd > 0 || state !== 'play' || paused) return;
+  throwDrum(aimG, aimEdge, 1);
+  throwCd = mode === 'versus' ? 0.8 : 0.65;
+}
 function apeTap(x, y) {
   if (!humanApe() || throwCd > 0) return;
   const topOnly = mode === 'versus';
@@ -267,17 +379,22 @@ function apeTap(x, y) {
   const gi = nearestGirder(y, 60, topOnly);
   if (gi < 0) return;
   const edge = x < W * 0.35 ? -1 : x > W * 0.65 ? 1 : (x < W / 2 ? -1 : 1);
-  throwDrum(gi, edge, 1);
-  throwCd = mode === 'versus' ? 0.8 : 0.65;
+  aimG = gi; aimEdge = edge;
+  aimThrow();
 }
 function handleTap(x, y) {
   if (state === 'menu') {
     for (const b of menuBtns) {
-      if (Math.abs(y - b.y) < 34 && x > 90 && x < W - 90) { startMode(b.id); return; }
+      if (Math.abs(y - b.y) < 34 && x > 90 && x < W - 90) {
+        if (b.id === 'howto') { state = 'howto'; stateT = 0; }
+        else startMode(b.id);
+        sUI(); return;
+      }
     }
     return;
   }
-  if (state === 'matchEnd' || state === 'gameOver' || state === 'win') { toMenu(); return; }
+  if (state === 'howto') { toMenu(); return; }
+  if (state === 'matchEnd' || state === 'gameOver' || state === 'campWin') { toMenu(); return; }
   // pause / mute glyphs always tappable outside menu
   if (pauseBtn && Math.hypot(x - pauseBtn.x, y - pauseBtn.y) < 24) {
     if (state === 'play') { paused = !paused; sUI(); } return;
@@ -294,11 +411,13 @@ function handleTap(x, y) {
 
 /* ---------- player control assembly ---------- */
 function playerControl() {
-  const left  = !!(keys.ArrowLeft || keys.KeyA || btnHeld('left'));
-  const right = !!(keys.ArrowRight || keys.KeyD || btnHeld('right'));
-  const up    = !!(keys.ArrowUp || keys.KeyW);
-  const down  = !!(keys.ArrowDown || keys.KeyS);
-  const jump  = !!(keys.Space || btnHeld('jump') || (climber && climber.tapJump));
+  const p2 = mode === 'versus'; // P1 climber: arrows only; WASD+F drive the P2 ape
+  const left  = !!(keys.ArrowLeft || (!p2 && keys.KeyA) || touchHeld.left);
+  const right = !!(keys.ArrowRight || (!p2 && keys.KeyD) || touchHeld.right);
+  const up    = !!(keys.ArrowUp || (!p2 && keys.KeyW));
+  const down  = !!(keys.ArrowDown || (!p2 && keys.KeyS));
+  const jump  = !!(keys.Space || touchHeld.jump || (climber && climber.tapJump));
+  if (left || right || up || down || jump) lastInputT = time;
   if (climber) climber.tapJump = false;
   return { left, right, up, down, jump };
 }
@@ -315,7 +434,7 @@ function stepClimber(c, ctl, dt, isAI) {
   if (c.climbing) {
     const L = ladders[c.ladder];
     const mv = (ctl.down ? 1 : 0) - (ctl.up ? 1 : 0);
-    if (c.stun <= 0) c.y += mv * CLIMBV * dt;
+    if (c.stun <= 0) c.y += mv * (isAI ? aiClimbV() : CLIMBV) * dt;
     c.x = L.x;
     if (mv < 0 && c.y <= surfY(L.g1, L.x) + 4) {          // reached top
       c.y = surfY(L.g1, L.x); c.girder = L.g1;
@@ -327,7 +446,7 @@ function stepClimber(c, ctl, dt, isAI) {
     return;
   }
 
-  const sp = isAI ? 152 : RUN;
+  const sp = isAI ? aiSpeed() : RUN;
   c.vx = ((ctl.right ? 1 : 0) - (ctl.left ? 1 : 0)) * (c.stun > 0 ? 0 : sp);
   if (c.vx !== 0) c.face = c.vx > 0 ? 1 : -1;
 
@@ -348,6 +467,7 @@ function stepClimber(c, ctl, dt, isAI) {
       if (!onGirderX(j, c.x)) continue;
       const s = surfY(j, c.x);
       if (py <= s + 1 && c.y >= s) {
+        if (c.vy > 380) burst(c.x, s, 7, '#7d8aa0');
         c.y = s; c.vy = 0; c.onGround = true; c.girder = j;
         break;
       }
@@ -373,7 +493,7 @@ function aiControl(c, dt) {
   if (aiThinkT <= 0) {
     aiThinkT = 0.12;
     aiPlan.left = aiPlan.right = aiPlan.up = aiPlan.down = aiPlan.jump = false;
-    if (c.stun > 0 || c.celeb > 0) return aiPlan;
+    if (c.stun > 0) return aiPlan;
     if (c.climbing) { aiPlan.up = true; return aiPlan; }
     if (c.girder < 5) {
       const tx = LX[c.girder], dx = tx - c.x;
@@ -390,7 +510,7 @@ function aiControl(c, dt) {
       const approaching = (b.vx > 0 && b.x < c.x) || (b.vx < 0 && b.x > c.x);
       const d = Math.abs(b.x - c.x);
       if (approaching && d < 120 && c.onGround) {
-        if (d < 52 + Math.random() * 42 && Math.random() > 0.13) aiPlan.jump = true; // 13% whiff
+        if (d < 52 + Math.random() * 42 && Math.random() > aiWhiff()) aiPlan.jump = true; // stage-scaled whiff
       }
     }
   }
@@ -401,10 +521,16 @@ function aiControl(c, dt) {
 function aiApe(dt) {
   aiThrowT -= dt;
   if (aiThrowT <= 0) {
-    aiThrowT = Math.max(0.85, 2.4 - 0.3 * stage);
+    const impatient = time - lastInputT > 25;
+    if (impatient && !idleWarned) {
+      idleWarned = true;
+      banner = 'THE APE GROWS IMPATIENT'; bannerT = 1.6;
+    }
+    aiThrowT = Math.max(impatient ? 0.5 : 0.85, 2.4 - 0.3 * stage);
     aiSide = -aiSide;
     throwDrum(5, aiSide, 1);
-    if (stage >= 3 && Math.random() < 0.3) {
+    const dbl = stage >= 5 ? 0.45 : stage >= 3 ? 0.3 : 0;
+    if (dbl && Math.random() < dbl) {
       setTimeout(() => { if (state === 'play' && mode === 'climb') throwDrum(5, -aiSide, 0.9); }, 350);
     }
   }
@@ -474,11 +600,15 @@ function hitClimber() {
     }
   } else if (mode === 'apex') {
     hits++; sHit();
+    addScore(500, c.x, c.y - 44);
     c.stun = 0.9; c.inv = 1.8;
-    banner = 'HIT ' + hits + ' / 3'; bannerT = 1.2;
     if (hits >= 3) {
-      if (!bestTime || matchT < bestTime) { bestTime = matchT; localStorage.setItem('apex_besttime', Math.round(bestTime * 10) / 10); }
-      state = 'win'; stateT = 0; sWin();
+      const bonus = Math.max(0, Math.round((75 - stageT) * 10));
+      if (bonus > 0) addScore(bonus, c.x, c.y - 72);
+      banner = 'STAGE ' + stage + ' CLEAR  +' + bonus; bannerT = 1.8;
+      state = 'stageClear'; stateT = 0; sClear(); confetti(26);
+    } else {
+      banner = 'HIT ' + hits + ' / 3'; bannerT = 1.2;
     }
   } else {
     sDeath();
@@ -508,13 +638,21 @@ function climberReachedTop() {
     if (score > best) { best = score; localStorage.setItem('apex_best', best); }
     state = 'stageClear'; stateT = 0;
     banner = 'STAGE ' + stage + ' CLEAR  +' + bonus; bannerT = 1.8;
+    confetti(26);
   } else if (mode === 'versus') {
     roundWinner = 'p1'; state = 'roundEnd'; stateT = 0; sWin();
   } else {
-    // APEX mode: the dummy taunts, then drops back down for more
-    climber.celeb = 1.6;
-    banner = 'THE CLIMBER TAUNTS YOU'; bannerT = 1.4;
-    sUI();
+    // APEX mode: the climber reached the bell — sound the alarm
+    alarms++; sAlarm(); shake = 1; bellT = 1.4;
+    burst(climber.x, 150, 16, '#ffd75a');
+    if (alarms >= 3) {
+      saveApexBest();
+      banner = '3 ALARMS — THE TOWER FALLS'; bannerT = 2.0;
+      state = 'gameOver'; stateT = 0; sDeath();
+    } else {
+      banner = 'ALARM ' + alarms + ' / 3'; bannerT = 1.5;
+      resetClimber();
+    }
   }
 }
 
@@ -526,19 +664,29 @@ function update(dt) {
   if (throwCd > 0) throwCd -= dt;
   if (bannerT > 0) bannerT -= dt;
   if (shake > 0) shake -= dt * 3;
+  if (bellT > 0) bellT -= dt;
   updateParticles(dt);
 
-  if (state === 'menu' || state === 'matchEnd' || state === 'gameOver' || state === 'win') { stateT += dt; return; }
+  if (state === 'menu' || state === 'howto' || state === 'matchEnd' || state === 'gameOver' || state === 'campWin') { stateT += dt; return; }
   stateT += dt;
   if (state === 'serve') { if (stateT > 1.6) state = 'play'; return; }
   if (state === 'stageClear') {
-    if (stateT > 2.0) { stage++; resetStage(); banner = 'STAGE ' + stage; bannerT = 1.6; state = 'serve'; stateT = 0; }
+    if (stateT > 2.0) {
+      const last = (mode === 'apex' && stage >= APEX_STAGES) || (mode === 'climb' && stage >= CLIMB_STAGES);
+      if (last) {
+        if (mode === 'apex') saveApexBest();
+        else if (score > best) { best = score; try { localStorage.setItem('apex_best', best); } catch (_) {} }
+        state = 'campWin'; stateT = 0; sWin(); confetti(60);
+      } else {
+        stage++; resetStage(); banner = 'STAGE ' + stage; bannerT = 1.6; state = 'serve'; stateT = 0;
+      }
+    }
     return;
   }
   if (state === 'roundEnd') { if (stateT > 1.8) nextRound(roundWinner); return; }
   if (paused || state !== 'play') return;
 
-  if (mode === 'apex') matchT += dt;
+  if (mode === 'apex') { matchT += dt; stageT += dt; }
   if (mode === 'versus') {
     roundT -= dt;
     if (roundT <= 0) { roundWinner = 'p1'; state = 'roundEnd'; stateT = 0; sWin(); return; }
@@ -548,23 +696,10 @@ function update(dt) {
   /* climber */
   const c = climber;
   if (c) {
-    if (mode === 'apex') {
-      // AI dummy with celebrate behavior on top
-      if (c.celeb > 0) {
-        c.celeb -= dt;
-        stepClimber(c, { left: false, right: false, up: false, down: false, jump: c.onGround && Math.random() < 0.06 }, dt, true);
-      } else {
-        stepClimber(c, aiControl(c, dt), dt, true);
-      }
-    } else {
-      stepClimber(c, playerControl(), dt, false);
-    }
+    if (mode === 'apex') stepClimber(c, aiControl(c, dt), dt, true);
+    else stepClimber(c, playerControl(), dt, false);
     if (c.y > H + 40) climberFell();
-    else if (c.onGround && c.girder === 5 && mode !== 'apex') climberReachedTop();
-    else if (c.onGround && c.girder === 5 && mode === 'apex' && c.celeb <= 0 && !c._topFlag) {
-      c._topFlag = true; climberReachedTop();
-    }
-    if (c.girder !== 5) c._topFlag = false;
+    else if (c.onGround && c.girder === 5) climberReachedTop();
   }
 
   updateBarrels(dt);
@@ -616,6 +751,16 @@ function drawGirders() {
       ctx.closePath(); ctx.fill();
       ctx.strokeStyle = '#7fb2dd'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+      // truss bracing under the chord
+      ctx.strokeStyle = '#263d59'; ctx.lineWidth = 3;
+      const _len = x1 - x0, _bays = Math.max(1, Math.floor(_len / 48));
+      for (let _k = 0; _k < _bays; _k++) {
+        const _xa = x0 + _len * _k / _bays, _xb = x0 + _len * (_k + 1) / _bays;
+        ctx.beginPath();
+        if (_k % 2 === 0) { ctx.moveTo(_xa, surfY(i, _xa) + th); ctx.lineTo(_xb, surfY(i, _xb) + 3); }
+        else { ctx.moveTo(_xa, surfY(i, _xa) + 3); ctx.lineTo(_xb, surfY(i, _xb) + th); }
+        ctx.stroke();
+      }
       // rivets
       ctx.fillStyle = '#9cc4e4';
       const len = x1 - x0, n = Math.floor(len / 30);
@@ -638,22 +783,53 @@ function drawLadders() {
     }
   }
 }
+function drawMiniDrum(x, y, r, color) {
+  ctx.fillStyle = '#5e3a10';
+  ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#3a2410';
+  ctx.beginPath(); ctx.arc(x, y, 1.8, 0, TAU); ctx.fill();
+}
 function drawApe() {
-  // the ape perches on a side scaffold at mid-height, hurling spools onto the girders
-  const ax = 44, ay = 405 + Math.sin(time * 2.2) * 2;
+  // the ape lords it over the tower from a timber perch above girder 5
+  const ax = 64, py = 148, bob = Math.sin(time * 2.2) * 2;
+  const gy = surfY(5, ax);
   const C = '#8a5a20', CD = '#5e3a10', CH = '#c98a3a';
   ctx.save();
-  // scaffold: posts, cross brace, platform
+  // posts down to the girder + cross brace
   ctx.strokeStyle = '#5a4632'; ctx.lineWidth = 6; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(ax - 26, ay + 6); ctx.lineTo(ax - 26, ay + 152); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(ax + 26, ay + 6); ctx.lineTo(ax + 26, ay + 152); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ax - 28, py); ctx.lineTo(ax - 28, gy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ax + 28, py); ctx.lineTo(ax + 28, gy); ctx.stroke();
   ctx.strokeStyle = '#6e5a3a'; ctx.lineWidth = 4;
-  ctx.beginPath(); ctx.moveTo(ax - 26, ay + 72); ctx.lineTo(ax + 26, ay + 72); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ax - 28, py + 16); ctx.lineTo(ax + 28, py + 40); ctx.stroke();
+  // platform
   ctx.fillStyle = '#6e5a3a';
-  ctx.fillRect(ax - 42, ay - 2, 84, 10);
+  ctx.fillRect(ax - 52, py - 4, 128, 10);
   ctx.fillStyle = '#8a7346';
-  ctx.fillRect(ax - 42, ay - 2, 84, 3);
-  ctx.translate(ax, ay - 2);
+  ctx.fillRect(ax - 52, py - 4, 128, 3);
+  // the golden spool prize, stacked at the platform's left end
+  drawMiniDrum(ax - 38, py - 12, 8, '#d8a850');
+  drawMiniDrum(ax - 24, py - 12, 8, '#c89840');
+  drawMiniDrum(ax - 31, py - 26, 8, '#e8bc60');
+  // alarm bell on an A-frame at the right end
+  const bx = ax + 56;
+  ctx.strokeStyle = '#5a4632'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(bx - 12, py - 4); ctx.lineTo(bx, py - 36); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(bx + 12, py - 4); ctx.lineTo(bx, py - 36); ctx.stroke();
+  const swing = Math.sin(time * 18) * 0.45 * Math.min(1, bellT);
+  ctx.save();
+  ctx.translate(bx, py - 36); ctx.rotate(swing);
+  ctx.strokeStyle = '#5a4632'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 4); ctx.stroke();
+  ctx.fillStyle = '#c89840';
+  ctx.beginPath(); ctx.arc(0, 12, 9, Math.PI, 0); ctx.closePath(); ctx.fill();
+  ctx.fillRect(-9, 12, 18, 4);
+  ctx.fillStyle = '#8a6a20';
+  ctx.beginPath(); ctx.arc(0, 18, 2.6, 0, TAU); ctx.fill();
+  ctx.restore();
+  // the ape itself
+  ctx.translate(ax, py - 6 + bob);
   ctx.fillStyle = C;
   poly([[-36, -6], [-27, -54], [27, -54], [36, -6]]);            // torso
   ctx.fillStyle = CH;
@@ -701,8 +877,30 @@ function drawClimber(c) {
   ctx.fillRect(-7, -41, 18, 3);
   ctx.restore();
 }
+function drawReticle() {
+  if (!humanApe() || (state !== 'play' && state !== 'serve')) return;
+  const x = aimEdge < 0 ? GX0 + 14 : GX1 - 14;
+  const y = surfY(aimG, x) - 11;
+  ctx.save();
+  ctx.strokeStyle = '#ffd75a'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+  ctx.lineDashOffset = -time * 24;
+  ctx.beginPath(); ctx.arc(x, y, 16, 0, TAU); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#ffd75a';
+  const ax = x + aimEdge * 26;
+  ctx.beginPath();
+  if (aimEdge < 0) { ctx.moveTo(ax + 10, y); ctx.lineTo(ax, y - 6); ctx.lineTo(ax, y + 6); }
+  else { ctx.moveTo(ax - 10, y); ctx.lineTo(ax, y - 6); ctx.lineTo(ax, y + 6); }
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
 function drawDrums() {
   for (const b of barrels) {
+    // motion streak
+    ctx.strokeStyle = 'rgba(216,168,80,0.30)'; ctx.lineWidth = b.r * 1.1; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(b.x - b.vx * 0.05, b.y - (b.vy || 0) * 0.05);
+    ctx.lineTo(b.x, b.y); ctx.stroke();
     // rolling cable spool: wooden flange, cross spokes, wound cable, axle dot
     ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.rot);
     ctx.fillStyle = '#8a5a20';
@@ -724,44 +922,29 @@ function drawDrums() {
     ctx.restore();
   }
 }
-function drawButtons() {
-  if (!showClimbBtns()) return;
-  const btns = [
-    [btnLeft, '\u25C0'], [btnRight, '\u25B6'], [btnJump, 'JMP'],
-  ];
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  for (const [b, label] of btns) {
-    const held = [...heldBtns.values()].some(v =>
-      (label === '\u25C0' && v === 'left') || (label === '\u25B6' && v === 'right') || (label === 'JMP' && v === 'jump'));
-    ctx.globalAlpha = held ? 0.55 : 0.28;
-    ctx.fillStyle = '#8a93a0';
-    ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, TAU); ctx.fill();
-    ctx.globalAlpha = 1;
-    ctx.fillStyle = '#05070c'; ctx.font = 'bold 16px "Courier New", monospace';
-    ctx.fillText(label, b.x, b.y + 1);
-  }
-  ctx.textBaseline = 'alphabetic';
-}
 function drawHUD() {
-  ctx.textAlign = 'left'; ctx.font = '14px "Courier New", monospace';
-  ctx.fillStyle = '#8a93a0';
+  ctx.font = '14px "Courier New", monospace';
   if (mode === 'apex') {
-    ctx.fillText('TIME ' + matchT.toFixed(1) + 's', 14, 26);
-    ctx.fillText('HITS ' + hits + ' / 3', 14, 46);
-    if (bestTime) { ctx.fillStyle = '#54655c'; ctx.fillText('BEST ' + bestTime.toFixed(1) + 's', 14, 66); }
+    // centered: the ape's perch owns the top-left corner
+    ctx.textAlign = 'center'; ctx.fillStyle = '#8a93a0';
+    ctx.fillText('SCORE ' + score + '   STAGE ' + stage + '/' + APEX_STAGES, W / 2, 24);
+    ctx.fillStyle = alarms >= 2 ? '#ff5a5a' : '#8a93a0';
+    ctx.fillText('HITS ' + hits + '/3   ALARMS ' + alarms + '/3', W / 2, 44);
+    if (apexBest) { ctx.fillStyle = '#54655c'; ctx.fillText('BEST ' + apexBest, W / 2, 64); }
+    ctx.textAlign = 'left';
   } else if (mode === 'climb') {
-    ctx.fillText('SCORE ' + score, 14, 26);
-    ctx.fillText('BEST ' + best, 14, 46);
-    ctx.fillText('STAGE ' + stage, 14, 66);
-    ctx.fillStyle = '#8a7346'; ctx.fillText('DODGES ' + dodges, 14, 86);
-    ctx.fillStyle = '#e8f4ff'; ctx.textAlign = 'right';
-    ctx.fillText('LIVES ' + lives, W - 64, 26); ctx.textAlign = 'left';
+    ctx.textAlign = 'center'; ctx.fillStyle = '#8a93a0';
+    ctx.fillText('SCORE ' + score + '   STAGE ' + stage, W / 2, 24);
+    ctx.fillStyle = '#e8f4ff';
+    ctx.fillText('LIVES ' + lives + '   DODGES ' + dodges, W / 2, 44);
+    if (best) { ctx.fillStyle = '#54655c'; ctx.fillText('BEST ' + best, W / 2, 64); }
+    ctx.textAlign = 'left';
   } else {
+    ctx.textAlign = 'left'; ctx.fillStyle = '#8a93a0';
     ctx.fillText('P1 ' + wins.p1 + ' — ' + wins.p2 + ' P2', 14, 26);
+    ctx.fillText('ROUND ' + round, 14, 46);
     ctx.fillStyle = '#ffd75a'; ctx.textAlign = 'center';
     ctx.fillText(Math.ceil(roundT) + 's', W / 2, 26); ctx.textAlign = 'left';
-    ctx.fillStyle = '#8a93a0'; ctx.fillText('ROUND ' + round, 14, 46);
-    ctx.fillStyle = '#8a7346'; ctx.fillText('DODGES ' + dodges, 14, 66);
   }
   pauseBtn = { x: W - 30, y: 30 };
   muteBtn = { x: W - 30, y: 58 };
@@ -793,8 +976,45 @@ function drawMenu() {
     ctx.font = '12px "Courier New", monospace'; ctx.fillStyle = '#8a93a0';
     ctx.fillText(b.sub, W / 2, b.y + 20);
   }
-  ctx.font = '12px "Courier New", monospace'; ctx.fillStyle = '#3a3f45';
-  ctx.fillText('tap a girder edge to roll a spool · M mute', W / 2, H - 60);
+  ctx.font = '12px "Courier New", monospace'; ctx.fillStyle = '#54655c';
+  const bestLine = (apexBest ? 'apex best ' + apexBest + '   ' : '') + (best ? 'climb best ' + best : '');
+  if (bestLine) ctx.fillText(bestLine, W / 2, H - 62);
+  ctx.fillStyle = '#3a3f45';
+  ctx.fillText('M mute · P pause', W / 2, H - 40);
+}
+function drawHowto() {
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#e8f4ff'; ctx.font = 'bold 34px "Courier New", monospace';
+  ctx.fillText('HOW TO PLAY', W / 2, 92);
+  const secs = [
+    ['APEX — YOU ARE THE APE (1P)', '#ffd75a', [
+      'Tap a girder edge (or aim with arrows, SPACE throws)',
+      'to roll a spool into the climber. 3 hits clears the stage.',
+      'But each time the climber reaches the top: ALARM.',
+      '3 alarms and the run is over. Hold all 8 stages.']],
+    ['CLIMB — YOU ARE THE CLIMBER (1P)', '#7dff9a', [
+      'Arrows / WASD to run and climb, SPACE to jump the spools.',
+      'Jumping a spool scores. Reach the top of 8 stages.',
+      '3 lives. The ape throws faster every stage.']],
+    ['VERSUS — CLIMBER VS APE (2P)', '#7fb2dd', [
+      'P1 climber: arrows + SPACE to move and jump.',
+      'P2 ape: W/S aim girder, A/D edge, F throws.',
+      'On touch: P1 uses buttons, P2 taps the tower top.',
+      'Top scores for the climber, hits for the ape. Best of 3.']],
+  ];
+  let y = 140;
+  ctx.textAlign = 'left';
+  for (const [title, color, lines] of secs) {
+    ctx.fillStyle = color; ctx.font = 'bold 14px "Courier New", monospace';
+    ctx.fillText(title, 36, y); y += 22;
+    ctx.fillStyle = '#8a93a0'; ctx.font = '12.5px "Courier New", monospace';
+    for (const l of lines) { ctx.fillText(l, 36, y); y += 19; }
+    y += 14;
+  }
+  ctx.textAlign = 'center'; ctx.fillStyle = '#3a3f45';
+  ctx.font = '12px "Courier New", monospace';
+  ctx.fillText('tap anywhere to return', W / 2, H - 60);
+  ctx.textAlign = 'left';
 }
 function centerText(main, sub, color) {
   ctx.textAlign = 'center';
@@ -818,11 +1038,15 @@ function render() {
     ctx.globalAlpha = 0.25; ctx.fillRect(sx, sy, sr, sr);
   }
   ctx.globalAlpha = 1;
+  drawSkyline();
 
-  if (state === 'menu') { drawMenu(); ctx.restore(); return; }
+  if (state === 'menu') { drawMenu(); drawVignette(); ctx.restore(); return; }
+  if (state === 'howto') { drawHowto(); drawVignette(); ctx.restore(); return; }
 
+  drawVignette();
   drawLadders();
   drawGirders();
+  drawReticle();
   drawDrums();
   drawApe();
   drawClimber(climber);
@@ -839,7 +1063,6 @@ function render() {
   }
   ctx.globalAlpha = 1; ctx.textAlign = 'left';
 
-  drawButtons();
   drawHUD();
 
   if (bannerT > 0) {
@@ -866,12 +1089,15 @@ function render() {
   }
   if (state === 'gameOver') {
     ctx.fillStyle = 'rgba(5,7,12,0.78)'; ctx.fillRect(0, 0, W, H);
-    centerText('GAME OVER', 'score ' + score + '\nbest ' + best + '\ntap to return', '#ff5a5a');
+    centerText('GAME OVER', 'score ' + score + '\nbest ' + (mode === 'apex' ? apexBest : best) + '\ntap to return', '#ff5a5a');
   }
-  if (state === 'win') {
+  if (state === 'campWin') {
     ctx.fillStyle = 'rgba(5,7,12,0.78)'; ctx.fillRect(0, 0, W, H);
-    centerText('3 HITS — APE PREVAILS',
-      'time ' + matchT.toFixed(1) + 's' + (bestTime ? '\nbest ' + bestTime.toFixed(1) + 's' : '') + '\ntap to return',
+    const isApex = mode === 'apex';
+    const cb = isApex ? apexBest : best;
+    centerText(isApex ? 'APEX PREDATOR' : 'SUMMIT CONQUERED',
+      (isApex ? 'the tower holds — all 8 stages' : 'all 8 stages climbed') +
+      '\nscore ' + score + (cb ? '\nbest ' + cb : '') + '\ntap to return',
       '#7dff9a');
   }
   ctx.restore();
@@ -881,6 +1107,10 @@ function render() {
 let lastT = 0, acc = 0;
 function frame(t) {
   requestAnimationFrame(frame);
+  syncTouch();
+  const mdt = Math.min(0.1, t / 1000 - (frame._l || t / 1000)); frame._l = t / 1000;
+  musT -= mdt;
+  if (musT <= 0) { musicTick(); musT = 60 / 132 / 2; }
   const now = t / 1000;
   const ft = Math.min(0.1, now - (lastT || now));
   lastT = now; acc += ft;
@@ -896,9 +1126,30 @@ window.GAME = {
   get stage() { return stage; }, get climber() { return climber; },
   get barrels() { return barrels; }, get ape() { return ape; },
   get wins() { return wins; }, get hits() { return hits; },
-  get dodges() { return dodges; },
+  get dodges() { return dodges; }, get alarms() { return alarms; },
+  get aimG() { return aimG; }, get aimEdge() { return aimEdge; },
+  get paused() { return paused; }, get best() { return best; },
+  get apexBest() { return apexBest; },
   get matchT() { return matchT; }, get roundT() { return roundT; },
+  get round() { return round; },
   startMode, throwDrum, hitClimber, surfY, onGirderX,
+  debug: {
+    endServe() { if (state === 'serve') { state = 'play'; stateT = 99; } },
+    teleportClimber(gi, x) {
+      const c = climber;
+      c.climbing = false; c.ladder = -1; c.girder = gi;
+      c.x = x; c.y = surfY(gi, x); c.vx = 0; c.vy = 0; c.onGround = true; c.inv = 0;
+    },
+    throwAt(gi, edge) { throwDrum(gi, edge, 1); },
+    setLives(n) { lives = n; },
+    setAlarms(n) { alarms = n; },
+    setHits(n) { hits = n; },
+    setRoundT(n) { roundT = n; },
+    setStage(n) { stage = n; },
+    key(code, down) { keys[code] = !!down; },
+    tap(x, y) { handleTap(x, y); },
+    aim(g, e) { aimG = g; aimEdge = e; },
+  },
 };
 </script>
 </body>
