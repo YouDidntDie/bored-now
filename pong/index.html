@@ -72,10 +72,83 @@ function fit() {
   canvas.style.width = (W * s) + 'px';
   canvas.style.height = (H * s) + 'px';
   G.view = { iw: iw, ih: ih, s: s, cw: W * s, ch: H * s };
+  buildSprites();
 }
 window.addEventListener('resize', fit);
 window.addEventListener('orientationchange', () => { fit(); setTimeout(fit, 120); setTimeout(fit, 500); });
 if (window.visualViewport) window.visualViewport.addEventListener('resize', fit);
+
+// ---------- sprite cache: pre-baked glows ----------
+// shadowBlur and full-screen radial gradients are the priciest canvas ops.
+// We bake them once (rebuilt inside fit()) and blit with drawImage —
+// identical pixels, far cheaper per frame.
+let SPR = null;
+function mkCanvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = Math.max(2, Math.round(w)); c.height = Math.max(2, Math.round(h));
+  return c;
+}
+function rrc(g, x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.lineTo(x + w - r, y); g.arcTo(x + w, y, x + w, y + r, r);
+  g.lineTo(x + w, y + h - r); g.arcTo(x + w, y + h, x + w - r, y + h, r);
+  g.lineTo(x + r, y + h); g.arcTo(x, y + h, x, y + h - r, r);
+  g.lineTo(x, y + r); g.arcTo(x, y, x + r, y, r);
+  g.closePath();
+}
+function hexA(hex, a) {
+  const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+  return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+}
+function bakePaddle(p, color, k) {
+  const pad = 30, w = p.w + pad * 2, h = p.h + pad * 2;
+  const c = mkCanvas(w * k, h * k), g = c.getContext('2d');
+  g.scale(k, k);
+  g.shadowColor = color; g.shadowBlur = 20;
+  g.fillStyle = '#f2f6fb';
+  rrc(g, pad, pad, p.w, p.h, 7); g.fill();
+  g.shadowBlur = 0;
+  g.fillStyle = color;
+  rrc(g, pad, pad, p.w, 5, 3); g.fill();
+  rrc(g, pad, pad + p.h - 5, p.w, 5, 3); g.fill();
+  return { c: c, w: w, h: h, pad: pad };
+}
+function bakeRadial(stops, d, k) {
+  // soft radial glow; d = diameter in game units
+  const kk = k * 0.5; // soft gradients upscale invisibly — half memory
+  const c = mkCanvas(d * kk, d * kk), g = c.getContext('2d');
+  g.scale(kk, kk);
+  const r = d / 2;
+  const rg = g.createRadialGradient(r, r, 0, r, r, r);
+  for (const [o, col] of stops) rg.addColorStop(o, col);
+  g.fillStyle = rg; g.fillRect(0, 0, d, d);
+  return { c: c, d: d };
+}
+function buildSprites() {
+  const k = dpr * viewScale, S = {};
+  // ball halos (glow only — the core is drawn live): baked radial glow
+  const br = BALL_R + 34;
+  for (const [key, col] of [['Cool', '#ffb43c'], ['Hot', '#ffb35c']]) {
+    const c = mkCanvas(br * 2 * k, br * 2 * k), g = c.getContext('2d');
+    g.scale(k, k);
+    const rg = g.createRadialGradient(br, br, BALL_R * 0.5, br, br, br);
+    rg.addColorStop(0, hexA(col, 0.75));
+    rg.addColorStop(BALL_R / br, hexA(col, 0.5));
+    rg.addColorStop(1, hexA(col, 0));
+    g.fillStyle = rg; g.fillRect(0, 0, br * 2, br * 2);
+    S['ball' + key] = { c: c, r: br };
+  }
+  // paddles: full baked look (glow + body + end caps)
+  S.padL = bakePaddle(padL, COL_L, k);
+  S.padR = bakePaddle(padR, COL_R, k);
+  padL.spr = S.padL; padR.spr = S.padR;
+  // aurora blobs
+  S.blobs = blobs.map(b => bakeRadial([[0, 'rgba(' + b.c1 + ',0.55)'], [1, 'rgba(' + b.c2 + ',0)']], b.r * H * 2, k));
+  // rally heat glow: baked at max alpha, modulated per frame
+  S.heat = bakeRadial([[0, 'rgba(255,150,60,0.10)'], [1, 'rgba(255,150,60,0)']], H * 0.7 * 2, k);
+  SPR = S;
+}
 
 // ---------- audio: all synth ----------
 let AC = null, muted = false, crowdGain = null;
@@ -597,26 +670,20 @@ function drawBackground() {
   ctx.fillStyle = '#04060b';
   ctx.fillRect(-40, -40, W + 80, H + 80);
   const t = G.time;
-  ctx.save();
-  for (const b of blobs) {
+  for (let i = 0; i < blobs.length; i++) {
+    const b = blobs[i], s = SPR.blobs[i];
     const x = (b.cx + Math.sin(t * b.sp + b.ph) * b.ax) * W;
     const y = (b.cy + Math.cos(t * b.sp * 0.8 + b.ph) * b.ay) * H;
-    const r = b.r * H;
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, 'rgba(' + b.c1 + ',0.55)');
-    g.addColorStop(1, 'rgba(' + b.c2 + ',0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    ctx.drawImage(s.c, x - s.d / 2, y - s.d / 2, s.d, s.d);
   }
-  ctx.restore();
   // rally heat: warm glow rising from the floor of the arena
   const heat = clamp(G.rally / 24, 0, 1);
   if (heat > 0.01) {
-    const g = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, H * 0.7);
-    g.addColorStop(0, 'rgba(255,150,60,' + (heat * 0.10).toFixed(3) + ')');
-    g.addColorStop(1, 'rgba(255,150,60,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
+    const s = SPR.heat;
+    ctx.save();
+    ctx.globalAlpha = heat;
+    ctx.drawImage(s.c, W / 2 - s.d / 2, H / 2 - s.d / 2, s.d, s.d);
+    ctx.restore();
   }
   // dot grid, slow drift
   ctx.fillStyle = 'rgba(140,170,220,0.055)';
@@ -719,14 +786,8 @@ function drawPaddle(p, color) {
   ctx.save();
   ctx.translate(p.x, p.y);
   ctx.scale(sx, sy);
-  ctx.shadowColor = color; ctx.shadowBlur = 20;
-  ctx.fillStyle = '#f2f6fb';
-  rr(-hw, -hh, p.w, p.h, 7);
-  ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = color;
-  rr(-hw, -hh, p.w, 5, 3); ctx.fill();
-  rr(-hw, hh - 5, p.w, 5, 3); ctx.fill();
+  const s = p.spr;
+  ctx.drawImage(s.c, -hw - s.pad, -hh - s.pad, s.w, s.h);
   ctx.restore();
 }
 function drawBall() {
@@ -746,12 +807,12 @@ function drawBall() {
   const sp = Math.hypot(ball.vx, ball.vy);
   const heat = clamp((sp - BASE_SPEED) / (MAX_SPEED - BASE_SPEED), 0, 1);
   const stretch = 1 + Math.min(sp / 4000, 0.28);
+  const halo = heat > 0.55 ? SPR.ballHot : SPR.ballCool;
+  ctx.drawImage(halo.c, ball.x - halo.r, ball.y - halo.r, halo.r * 2, halo.r * 2);
   ctx.save();
   ctx.translate(ball.x, ball.y);
   ctx.rotate(Math.atan2(ball.vy, ball.vx));
   ctx.scale(stretch, 1 / Math.sqrt(stretch));
-  ctx.shadowColor = heat > 0.55 ? '#ffb35c' : '#ffb43c';
-  ctx.shadowBlur = 28;
   ctx.fillStyle = COL_BALL;
   ctx.beginPath(); ctx.arc(0, 0, ball.r, 0, Math.PI * 2); ctx.fill();
   if (heat > 0.02) {
