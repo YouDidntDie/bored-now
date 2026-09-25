@@ -37,25 +37,155 @@
    Single file, zero assets. Landscape-first, mobile-first.
 */
 
-/* ---------- canvas: landscape arena, visualViewport contain-fit ---------- */
-const W = 960, H = 540;
+/* ---------- canvas: responsive arena + pixel buffer ---------- */
+const PX = 2;                                  // 1 "pixel" = 2px logiques
+let W = 960, H = 540;
 const canvas = document.getElementById('c');
-const ctx = canvas.getContext('2d');
-function fit() {
+const dctx = canvas.getContext('2d');          // écran : composite final
+const pbuf = document.createElement('canvas'); // tout le jeu dessine ici,
+const ctx = pbuf.getContext('2d');             // en unités logiques
+function layout() {
   const vv = window.visualViewport;
-  const aw = Math.max(1, vv ? vv.width : window.innerWidth);
-  const ah = Math.max(1, vv ? vv.height : window.innerHeight);
+  const vw = vv ? vv.width : window.innerWidth;
+  const vh = vv ? vv.height : window.innerHeight;
+  if (vw / vh >= 1) { W = 960; H = 540; }      // landscape-first
+  else { W = 540; H = 800; }                   // portrait
+  pbuf.width = Math.ceil(W / PX); pbuf.height = Math.ceil(H / PX);
+  ctx.setTransform(1 / PX, 0, 0, 1 / PX, 0, 0); // coords logiques -> pixels du buffer
+}
+function fit() {
+  const oldW = W, oldH = H;
+  layout();
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const s = Math.min(aw / W, ah / H); // contain: never overflows the viewport
-  const cw = Math.max(1, Math.floor(W * s)), ch = Math.max(1, Math.floor(H * s));
-  canvas.width = Math.round(cw * dpr); canvas.height = Math.round(ch * dpr);
-  canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
-  ctx.setTransform(dpr * cw / W, 0, 0, dpr * ch / H, 0, 0);
+  const vv = window.visualViewport;
+  const vw = vv ? vv.width : window.innerWidth;
+  const vh = vv ? vv.height : window.innerHeight;
+  canvas.style.width = vw + 'px'; canvas.style.height = vh + 'px';
+  canvas.width = Math.round(vw * dpr); canvas.height = Math.round(vh * dpr);
+  dctx.imageSmoothingEnabled = false;
+  dctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+  // remap proportionnel : rien ne se téléporte quand on pivote mid-game
+  // (fit() n'est appelé qu'après l'init complète du script)
+  const sx = W / oldW, sy = H / oldH;
+  if (sx !== 1 || sy !== 1) {
+    const remap = o => { if (o && 'x' in o) { o.x = clamp(o.x * sx, 0, W); o.y = clamp(o.y * sy, 0, H); } };
+    if (ship) remap(ship);
+    rocks.forEach(remap); bullets.forEach(remap); hunters.forEach(remap);
+    parts.forEach(remap); rings.forEach(remap); popups.forEach(remap);
+  }
 }
 window.addEventListener('resize', fit);
 window.addEventListener('orientationchange', () => setTimeout(fit, 60));
 if (window.visualViewport) window.visualViewport.addEventListener('resize', fit);
-fit();
+
+/* ================= police pixel 5x7 ================= */
+const FONT5X7 = {
+'A': ["01110","10001","10001","11111","10001","10001","10001"],
+'B': ["11110","10001","10001","11110","10001","10001","11110"],
+'C': ["01110","10001","10000","10000","10000","10001","01110"],
+'D': ["11110","10001","10001","10001","10001","10001","11110"],
+'E': ["11111","10000","10000","11110","10000","10000","11111"],
+'F': ["11111","10000","10000","11110","10000","10000","10000"],
+'G': ["01110","10001","10000","10111","10001","10001","01111"],
+'H': ["10001","10001","10001","11111","10001","10001","10001"],
+'I': ["01110","00100","00100","00100","00100","00100","01110"],
+'J': ["00111","00010","00010","00010","00010","10010","01100"],
+'K': ["10001","10010","10100","11000","10100","10010","10001"],
+'L': ["10000","10000","10000","10000","10000","10000","11111"],
+'M': ["10001","11011","10101","10101","10001","10001","10001"],
+'N': ["10001","11001","10101","10011","10001","10001","10001"],
+'O': ["01110","10001","10001","10001","10001","10001","01110"],
+'P': ["11110","10001","10001","11110","10000","10000","10000"],
+'Q': ["01110","10001","10001","10001","10101","10010","01101"],
+'R': ["11110","10001","10001","11110","10100","10010","10001"],
+'S': ["01111","10000","10000","01110","00001","00001","11110"],
+'T': ["11111","00100","00100","00100","00100","00100","00100"],
+'U': ["10001","10001","10001","10001","10001","10001","01110"],
+'V': ["10001","10001","10001","10001","10001","01010","00100"],
+'W': ["10001","10001","10001","10101","10101","11011","10001"],
+'X': ["10001","10001","01010","00100","01010","10001","10001"],
+'Y': ["10001","10001","01010","00100","00100","00100","00100"],
+'Z': ["11111","00001","00010","00100","01000","10000","11111"],
+'0': ["01110","10001","10011","10101","11001","10001","01110"],
+'1': ["00100","01100","00100","00100","00100","00100","01110"],
+'2': ["01110","10001","00001","00110","01000","10000","11111"],
+'3': ["11111","00010","00100","00010","00001","10001","01110"],
+'4': ["00010","00110","01010","10010","11111","00010","00010"],
+'5': ["11111","10000","11110","00001","00001","10001","01110"],
+'6': ["00110","01000","10000","11110","10001","10001","01110"],
+'7': ["11111","00001","00010","00100","01000","01000","01000"],
+'8': ["01110","10001","10001","01110","10001","10001","01110"],
+'9': ["01110","10001","10001","01111","00001","00010","01100"],
+"'": ["00100","00100","00100","00000","00000","00000","00000"],
+'"': ["01010","01010","01010","00000","00000","00000","00000"],
+'.': ["00000","00000","00000","00000","00000","00110","00110"],
+'!': ["00100","00100","00100","00100","00100","00000","00100"],
+'?': ["01110","10001","00001","00010","00100","00000","00100"],
+':': ["00000","00110","00110","00000","00110","00110","00000"],
+'/': ["00001","00010","00010","00100","01000","01000","10000"],
+'(': ["01000","00100","00010","00010","00010","00100","01000"],
+')': ["01000","00100","00010","00010","00010","00100","01000"],
+'-': ["00000","00000","00000","11111","00000","00000","00000"],
+'+': ["00000","00100","00100","11111","00100","00100","00000"],
+'<': ["00010","00100","01000","10000","01000","00100","00010"],
+'×': ["00000","10001","01010","00100","01010","10001","00000"],
+'·': ["00000","00000","00110","00110","00000","00000","00000"],
+'—': ["00000","00000","00000","11111","00000","00000","00000"],
+',': ["00000","00000","00000","00000","00110","00100","01000"],
+'←': ["00100","01000","11111","01000","00100","00000","00000"],
+'→': ["00100","00010","11111","00010","00100","00000","00000"],
+'▶': ["10000","11000","11100","11110","11100","11000","10000"],
+'❚': ["01100","01100","01100","01100","01100","01100","01100"],
+'♪': ["00110","00101","00100","00100","01100","11100","01100"],
+'✕': ["10001","01010","00100","01010","10001","00000","00000"]
+};
+function drawPixText(str, dx, y0, u) {
+  let cx = dx;
+  for (const ch of str) {
+    const gl = ch === ' ' ? null : (FONT5X7[ch] || FONT5X7['?']);
+    if (gl) for (let r = 0; r < gl.length; r++) {
+      const row = gl[r];
+      for (let c = 0; c < 5; c++)
+        if (row[c] === '1') ctx.fillRect(cx + c * u, y0 + r * u, u, u);
+    }
+    cx += ch === ' ' ? 4 * u : 6 * u;
+  }
+}
+// texte pixel : 'font' garde la forme '700 23px ...' — on n'en lit que la taille.
+// u = unité de police en px logiques, multiple de PX pour tomber sur la grille.
+function text(str, x, y, font, color, glow, glowBlur, align) {
+  str = String(str).toUpperCase();
+  ctx.shadowBlur = 0;   // pas de halo doux hérité : le glow est pixel, dessiné à la main
+  const m = /(\d+)px/.exec(font || '');
+  const size = m ? +m[1] : 16;
+  const u = Math.max(PX, Math.round(size / 7 / PX) * PX);
+  let w = 0;
+  for (const ch of str) w += ch === ' ' ? 4 * u : 6 * u;
+  let dx = align === 'right' ? x - w : align === 'left' ? x : x - w / 2;
+  dx = Math.round(dx / PX) * PX;
+  const y0 = Math.round((y - 3.5 * u) / PX) * PX;
+  if (glow) {  // halo pixel : 8 voisins, d'autant plus doux que le texte est petit
+    ctx.fillStyle = glow;
+    const ga = ctx.globalAlpha;
+    ctx.globalAlpha = ga * Math.min(1, Math.max(0.32, u / 18));
+    for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
+      if (!ox && !oy) continue;
+      drawPixText(str, dx + ox * u, y0 + oy * u, u);
+    }
+    ctx.globalAlpha = ga;
+  }
+  ctx.fillStyle = color;
+  drawPixText(str, dx, y0, u);
+}
+// largeur d'un texte pixel (pour les pastilles qui s'ajustent au contenu)
+function pixW(str, font) {
+  const m = /(\d+)px/.exec(font || '');
+  const size = m ? +m[1] : 16;
+  const u = Math.max(PX, Math.round(size / 7 / PX) * PX);
+  let w = 0;
+  for (const ch of String(str).toUpperCase()) w += ch === ' ' ? 4 * u : 6 * u;
+  return w;
+}
 
 /* ---------- audio: procedural, no assets ---------- */
 let AC = null, master = null, muted = false, rumbleGain = null;
@@ -586,7 +716,8 @@ let aiSpawnT = 2, aiSplitT = 5, aiHunterT = 20;
 function aiField(dt) {
   aiSpawnT -= dt; aiSplitT -= dt; aiHunterT -= dt;
   if (aiSpawnT <= 0) {
-    aiSpawnT = rnd(1.6, 2.6) - Math.min(wave * 0.08, 0.8);
+    // the belt fights back — but slowly enough that a sharp pilot outpaces it
+    aiSpawnT = rnd(6.5, 9.5) - Math.min(wave * 0.08, 0.8);
     if (aiEnergy >= 25 && rocks.length < 12 && ship) {
       aiEnergy -= 25;
       const a = rnd(0, TAU);
@@ -707,9 +838,10 @@ function collisions(dt) {
 
 /* ---------- backdrop: parallax starfield + nebula (pre-rendered) ---------- */
 const stars = [];
-for (let i = 0; i < 150; i++) {
-  const z = i < 70 ? 0.25 : i < 120 ? 0.55 : 1;
-  stars.push({ x: rnd(0, W), y: rnd(0, H), z, r: rnd(0.6, 1.4 + z), tw: rnd(0, TAU) });
+for (let i = 0; i < 170; i++) {
+  const z = i < 80 ? 0.25 : i < 135 ? 0.55 : 1;
+  // union des deux orientations (960x540 / 540x800) : le ciel couvre tout, partout
+  stars.push({ x: rnd(0, 960), y: rnd(0, 800), z, r: rnd(0.6, 1.4 + z), tw: rnd(0, TAU) });
 }
 const nebula = document.createElement('canvas');
 nebula.width = 480; nebula.height = 270;
@@ -726,11 +858,13 @@ nebula.width = 480; nebula.height = 270;
   }
 })();
 function makeGlowSprite(color) {
-  const s = document.createElement('canvas'); s.width = s.height = 24;
+  // sprite pixel : cœur blanc + croix couleur, pas de gradient
+  const s = document.createElement('canvas'); s.width = s.height = 12;
   const c = s.getContext('2d');
-  const g = c.createRadialGradient(12, 12, 0, 12, 12, 12);
-  g.addColorStop(0, '#ffffff'); g.addColorStop(0.35, color); g.addColorStop(1, 'rgba(0,0,0,0)');
-  c.fillStyle = g; c.fillRect(0, 0, 24, 24);
+  c.fillStyle = color;
+  c.fillRect(4, 0, 4, 12); c.fillRect(0, 4, 12, 4);
+  c.fillStyle = '#ffffff';
+  c.fillRect(4, 4, 4, 4);
   return s;
 }
 const SPR_WHITE = makeGlowSprite('#eafdff'), SPR_AMBER = makeGlowSprite('#ffb340');
@@ -738,13 +872,15 @@ const SPR_WHITE = makeGlowSprite('#eafdff'), SPR_AMBER = makeGlowSprite('#ffb340
 /* ---------- render ---------- */
 function strokePoly(pts, x, y, rot, color, width, glow) {
   ctx.save();
-  if (glow) { ctx.shadowColor = color; ctx.shadowBlur = glow; }
-  ctx.strokeStyle = color; ctx.lineWidth = width || 1.6;
+  if (glow) { ctx.shadowColor = color; ctx.shadowBlur = glow / PX; }
+  ctx.strokeStyle = color; ctx.lineWidth = Math.max(PX, Math.round((width || PX) / PX) * PX);
   ctx.beginPath();
   const c = Math.cos(rot), s = Math.sin(rot);
   for (let i = 0; i < pts.length; i++) {
-    const rx = pts[i][0] * c - pts[i][1] * s, ry = pts[i][0] * s + pts[i][1] * c;
-    if (i === 0) ctx.moveTo(x + rx, y + ry); else ctx.lineTo(x + rx, y + ry);
+    const rx = Math.round((pts[i][0] * c - pts[i][1] * s) / PX) * PX,
+          ry = Math.round((pts[i][0] * s + pts[i][1] * c) / PX) * PX;
+    if (i === 0) ctx.moveTo(Math.round(x / PX) * PX + rx, Math.round(y / PX) * PX + ry);
+    else ctx.lineTo(Math.round(x / PX) * PX + rx, Math.round(y / PX) * PX + ry);
   }
   ctx.closePath(); ctx.stroke();
   ctx.restore();
@@ -753,43 +889,46 @@ function drawShip(s) {
   const blink = s.inv > 0 && Math.floor(time * 10) % 2 === 0;
   if (blink) return;
   ctx.save();
-  ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 12;
-  strokePoly(SHIP_PTS, s.x, s.y, s.ang, '#6ff5ff', 1.8);
+  ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 12 / PX;
+  strokePoly(SHIP_PTS, s.x, s.y, s.ang, '#6ff5ff', PX);
   if (s.thrust) {
     const fl = 20 + Math.random() * 10;
-    ctx.shadowColor = '#ffb340'; ctx.shadowBlur = 14;
-    strokePoly([[-11, 5], [-11 - fl, 0], [-11, -5]], s.x, s.y, s.ang, '#ffb340', 2);
+    ctx.shadowColor = '#ffb340'; ctx.shadowBlur = 14 / PX;
+    strokePoly([[-11, 5], [-11 - fl, 0], [-11, -5]], s.x, s.y, s.ang, '#ffb340', PX);
   }
   ctx.restore();
 }
 function drawHunter(s) {
   ctx.save();
-  ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 10;
-  ctx.strokeStyle = '#ffd166'; ctx.lineWidth = 1.6;
-  const r = s.r;
+  ctx.shadowColor = '#ffd166'; ctx.shadowBlur = 10 / PX;
+  ctx.strokeStyle = '#ffd166'; ctx.lineWidth = PX;
+  const r = Math.round(s.r / PX) * PX, x = Math.round(s.x / PX) * PX, y = Math.round(s.y / PX) * PX;
   ctx.beginPath();
-  ctx.moveTo(s.x, s.y - r); ctx.lineTo(s.x + r * 0.8, s.y);
-  ctx.lineTo(s.x, s.y + r); ctx.lineTo(s.x - r * 0.8, s.y);
+  ctx.moveTo(x, y - r); ctx.lineTo(x + r * 0.8, y);
+  ctx.lineTo(x, y + r); ctx.lineTo(x - r * 0.8, y);
   ctx.closePath(); ctx.stroke();
   for (const [ox, oy] of [[1, -1], [-1, -1], [1, 1], [-1, 1]]) {
-    ctx.beginPath(); ctx.arc(s.x + ox * r * 0.8, s.y + oy * r * 0.8, 2.6, 0, TAU); ctx.stroke();
+    ctx.strokeRect(x + ox * r * 0.8 - PX, y + oy * r * 0.8 - PX, PX * 2, PX * 2);
   }
   ctx.fillStyle = '#ffd166';
-  ctx.fillRect(s.x - 1.5, s.y - 1.5, 3, 3);
+  ctx.fillRect(x - PX, y - PX, PX * 2, PX * 2);
   ctx.restore();
 }
 function drawCrystal(rk) {
   const col = ROCK_COLORS[rk.size];
   if (rk.size === 0) ctx.globalAlpha = clamp(rk.fade / 1.5, 0, 1);
-  strokePoly(rk.crys.pts, rk.x, rk.y, rk.rot, col, 1.6, 9);
+  strokePoly(rk.crys.pts, rk.x, rk.y, rk.rot, col, PX, 9);
   ctx.save();
   ctx.globalAlpha = (rk.size === 0 ? clamp(rk.fade / 1.5, 0, 1) : 1) * 0.45;
-  ctx.strokeStyle = col; ctx.lineWidth = 1;
+  ctx.strokeStyle = col; ctx.lineWidth = PX;
   const c = Math.cos(rk.rot), s = Math.sin(rk.rot);
   ctx.beginPath();
   for (const seg of rk.crys.frac) {
-    ctx.moveTo(rk.x + seg[0][0] * c - seg[0][1] * s, rk.y + seg[0][0] * s + seg[0][1] * c);
-    ctx.lineTo(rk.x + seg[1][0] * c - seg[1][1] * s, rk.y + seg[1][0] * s + seg[1][1] * c);
+    const ax = Math.round((rk.x + seg[0][0] * c - seg[0][1] * s) / PX) * PX,
+          ay = Math.round((rk.y + seg[0][0] * s + seg[0][1] * c) / PX) * PX,
+          bx = Math.round((rk.x + seg[1][0] * c - seg[1][1] * s) / PX) * PX,
+          by = Math.round((rk.y + seg[1][0] * s + seg[1][1] * c) / PX) * PX;
+    ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
   }
   ctx.stroke();
   ctx.restore();
@@ -811,202 +950,180 @@ function drawBackdrop(dt) {
 }
 function drawButton(b) {
   ctx.save();
-  ctx.strokeStyle = '#eafdff'; ctx.lineWidth = 1.8;
-  ctx.shadowColor = 'rgba(0,229,255,0.55)'; ctx.shadowBlur = 10;
-  ctx.strokeRect(b.x, b.y, b.w, b.h);
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = '#eafdff'; ctx.textAlign = 'center';
-  ctx.font = 'bold 21px "Courier New", monospace';
-  ctx.fillText(b.label, b.x + b.w / 2, b.y + (b.sub ? 26 : 36));
-  if (b.sub) {
-    ctx.font = '12px "Courier New", monospace'; ctx.fillStyle = '#8a93a0';
-    ctx.fillText(b.sub, b.x + b.w / 2, b.y + 46);
-  }
+  ctx.strokeStyle = '#eafdff'; ctx.lineWidth = PX;
+  ctx.shadowColor = 'rgba(0,229,255,0.55)'; ctx.shadowBlur = 10 / PX;
+  const bx = Math.round(b.x / PX) * PX, by = Math.round(b.y / PX) * PX,
+        bw = Math.round(b.w / PX) * PX, bh = Math.round(b.h / PX) * PX;
+  ctx.strokeRect(bx, by, bw, bh);
   ctx.restore();
+  const fs = Math.max(14, Math.round(bh * 0.3));
+  const cy = by + bh / 2;
+  text(b.label, bx + bw / 2, cy + (b.sub ? -7 : 3), 'bold ' + fs + 'px', '#eef4fa', '#00e5ff');
+  if (b.sub) text(b.sub, bx + bw / 2, cy + 15, '12px', '#8a93a0');
 }
 const MENU_CRYS = [];
 for (let i = 0; i < 9; i++) MENU_CRYS.push(makeCrystal(13));
 function drawMenu() {
   buttons = [];
-  ctx.textAlign = 'center';
-  ctx.save();
-  ctx.shadowColor = '#00e5ff'; ctx.shadowBlur = 24;
-  ctx.fillStyle = '#eafdff';
-  ctx.font = 'bold 76px "Courier New", monospace';
-  ctx.fillText('FIELD', W / 2, 108);
-  ctx.restore();
-  ctx.font = '15px "Courier New", monospace'; ctx.fillStyle = '#8a93a0';
-  ctx.fillText('a 1979 story, told twice', W / 2, 142);
-  ctx.fillStyle = '#54655c';
-  ctx.fillText('be the ship, or be the rocks', W / 2, 166);
-  for (let i = 0; i < 9; i++) {
-    const x = 250 + i * 52, y = 208 + Math.sin(i * 1.3 + time * 0.8) * 8;
-    strokePoly(MENU_CRYS[i].pts, x, y, i * 0.7 + time * 0.15, '#2b3a42', 1.2);
+  const land = W >= H;
+  const logoFont = Math.round(Math.min(W * 0.11, H * 0.16));
+  const logoY = land ? H * 0.2 : H * 0.14;
+  text('FIELD', W / 2, logoY, 'bold ' + logoFont + 'px', '#6ff5ff');
+  const subY = logoY + logoFont * 0.62;
+  text('a 1979 story, told twice', W / 2, subY, '15px', '#8a93a0');
+  text('be the ship, or be the rocks', W / 2, subY + 24, '13px', '#54655c');
+  // crystals
+  const n = 9, cx0 = W / 2 - (n - 1) * 26;
+  for (let i = 0; i < n; i++) {
+    const x = cx0 + i * 52, y = subY + 52 + Math.sin(i * 1.3 + time * 0.8) * 8;
+    strokePoly(MENU_CRYS[i].pts, x, y, i * 0.7 + time * 0.15, '#2b3a42', PX);
   }
+  const bw = Math.min(380, W - 80), bh = land ? 64 : 72, gap = 16;
   const defs = [
-    ['pilot', 'PILOT', '1P — fly the ship · clear 8 waves', 292],
-    ['field', 'FIELD', '1P — be the rocks · break 3 hulls', 372],
-    ['versus', 'VERSUS', '2P — ship vs field · best of 3', 452],
+    ['pilot', 'PILOT', 'fly the ship · clear 8 waves'],
+    ['field', 'FIELD', 'be the rocks · break 3 hulls'],
+    ['versus', 'VERSUS', 'ship vs field · best of 3'],
   ];
-  for (const [id, label, sub, cy] of defs) {
-    const b = { id, label, sub, x: W / 2 - 190, y: cy - 32, w: 380, h: 64 };
-    buttons.push(b); drawButton(b);
+  let by = subY + 96;
+  for (const [id, label, sub] of defs) {
+    const b = { id, label, sub, x: W / 2 - bw / 2, y: by, w: bw, h: bh };
+    buttons.push(b); drawButton(b); by += bh + gap;
   }
-  ctx.font = '12px "Courier New", monospace'; ctx.fillStyle = '#3a3f45';
-  ctx.fillText('arrows / WASD · drag on touch · M mute · P pause', W / 2, 522);
-  if (best > 0) {
-    ctx.fillStyle = '#54655c';
-    ctx.fillText('pilot best ' + best, W / 2, 44);
-  }
+  text('arrows / WASD · drag · M mute · P pause', W / 2, H - 24, '12px', '#3a3f45');
+  if (best > 0) text('pilot best ' + best, W / 2, 30, '12px', '#54655c');
 }
 const HOWTO = {
   pilot: { title: 'PILOT — FLY THE SHIP', lines: [
     'Clear 8 waves of the crystal belt.',
-    'FLY  arrows / WASD — or drag, the ship follows your finger',
-    'Your cannon fires on its own. Chain kills for COMBO multipliers.',
-    'The belt fights back: it seeds and shatters crystals near you.',
-    'Hunters arrive from wave 3. Heed the klaxon.',
+    'FLY with arrows / WASD — or drag',
+    'Your cannon fires on its own.',
+    'Chain kills for COMBO multipliers.',
+    'The belt fights back: it seeds and',
+    'shatters crystals near you.',
+    'Hunters arrive from wave 3.',
   ]},
   field: { title: 'FIELD — BE THE ROCKS', lines: [
-    'Shatter the AI pilot\u2019s 3 hulls before it clears the belt.',
-    'TAP a crystal — shatter it toward the ship (15 energy)',
-    'TAP empty space — seed a new crystal (25 energy)',
-    'HUNTER button — launch a gun-drone (50 energy)',
-    'Every hull you break, the pilot flies smarter. Spend wisely.',
+    "Shatter the AI pilot's 3 hulls.",
+    'TAP a crystal — shatter it (15)',
+    'TAP empty space — seed one (25)',
+    'HUNTER button — gun-drone (50)',
+    'Every hull you break, the pilot',
+    'flies smarter. Spend wisely.',
   ]},
   versus: { title: 'VERSUS — SHIP VS FIELD', lines: [
-    'Same screen. P1 is the ship, P2 is the belt. Best of 3 rounds.',
-    'P1 SHIP — arrows / WASD, or drag the RIGHT half',
-    'P2 FIELD — tap the LEFT half: split rocks, seed rocks, hunter',
-    'Ship wins the round by surviving 60 seconds.',
-    'Field wins the round by breaking the hull.',
+    'P1 is the ship, P2 is the belt.',
+    'Best of 3 rounds.',
+    'P1 SHIP — arrows / WASD,',
+    'or drag the RIGHT half',
+    'P2 FIELD — tap the LEFT half:',
+    'split rocks, seed rocks, hunter',
+    'Ship wins by surviving 60s.',
+    'Field wins by breaking the hull.',
   ]},
 };
 function drawHowto() {
   buttons = [];
   const h = HOWTO[howtoMode];
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#eafdff'; ctx.font = 'bold 30px "Courier New", monospace';
-  ctx.fillText(h.title, W / 2, 110);
-  ctx.font = '15px "Courier New", monospace'; ctx.fillStyle = '#aeb9c2';
-  h.lines.forEach((ln, i) => ctx.fillText(ln, W / 2, 180 + i * 40));
-  const back = { id: 'back', label: 'BACK', x: W / 2 - 200, y: 430, w: 180, h: 56 };
-  const launch = { id: 'launch', label: 'LAUNCH ▸', x: W / 2 + 20, y: 430, w: 180, h: 56 };
+  const titleY = Math.max(70, H * 0.12);
+  text(h.title, W / 2, titleY, 'bold 26px', '#eafdff', '#00e5ff');
+  h.lines.forEach((ln, i) => text(ln, W / 2, titleY + 44 + i * 30, '15px', '#aeb9c2'));
+  const bw = Math.min(180, (W - 60) / 2), bh = 56;
+  const by = H - bh - 40;
+  const back = { id: 'back', label: 'BACK', x: W / 2 - bw - 10, y: by, w: bw, h: bh };
+  const launch = { id: 'launch', label: 'LAUNCH ▶', x: W / 2 + 10, y: by, w: bw, h: bh };
   buttons.push(back, launch); drawButton(back); drawButton(launch);
 }
 function drawHUD() {
-  ctx.textAlign = 'left'; ctx.font = '14px "Courier New", monospace';
   if (mode === 'pilot') {
-    ctx.fillStyle = '#8a93a0';
-    ctx.fillText('SCORE ' + score, 18, 30);
-    ctx.fillText('BEST ' + best, 18, 52);
-    ctx.fillStyle = '#eafdff';
-    ctx.fillText('WAVE ' + wave + '/' + maxWave, 18, 74);
+    text('SCORE ' + score, 18, 30, '14px', '#8a93a0', null, null, 'left');
+    text('BEST ' + best, 18, 52, '14px', '#8a93a0', null, null, 'left');
+    text('WAVE ' + wave + '/' + maxWave, 18, 74, '14px', '#eafdff', null, null, 'left');
     if (comboN >= 2) {
+      text('COMBO x' + comboN, 18, 96, '14px', '#ffd166', null, null, 'left');
       ctx.fillStyle = '#ffd166';
-      ctx.fillText('COMBO x' + comboN, 18, 96);
-      ctx.fillRect(18, 102, 90 * clamp(comboT / 2.5, 0, 1), 4);
+      ctx.fillRect(18, 102, Math.round(90 * clamp(comboT / 2.5, 0, 1) / PX) * PX, PX * 2);
     }
     if (hunters.length > 0) {
-      ctx.fillStyle = '#ff5a3c'; ctx.textAlign = 'center';
-      ctx.fillText('! HUNTER INBOUND !', W / 2, 30); ctx.textAlign = 'left';
+      text('! HUNTER INBOUND !', W / 2, 30, '14px', '#ff5a3c');
     }
     let lx = W - 170;
-    for (let i = 0; i < lives; i++) { strokePoly(SHIP_MINI, lx, 26, -Math.PI / 2, '#6ff5ff', 1.4); lx += 30; }
+    for (let i = 0; i < lives; i++) { strokePoly(SHIP_MINI, lx, 26, -Math.PI / 2, '#6ff5ff', PX); lx += 30; }
   } else if (mode === 'field') {
-    ctx.fillStyle = '#8a93a0';
-    ctx.fillText('TIME ' + matchT.toFixed(1) + 's', 18, 30);
-    if (bestTime > 0) ctx.fillText('BEST ' + bestTime.toFixed(1) + 's', 18, 52);
-    ctx.fillStyle = '#eafdff'; ctx.fillText('AI HULL', 18, 74);
+    text('TIME ' + matchT.toFixed(1) + 's', 18, 30, '14px', '#8a93a0', null, null, 'left');
+    if (bestTime > 0) text('BEST ' + bestTime.toFixed(1) + 's', 18, 52, '14px', '#8a93a0', null, null, 'left');
+    text('AI HULL', 18, 74, '14px', '#eafdff', null, null, 'left');
     for (let i = 0; i < 3; i++) {
-      ctx.strokeStyle = i < aiLives ? '#ff5a3c' : '#3a3f45'; ctx.lineWidth = 1.6;
-      ctx.strokeRect(100 + i * 26, 62, 20, 14);
-      if (i < aiLives) { ctx.fillStyle = '#ff5a3c'; ctx.fillRect(102 + i * 26, 64, 16, 10); }
+      ctx.strokeStyle = i < aiLives ? '#ff5a3c' : '#3a3f45'; ctx.lineWidth = PX;
+      const qx = Math.round((100 + i * 26) / PX) * PX;
+      ctx.strokeRect(qx, 62, 20, 14);
+      if (i < aiLives) { ctx.fillStyle = '#ff5a3c'; ctx.fillRect(qx + 2, 64, 16, 10); }
     }
-    ctx.strokeStyle = '#8a93a0'; ctx.lineWidth = 1.2;
+    ctx.strokeStyle = '#8a93a0'; ctx.lineWidth = PX;
     ctx.strokeRect(18, 92, 170, 12);
-    ctx.fillStyle = '#7dff9a'; ctx.fillRect(20, 94, 166 * energy / 100, 8);
-    ctx.fillStyle = '#54655c'; ctx.font = '12px "Courier New", monospace';
-    ctx.fillText('tap rock 15 · tap space 25 · hunter 50', 18, 122);
+    ctx.fillStyle = '#7dff9a';
+    ctx.fillRect(20, 94, Math.round(166 * energy / 100 / PX) * PX, 8);
+    text('tap rock 15 · tap space 25 · hunter 50', 18, 122, '12px', '#54655c', null, null, 'left');
   } else {
-    ctx.fillStyle = '#8a93a0';
-    ctx.fillText('SHIP ' + wins.ship + ' — ' + wins.field + ' FIELD', 18, 30);
-    ctx.fillStyle = '#ffd166'; ctx.textAlign = 'center';
-    ctx.font = 'bold 20px "Courier New", monospace';
-    ctx.fillText(Math.ceil(roundT) + 's', W / 2, 32);
-    ctx.textAlign = 'left'; ctx.font = '14px "Courier New", monospace';
-    ctx.strokeStyle = '#8a93a0'; ctx.lineWidth = 1.2;
+    text('SHIP ' + wins.ship + ' — ' + wins.field + ' FIELD', 18, 30, '14px', '#8a93a0', null, null, 'left');
+    text(Math.ceil(roundT) + 's', W / 2, 32, 'bold 20px', '#ffd166');
+    ctx.strokeStyle = '#8a93a0'; ctx.lineWidth = PX;
     ctx.strokeRect(18, 44, 150, 12);
-    ctx.fillStyle = '#7dff9a'; ctx.fillRect(20, 46, 146 * energy / 100, 8);
+    ctx.fillStyle = '#7dff9a';
+    ctx.fillRect(20, 46, Math.round(146 * energy / 100 / PX) * PX, 8);
     ctx.save();
-    ctx.strokeStyle = 'rgba(234,253,255,0.14)'; ctx.setLineDash([6, 8]); ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(234,253,255,0.14)'; ctx.setLineDash([6, 8]); ctx.lineWidth = PX;
     ctx.beginPath(); ctx.moveTo(W / 2, 44); ctx.lineTo(W / 2, H - 14); ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = 'rgba(234,253,255,0.30)'; ctx.textAlign = 'center'; ctx.font = '12px "Courier New", monospace';
-    ctx.fillText('FIELD', W / 4, 60); ctx.fillText('SHIP', W * 3 / 4, 60);
-    ctx.textAlign = 'left'; ctx.restore();
+    ctx.restore();
+    text('FIELD', W / 4, 60, '12px', 'rgba(234,253,255,0.30)');
+    text('SHIP', W * 3 / 4, 60, '12px', 'rgba(234,253,255,0.30)');
   }
   // pause + mute (top right)
-  const pb = { id: 'pause', label: paused ? '▶' : 'II', x: W - 64, y: 16, w: 48, h: 40 };
+  const pb = { id: 'pause', label: paused ? '▶' : '❚❚', x: W - 64, y: 16, w: 48, h: 40 };
   const mb = { id: 'mute', label: muted ? 'M×' : 'M♪', x: W - 64, y: 62, w: 48, h: 40 };
   buttons.push(pb, mb);
-  ctx.textAlign = 'center'; ctx.font = '15px "Courier New", monospace';
   for (const b of [pb, mb]) {
-    ctx.strokeStyle = '#3a3f45'; ctx.lineWidth = 1.4;
+    ctx.strokeStyle = '#3a3f45'; ctx.lineWidth = PX;
     ctx.strokeRect(b.x, b.y, b.w, b.h);
-    ctx.fillStyle = '#8a93a0';
-    ctx.fillText(b.label, b.x + b.w / 2, b.y + 26);
+    text(b.label, b.x + b.w / 2, b.y + b.h / 2 + 2, '15px', '#8a93a0');
   }
-  ctx.textAlign = 'left';
   // hunter button (human field)
   if (humanField() && state === 'play') {
     const hb = { id: 'hunter', label: 'HUNTER', sub: '50', x: 24, y: H - 84, w: 96, h: 64 };
     buttons.push(hb);
     const ok = energy >= 50 && hunters.length === 0;
     ctx.save();
-    ctx.strokeStyle = ok ? '#ffd166' : '#3a3f45'; ctx.lineWidth = 1.8;
-    ctx.shadowColor = ok ? 'rgba(255,209,102,0.5)' : 'transparent'; ctx.shadowBlur = ok ? 8 : 0;
+    ctx.strokeStyle = ok ? '#ffd166' : '#3a3f45'; ctx.lineWidth = PX;
+    ctx.shadowColor = ok ? 'rgba(255,209,102,0.5)' : 'transparent'; ctx.shadowBlur = ok ? 8 / PX : 0;
     ctx.strokeRect(hb.x, hb.y, hb.w, hb.h);
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = ok ? '#ffd166' : '#3a3f45'; ctx.textAlign = 'center';
-    ctx.font = 'bold 15px "Courier New", monospace';
-    ctx.fillText('HUNTER', hb.x + hb.w / 2, hb.y + 28);
-    ctx.font = '12px "Courier New", monospace';
-    ctx.fillText('50', hb.x + hb.w / 2, hb.y + 48);
-    ctx.textAlign = 'left';
     ctx.restore();
+    text('HUNTER', hb.x + hb.w / 2, hb.y + 24, 'bold 15px', ok ? '#eef4fa' : '#3a3f45', ok ? '#ffd166' : null);
+    text('50', hb.x + hb.w / 2, hb.y + 46, '12px', ok ? '#ffd166' : '#3a3f45');
   }
 }
 function drawServe() {
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#eafdff'; ctx.font = 'bold 30px "Courier New", monospace';
-  ctx.fillText(banner, W / 2, H / 2 - 30);
-  ctx.font = '15px "Courier New", monospace'; ctx.fillStyle = '#8a93a0';
   const hints = {
     pilot: 'drag or arrows to fly — cannon fires on its own',
     field: 'tap crystals to shatter them · tap space to seed new ones',
     versus: 'P1 flies right half · P2 commands the left half',
   };
-  ctx.fillText(hints[mode], W / 2, H / 2 + 8);
+  text(hints[mode], W / 2, H / 2 + 8, '15px', '#8a93a0');
 }
 function drawPauseMenu() {
   buttons = [];
   ctx.fillStyle = 'rgba(4,6,11,0.72)'; ctx.fillRect(0, 0, W, H);
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#eafdff'; ctx.font = 'bold 40px "Courier New", monospace';
-  ctx.fillText('PAUSED', W / 2, 150);
-  const defs = [
-    ['resume', 'RESUME', 220], ['restart', 'RESTART', 296], ['quit', 'QUIT TO MENU', 372],
-  ];
-  for (const [id, label, y] of defs) {
-    const b = { id, label, x: W / 2 - 170, y: y - 28, w: 340, h: 56 };
-    buttons.push(b); drawButton(b);
+  text('PAUSED', W / 2, H * 0.28, 'bold 40px', '#f5f8fc', '#9fd8ff');
+  const bw = Math.min(340, W - 80), bh = 56, gap = 20;
+  const defs = [['resume', 'RESUME'], ['restart', 'RESTART'], ['quit', 'QUIT TO MENU']];
+  let by = H * 0.28 + 70;
+  for (const [id, label] of defs) {
+    const b = { id, label, x: W / 2 - bw / 2, y: by, w: bw, h: bh };
+    buttons.push(b); drawButton(b); by += bh + gap;
   }
 }
 function drawEnd() {
   buttons = [];
   ctx.fillStyle = 'rgba(4,6,11,0.78)'; ctx.fillRect(0, 0, W, H);
-  ctx.textAlign = 'center';
   let title, color, lines = [];
   if (state === 'matchEnd') {
     const sw = wins.ship > wins.field;
@@ -1021,12 +1138,11 @@ function drawEnd() {
     color = '#ff5a3c'; title = 'GAME OVER';
     lines = ['score ' + score, 'best ' + best, 'reached wave ' + wave + '/' + maxWave];
   }
-  ctx.fillStyle = color; ctx.font = 'bold 44px "Courier New", monospace';
-  ctx.fillText(title, W / 2, 170);
-  ctx.font = '16px "Courier New", monospace'; ctx.fillStyle = '#aeb9c2';
-  lines.forEach((ln, i) => ln && ctx.fillText(ln, W / 2, 220 + i * 30));
-  const rm = { id: 'rematch', label: mode === 'versus' ? 'REMATCH' : 'PLAY AGAIN', x: W / 2 - 200, y: 330, w: 180, h: 56 };
-  const tm = { id: 'tomenu', label: 'MENU', x: W / 2 + 20, y: 330, w: 180, h: 56 };
+  text(title, W / 2, H * 0.3, 'bold 44px', '#f5f8fc', color);
+  lines.forEach((ln, i) => ln && text(ln, W / 2, H * 0.3 + 50 + i * 30, '16px', '#aeb9c2'));
+  const bw = Math.min(180, (W - 60) / 2), bh = 56, ey = H * 0.3 + 130;
+  const rm = { id: 'rematch', label: mode === 'versus' ? 'REMATCH' : 'PLAY AGAIN', x: W / 2 - bw - 10, y: ey, w: bw, h: bh };
+  const tm = { id: 'tomenu', label: 'MENU', x: W / 2 + 10, y: ey, w: bw, h: bh };
   buttons.push(rm, tm); drawButton(rm); drawButton(tm);
 }
 function render(dt) {
@@ -1034,15 +1150,17 @@ function render(dt) {
   buttons = []; // every frame rebuilds its own buttons; no stale hits
   if (shake > 0) ctx.translate(rnd(-1, 1) * shake * 6, rnd(-1, 1) * shake * 6);
   ctx.clearRect(-12, -12, W + 24, H + 24);
-  if (state === 'menu') { drawBackdrop(dt); drawMenu(); ctx.restore(); return; }
-  if (state === 'howto') { drawBackdrop(dt); drawHowto(); ctx.restore(); return; }
+  if (state === 'menu') { drawBackdrop(dt); drawMenu(); }
+  else if (state === 'howto') { drawBackdrop(dt); drawHowto(); }
+  else {
   drawBackdrop(dt);
   for (const rk of rocks) drawCrystal(rk);
   for (const s of hunters) drawHunter(s);
   if (ship) drawShip(ship);
   for (const b of bullets) {
     const spr = b.from === 'hunter' ? SPR_AMBER : SPR_WHITE;
-    ctx.drawImage(spr, b.x - 12, b.y - 12, 24, 24);
+    const bx = Math.round((b.x - 6) / PX) * PX, by = Math.round((b.y - 6) / PX) * PX;
+    ctx.drawImage(spr, bx, by, 12, 12);
   }
   for (const r of rings) {
     ctx.globalAlpha = clamp(1 - r.t / r.life, 0, 1);
@@ -1056,35 +1174,33 @@ function render(dt) {
     ctx.fillRect(p.x - p.r / 2, p.y - p.r / 2, p.r, p.r);
   }
   ctx.globalAlpha = 1;
-  ctx.textAlign = 'center';
   if (!(paused && state === 'play')) {
     for (const p of popups) {
       ctx.globalAlpha = clamp(1 - p.t / p.life, 0, 1);
-      ctx.fillStyle = p.color; ctx.font = 'bold 15px "Courier New", monospace';
-      ctx.fillText(p.txt, p.x, p.y);
+      text(p.txt, p.x, p.y, 'bold 15px', '#f5f8fc', p.color);
     }
   }
-  ctx.globalAlpha = 1; ctx.textAlign = 'left';
+  ctx.globalAlpha = 1;
   if (state === 'serve') drawServe();
   else drawHUD();
   if (bannerT > 0 && (state === 'play' || state === 'serve')) {
     ctx.globalAlpha = Math.min(1, bannerT * 1.4);
-    ctx.fillStyle = '#eafdff'; ctx.textAlign = 'center';
-    ctx.font = 'bold 30px "Courier New", monospace';
-    ctx.fillText(banner, W / 2, H / 2 - 60);
-    ctx.globalAlpha = 1; ctx.textAlign = 'left';
+    text(banner, W / 2, H / 2 - 60, 'bold 30px', '#f5f8fc', '#00e5ff');
+    ctx.globalAlpha = 1;
   }
   if (paused && state === 'play') drawPauseMenu();
   if (state === 'roundEnd') {
-    ctx.fillStyle = '#eafdff'; ctx.textAlign = 'center';
-    ctx.font = 'bold 30px "Courier New", monospace';
-    ctx.fillText(roundWinner === 'ship' ? 'SHIP SURVIVES' : 'FIELD TAKES IT', W / 2, H / 2 - 20);
-    ctx.font = '15px "Courier New", monospace'; ctx.fillStyle = '#8a93a0';
-    ctx.fillText('ship ' + wins.ship + ' — ' + wins.field + ' field', W / 2, H / 2 + 16);
-    ctx.textAlign = 'left';
+    text(roundWinner === 'ship' ? 'SHIP SURVIVES' : 'FIELD TAKES IT', W / 2, H / 2 - 20, 'bold 30px', '#f5f8fc', '#00e5ff');
+    text('ship ' + wins.ship + ' — ' + wins.field + ' field', W / 2, H / 2 + 16, '15px', '#8a93a0');
   }
   if (state === 'matchEnd' || state === 'gameOver' || state === 'win') drawEnd();
+  } // fin else (menu/howto)
   ctx.restore();
+  // composite : buffer pixel -> écran, net (pas de lissage)
+  dctx.imageSmoothingEnabled = false;
+  dctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+  dctx.clearRect(0, 0, W, H);
+  dctx.drawImage(pbuf, 0, 0, W, H);
 }
 
 /* ---------- main loop ---------- */
@@ -1098,6 +1214,7 @@ function frame(t) {
   while (acc >= DT) { update(DT); acc -= DT; if (bannerT > 0) bannerT -= DT; }
   render(Math.min(ft, 0.05));
 }
+fit(); // init après toutes les déclarations (le remap a besoin des entités)
 requestAnimationFrame(frame);
 
 /* ---------- debug hooks ---------- */
@@ -1112,7 +1229,7 @@ window.GAME = {
   get matchT() { return matchT; }, get best() { return best; }, get bestTime() { return bestTime; },
   get muted() { return muted; }, get paused() { return paused; },
   get comboN() { return comboN; }, get buttons() { return buttons; },
-  W, H,
+  get W() { return W; }, get H() { return H; },
   startMode, openHowto, splitRock, spawnRock, tryHunter, spawnHunter, killShip, endGame, toMenu, doButton,
 };
 </script>
