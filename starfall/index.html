@@ -1116,7 +1116,7 @@ function drawButton(id, x, y, w, h, label, sub, accent) {
   ctx.strokeStyle = ac; ctx.lineWidth = 2;
   ctx.fillStyle = 'rgba(0,229,255,0.07)';
   roundRect(ctx, x, y, w, h, 10); ctx.fill(); ctx.stroke();
-  text(label, x + w / 2, y + h / 2 - (sub ? h * 0.14 : 0), 'bold ' + Math.round(h * 0.32) + 'px', ac, ac);
+  text(label, x + w / 2, y + h / 2 - (sub ? h * 0.14 : 0), 'bold ' + Math.round(h * 0.32) + 'px', '#eef4fa', ac);
   if (sub) text(sub, x + w / 2, y + h / 2 + h * 0.24, Math.round(h * 0.2) + 'px', '#7d97a3');
 }
 function buttonAt(x, y) {
@@ -1195,7 +1195,7 @@ function drawBanner() {
   ctx.moveTo(0, H / 2 + 58); ctx.lineTo(W, H / 2 + 58); ctx.stroke();
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillStyle = '#00e5ff';
-  text(banner, W / 2, H / 2 - (bannerSub ? 14 : 0), 'bold ' + Math.round(W * 0.055) + 'px', '#00e5ff', '#00e5ff');
+  text(banner, W / 2, H / 2 - (bannerSub ? 14 : 0), 'bold ' + Math.round(W * 0.055) + 'px', '#f5f8fc', '#00e5ff');
   if (bannerSub) text(bannerSub, W / 2, H / 2 + 30, Math.round(W * 0.034) + 'px', '#ffd166', '#ffd166');
 }
 function drawField() {
@@ -1348,7 +1348,7 @@ function drawPopups() {
   for (const p of popups) {
     const a = 1 - p.t / 1.1;
     ctx.globalAlpha = a;
-    text(p.txt, p.x, p.y - p.t * 44, 'bold 16px', p.color, p.color);
+    text(p.txt, p.x, p.y - p.t * 44, 'bold 16px', '#f5f8fc', p.color);
   }
   ctx.globalAlpha = 1;
 }
@@ -1360,7 +1360,7 @@ function drawHUD() {
   else left = 'WAVE ' + wave + '  SCORE ' + score + '  LIVES ' + lives;
   text(left, 14, 20, '14px', '#7d97a3', null, null, 'left');
   if (mult > 1 && (mode === 'defend' || mode === 'versus')) {
-    text('x' + mult + ' COMBO', 14, 40, 'bold 15px', '#ffd166', '#ffd166', null, 'left');
+    text('x' + mult + ' COMBO', 14, 40, 'bold 15px', '#fff7e0', '#ffd166', null, 'left');
   }
   // versus kill feed — left lane under the HUD, dark pills so text never sits on sprites
   if (mode === 'versus') {
@@ -1395,10 +1395,10 @@ function renderMenu() {
   // logo avec halo pixel
   const logoFont = Math.round(Math.min(W * 0.13, H * 0.19)), logoU = uOf(logoFont);
   const logoY = H * 0.18;
-  text('STARFALL', W / 2, logoY, 'bold ' + logoFont + 'px', '#00e5ff', '#00e5ff');
+  text('STARFALL', W / 2, logoY, 'bold ' + logoFont + 'px', '#f5f8fc', '#00e5ff');
   const subFont = Math.round(W * 0.032), subU = uOf(subFont);
   const subY = logoY + 4.5 * logoU + 4 + 4.5 * subU; // sous le halo du logo
-  text('a 1978 arcade tale', W / 2, subY, subFont + 'px', '#ff5a3c', '#ff5a3c');
+  text('a 1978 arcade tale', W / 2, subY, subFont + 'px', '#f5f8fc', '#ff5a3c');
   const bw = Math.min(320, W * 0.66);
   const bh = isLand ? 52 : Math.max(56, H * 0.085), gap = isLand ? 12 : 16;
   const bx = W / 2 - bw / 2;
@@ -1415,7 +1415,7 @@ function renderMenu() {
 }
 function renderHowto() {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  text('HOW TO PLAY', W / 2, H * 0.1, 'bold ' + Math.round(W * 0.07) + 'px', '#00e5ff', '#00e5ff');
+  text('HOW TO PLAY', W / 2, H * 0.1, 'bold ' + Math.round(W * 0.07) + 'px', '#f5f8fc', '#00e5ff');
   const lines = [
     ['#00e5ff', 'DEFEND — you are the cannon.',
      'Move: drag / ← → / A D.',
@@ -1433,7 +1433,7 @@ function renderHowto() {
   ];
   let y = H * 0.18;
   for (const [col, title, ...rows] of lines) {
-    text(title, W * 0.08, y, 'bold 16px', col, col, null, 'left'); y += 22;
+    text(title, W * 0.08, y, 'bold 16px', '#f5f8fc', col, null, 'left'); y += 22;
     for (const r of rows) { text(r, W * 0.08, y, '13px', '#9fb3bd', null, null, 'left'); y += 19; }
     y += 10;
   }
@@ -1443,7 +1443,7 @@ function renderHowto() {
 function drawPaused() {
   ctx.fillStyle = 'rgba(4,6,11,0.78)'; ctx.fillRect(0, 0, W, H);
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  text('PAUSED', W / 2, H * 0.3, 'bold ' + Math.round(W * 0.07) + 'px', '#e8f5ee', '#e8f5ee');
+  text('PAUSED', W / 2, H * 0.3, 'bold ' + Math.round(W * 0.07) + 'px', '#f5f8fc', '#9fd8ff');
   const bw = 260, bh = 58, bx = W / 2 - bw / 2;
   let by = H * 0.42;
   drawButton('resume', bx, by, bw, bh, 'RESUME'); by += bh + 14;
@@ -1454,8 +1454,8 @@ function drawEndScreen() {
   ctx.fillStyle = 'rgba(4,6,11,0.85)'; ctx.fillRect(0, 0, W, H);
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const col = state === 'gameOver' ? '#ff5a3c' : '#00e5ff';
-  text(banner, W / 2, H * 0.3, 'bold ' + Math.round(W * 0.06) + 'px', col, col);
-  text(bannerSub || '', W / 2, H * 0.3 + W * 0.075, Math.round(W * 0.04) + 'px', '#e8f5ee', '#e8f5ee');
+  text(banner, W / 2, H * 0.3, 'bold ' + Math.round(W * 0.06) + 'px', '#f5f8fc', col);
+  text(bannerSub || '', W / 2, H * 0.3 + W * 0.075, Math.round(W * 0.04) + 'px', '#e8f5ee');
   const bw = 280, bh = 58, bx = W / 2 - bw / 2;
   let by = H * 0.52;
   if (state === 'victory' && mode === 'defend' && !endless) {
