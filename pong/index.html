@@ -58,7 +58,12 @@ const QUICK_DIFF = {
 
 // ---------- canvas: visualViewport sizing (never overflow) ----------
 const canvas = document.getElementById('c');
-const ctx = canvas.getContext('2d');
+const dctx = canvas.getContext('2d');   // écran : composite final
+// ---------- passe pixel : le jeu se dessine sur un buffer basse résolution ----------
+const PX = 3;                            // 1 "pixel" = 3px logiques (320x200)
+const pbuf = document.createElement('canvas');
+pbuf.width = W / PX; pbuf.height = H / PX;
+const ctx = pbuf.getContext('2d');       // tout le jeu dessine ici, en unités logiques
 let dpr = 1, viewScale = 1;
 function fit() {
   const vv = window.visualViewport;
@@ -236,7 +241,7 @@ const G = {
   wallGlow: 0
 };
 const ball = { x: W/2, y: H/2, vx: 0, vy: 0, r: BALL_R, trail: [], visible: true };
-const padL = { x: 38, y: H/2, vy: 0, squash: 0, w: 10, h: 142 };
+const padL = { x: 38, y: H/2, vy: 0, squash: 0, w: 18, h: 96 };
 const padR = { x: W - 38, y: H/2, vy: 0, squash: 0, w: 18, h: 96 };
 let aiClock = 0, aiTargetY = H / 2;
 const parts = [], popups = [];
@@ -648,13 +653,96 @@ function rr(x, y, w, h, r) {
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
 }
+// ---------- police pixel 5x7 (capitales arcade) ----------
+const FONT5X7 = {
+'A': ["01110","10001","10001","11111","10001","10001","10001"],
+'B': ["11110","10001","10001","11110","10001","10001","11110"],
+'C': ["01110","10001","10000","10000","10000","10001","01110"],
+'D': ["11110","10001","10001","10001","10001","10001","11110"],
+'E': ["11111","10000","10000","11110","10000","10000","11111"],
+'F': ["11111","10000","10000","11110","10000","10000","10000"],
+'G': ["01110","10001","10000","10111","10001","10001","01111"],
+'H': ["10001","10001","10001","11111","10001","10001","10001"],
+'I': ["01110","00100","00100","00100","00100","00100","01110"],
+'J': ["00111","00010","00010","00010","00010","10010","01100"],
+'K': ["10001","10010","10100","11000","10100","10010","10001"],
+'L': ["10000","10000","10000","10000","10000","10000","11111"],
+'M': ["10001","11011","10101","10101","10001","10001","10001"],
+'N': ["10001","11001","10101","10011","10001","10001","10001"],
+'O': ["01110","10001","10001","10001","10001","10001","01110"],
+'P': ["11110","10001","10001","11110","10000","10000","10000"],
+'Q': ["01110","10001","10001","10001","10101","10010","01101"],
+'R': ["11110","10001","10001","11110","10100","10010","10001"],
+'S': ["01111","10000","10000","01110","00001","00001","11110"],
+'T': ["11111","00100","00100","00100","00100","00100","00100"],
+'U': ["10001","10001","10001","10001","10001","10001","01110"],
+'V': ["10001","10001","10001","10001","10001","01010","00100"],
+'W': ["10001","10001","10001","10101","10101","11011","10001"],
+'X': ["10001","10001","01010","00100","01010","10001","10001"],
+'Y': ["10001","10001","01010","00100","00100","00100","00100"],
+'Z': ["11111","00001","00010","00100","01000","10000","11111"],
+'0': ["01110","10001","10011","10101","11001","10001","01110"],
+'1': ["00100","01100","00100","00100","00100","00100","01110"],
+'2': ["01110","10001","00001","00110","01000","10000","11111"],
+'3': ["11111","00010","00100","00010","00001","10001","01110"],
+'4': ["00010","00110","01010","10010","11111","00010","00010"],
+'5': ["11111","10000","11110","00001","00001","10001","01110"],
+'6': ["00110","01000","10000","11110","10001","10001","01110"],
+'7': ["11111","00001","00010","00100","01000","01000","01000"],
+'8': ["01110","10001","10001","01110","10001","10001","01110"],
+'9': ["01110","10001","10001","01111","00001","00010","01100"],
+"'": ["00100","00100","00100","00000","00000","00000","00000"],
+'"': ["01010","01010","01010","00000","00000","00000","00000"],
+'.': ["00000","00000","00000","00000","00000","00110","00110"],
+'!': ["00100","00100","00100","00100","00100","00000","00100"],
+'?': ["01110","10001","00001","00010","00100","00000","00100"],
+':': ["00000","00110","00110","00000","00110","00110","00000"],
+'/': ["00001","00010","00010","00100","01000","01000","10000"],
+'(': ["01000","00100","00010","00010","00010","00100","01000"],
+')': ["01000","00100","00010","00010","00010","00100","01000"],
+'-': ["00000","00000","00000","11111","00000","00000","00000"],
+'+': ["00000","00100","00100","11111","00100","00100","00000"],
+'<': ["00010","00100","01000","10000","01000","00100","00010"],
+'×': ["00000","10001","01010","00100","01010","10001","00000"],
+'·': ["00000","00000","00110","00110","00000","00000","00000"]
+};
+function drawPixText(str, dx, y0, u) {
+  let cx = dx;
+  for (const ch of str) {
+    const gl = ch === ' ' ? null : (FONT5X7[ch] || FONT5X7['?']);
+    if (gl) for (let r = 0; r < gl.length; r++) {
+      const row = gl[r];
+      for (let c = 0; c < 5; c++)
+        if (row[c] === '1') ctx.fillRect(cx + c * u, y0 + r * u, u, u);
+    }
+    cx += ch === ' ' ? 4 * u : 6 * u;
+  }
+}
+// texte pixel : 'font' garde la forme '700 23px ...' — on n'en lit que la taille.
+// u = unité de police en px logiques, multiple de PX pour tomber sur la grille.
 function text(str, x, y, font, color, glow, glowBlur, align) {
-  ctx.save();
-  ctx.font = font; ctx.textAlign = align || 'center'; ctx.textBaseline = 'middle';
-  if (glow) { ctx.shadowColor = glow; ctx.shadowBlur = glowBlur || 16; }
+  str = String(str).toUpperCase();
+  ctx.shadowBlur = 0;   // pas de halo doux hérité : le glow est pixel, dessiné à la main
+  const m = /(\d+)px/.exec(font || '');
+  const size = m ? +m[1] : 16;
+  const u = Math.max(PX, Math.round(size / 7 / PX) * PX);
+  let w = 0;
+  for (const ch of str) w += ch === ' ' ? 4 * u : 6 * u;
+  let dx = align === 'right' ? x - w : align === 'left' ? x : x - w / 2;
+  dx = Math.round(dx / PX) * PX;
+  const y0 = Math.round((y - 3.5 * u) / PX) * PX;
+  if (glow) {  // halo pixel : 8 voisins, d'autant plus doux que le texte est petit
+    ctx.fillStyle = glow;
+    const ga = ctx.globalAlpha;
+    ctx.globalAlpha = ga * Math.min(1, Math.max(0.32, u / 18));
+    for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
+      if (!ox && !oy) continue;
+      drawPixText(str, dx + ox * u, y0 + oy * u, u);
+    }
+    ctx.globalAlpha = ga;
+  }
   ctx.fillStyle = color;
-  ctx.fillText(str, x, y);
-  ctx.restore();
+  drawPixText(str, dx, y0, u);
 }
 
 // animated aurora background blobs
@@ -688,7 +776,7 @@ function drawBackground() {
   // dot grid, slow drift
   ctx.fillStyle = 'rgba(140,170,220,0.055)';
   const ox = (t * 6) % 48, oy = (t * 4) % 48;
-  for (const d of dots) ctx.fillRect(d.x + ox - 24, d.y + oy - 24, 2, 2);
+  for (const d of dots) ctx.fillRect(d.x + ox - 24, d.y + oy - 24, 3, 3);
   // speed lines when the ball is screaming
   if (G.state === 'play' && ball.visible) {
     const sp = Math.hypot(ball.vx, ball.vy);
@@ -697,7 +785,7 @@ function drawBackground() {
       const ang = Math.atan2(ball.vy, ball.vx);
       ctx.save();
       ctx.strokeStyle = 'rgba(255,200,120,' + (k * 0.35).toFixed(3) + ')';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 3;
       for (let i = 0; i < 9; i++) {
         const off = (Math.random() - 0.5) * 160;
         const back = 40 + Math.random() * 130;
@@ -719,7 +807,7 @@ function drawFrame() {
   ctx.strokeStyle = 'rgba(120,180,255,' + (0.16 + heat * 0.22).toFixed(3) + ')';
   ctx.lineWidth = 2;
   ctx.shadowColor = 'rgba(120,180,255,0.8)';
-  ctx.shadowBlur = 12 + heat * 18;
+  ctx.shadowBlur = (12 + heat * 18) / PX;
   rr(8, 8, W - 16, H - 16, 14);
   ctx.stroke();
   ctx.restore();
@@ -743,28 +831,11 @@ function sideLabel() {
 }
 function drawScores() {
   const labels = sideLabel();
-  ctx.save();
-  ctx.textBaseline = 'middle';
-  ctx.shadowBlur = 24;
-  ctx.textAlign = 'left';
-  ctx.shadowColor = COL_L;
-  ctx.font = '700 72px ' + FONT;
-  ctx.fillStyle = 'rgba(240,250,255,0.96)';
-  ctx.fillText(String(G.scoreL), 30, H - 58);
-  ctx.textAlign = 'right';
-  ctx.shadowColor = COL_R;
-  ctx.fillText(String(G.scoreR), W - 30, H - 58);
-  ctx.shadowBlur = 0;
-  ctx.font = '600 13px ' + FONT;
-  ctx.fillStyle = 'rgba(255,255,255,0.42)';
-  ctx.textAlign = 'left';
-  ctx.fillText(labels[0], 32, H - 16);
-  ctx.textAlign = 'right';
-  ctx.fillText(labels[1], W - 32, H - 16);
-  ctx.textAlign = 'center';
-  ctx.fillStyle = 'rgba(255,255,255,0.34)';
-  ctx.fillText('FIRST TO ' + WIN_SCORE, W / 2, H - 20);
-  ctx.restore();
+  text(String(G.scoreL), 30, H - 72, '700 72px ' + FONT, 'rgba(240,250,255,0.96)', COL_L, 0, 'left');
+  text(String(G.scoreR), W - 30, H - 72, '700 72px ' + FONT, 'rgba(240,250,255,0.96)', COL_R, 0, 'right');
+  text(labels[0], 32, H - 30, '600 13px ' + FONT, 'rgba(255,255,255,0.42)');
+  text(labels[1], W - 32, H - 30, '600 13px ' + FONT, 'rgba(255,255,255,0.42)');
+  text('FIRST TO ' + WIN_SCORE, W / 2, H - 34, '600 13px ' + FONT, 'rgba(255,255,255,0.34)');
   if (G.rally >= 8) {
     text('RALLY ×' + G.rally, W / 2, 34, '700 20px ' + FONT, COL_GOLD, COL_GOLD, 12);
   }
@@ -857,15 +928,15 @@ function drawPauseBtn() {
 function button(id, x, y, w, h, label, color, sub) {
   ctx.save();
   ctx.strokeStyle = color; ctx.lineWidth = 2;
-  ctx.shadowColor = color; ctx.shadowBlur = 14;
+  ctx.shadowColor = color; ctx.shadowBlur = 14 / PX;
   ctx.globalAlpha = 0.92;
   rr(x, y, w, h, 12); ctx.stroke();
   ctx.globalAlpha = 0.10;
   ctx.fillStyle = color;
   rr(x, y, w, h, 12); ctx.fill();
   ctx.globalAlpha = 1; ctx.shadowBlur = 0;
-  text(label, x + w / 2, y + h / 2 + (sub ? -8 : 1), '700 23px ' + FONT, '#eef4fa', color, 10);
-  if (sub) text(sub, x + w / 2, y + h / 2 + 16, '500 13px ' + FONT, 'rgba(255,255,255,0.55)');
+  text(label, x + w / 2, y + h / 2 + (sub ? -11 : 1), '700 23px ' + FONT, '#eef4fa', color, 10);
+  if (sub) text(sub, x + w / 2, y + h / 2 + 15, '500 13px ' + FONT, 'rgba(255,255,255,0.55)');
   ctx.restore();
   hot.push({ id: id, x: x, y: y, w: w, h: h });
 }
@@ -873,14 +944,14 @@ function drawMenu() {
   const pulse = 0.75 + 0.25 * Math.sin(G.time * 2.2);
   ctx.save();
   ctx.shadowColor = '#9fd8ff'; ctx.shadowBlur = 40 * pulse;
-  text('RALLY', W / 2, 148, '800 124px ' + FONT, '#f5f8fc', '#9fd8ff', 40 * pulse);
+  text('RALLY', W / 2, 108, '800 100px ' + FONT, '#f5f8fc', '#9fd8ff', 40 * pulse);
   ctx.restore();
-  text('· EST. 1972 · A STUDY IN FEEL ·', W / 2, 216, '500 16px ' + FONT, 'rgba(255,255,255,0.5)');
-  const bw = 360, bh = 68, bx = W / 2 - bw / 2;
-  button('ladder', bx, 268, bw, bh, '1 · LADDER', COL_L, 'five rivals · you vs the arcade');
-  button('quick', bx, 348, bw, bh, '2 · QUICK MATCH', COL_GOLD, 'one match vs the CPU');
-  button('versus', bx, 428, bw, bh, '3 · VERSUS', COL_R, 'two players · same screen');
-  button('howto', bx, 508, bw, bh, '4 · HOW TO PLAY', '#9fb3cc', 'controls · rules');
+  text('· EST. 1972 · A STUDY IN FEEL ·', W / 2, 196, '500 16px ' + FONT, 'rgba(255,255,255,0.5)');
+  const bw = 360, bh = 72, bx = W / 2 - bw / 2;
+  button('ladder', bx, 224, bw, bh, '1 · LADDER', COL_L, 'beat all 5 rivals');
+  button('quick', bx, 310, bw, bh, '2 · QUICK MATCH', COL_GOLD, 'one match vs CPU');
+  button('versus', bx, 396, bw, bh, '3 · VERSUS', COL_R, 'same screen · 2P');
+  button('howto', bx, 482, bw, bh, '4 · HOW TO PLAY', '#9fb3cc', 'controls · rules');
   const ladderTxt = rec.ladderBest >= 5 ? 'LADDER COMPLETE' : 'LADDER ' + rec.ladderBest + '/5';
   text('BEST RALLY ' + rec.bestRally + '   ·   ' + ladderTxt + '   ·   QUICK WINS ' + rec.quickWins,
     W / 2, 586, '500 13px ' + FONT, 'rgba(255,255,255,0.38)');
@@ -888,12 +959,12 @@ function drawMenu() {
 function drawHowto() {
   text('HOW TO PLAY', W / 2, 84, '800 52px ' + FONT, '#f5f8fc', '#9fd8ff', 24);
   const lines = [
-    ['DESKTOP', 'mouse or W/S move (P1) · arrows move (P2) · P pause · M mute'],
-    ['TOUCH', 'drag anywhere on your side — the paddle follows 1:1'],
+    ['DESKTOP', 'mouse, W/S, arrows · P pause'],
+    ['TOUCH', 'drag your side to move'],
     ['RULES', 'first to ' + WIN_SCORE + ' takes the match'],
-    ['', 'angle returns off the paddle edge · a moving paddle adds english'],
-    ['', 'rallies accelerate — long rallies wake the crowd'],
-    ['LADDER', 'beat all five rivals, from SPARK to NOVA']
+    ['', 'edge hits bend the ball'],
+    ['', 'long rallies wake the crowd'],
+    ['LADDER', 'beat all five rivals']
   ];
   let y = 168;
   ctx.textAlign = 'left';
@@ -903,7 +974,7 @@ function drawHowto() {
     y += 40;
   }
   ctx.textAlign = 'center';
-  button('back', W / 2 - 150, 470, 300, 64, '‹ BACK', '#9fb3cc');
+  button('back', W / 2 - 150, 470, 300, 64, '< BACK', '#9fb3cc');
 }
 function drawDiff() {
   text('SELECT DIFFICULTY', W / 2, 120, '800 46px ' + FONT, '#f5f8fc', '#9fd8ff', 22);
@@ -911,29 +982,29 @@ function drawDiff() {
   button('diffEasy', bx, 200, bw, bh, '1 · EASY', QUICK_DIFF.easy.color, 'a gentle warm-up');
   button('diffNormal', bx, 288, bw, bh, '2 · NORMAL', QUICK_DIFF.normal.color, 'an honest game');
   button('diffHard', bx, 376, bw, bh, '3 · HARD', QUICK_DIFF.hard.color, 'no mercy');
-  button('back', W / 2 - 150, 478, 300, 64, '‹ BACK', '#9fb3cc');
+  button('back', W / 2 - 150, 478, 300, 64, '< BACK', '#9fb3cc');
 }
 function drawLadderIntro() {
   const o = LADDER[G.ladderIdx];
   text('MATCH ' + (G.ladderIdx + 1) + ' OF ' + LADDER.length, W / 2, 110, '600 18px ' + FONT, 'rgba(255,255,255,0.55)');
   text(o.name, W / 2, 210, '800 104px ' + FONT, '#f5f8fc', o.color, 34);
-  text(o.title, W / 2, 282, '700 22px ' + FONT, o.color, o.color, 12);
-  text('“' + o.tag + '”', W / 2, 326, '500 17px ' + FONT, 'rgba(255,255,255,0.55)');
+  text(o.title, W / 2, 298, '700 22px ' + FONT, o.color, o.color, 12);
+  text('"' + o.tag + '"', W / 2, 340, '500 17px ' + FONT, 'rgba(255,255,255,0.55)');
   text('FIRST TO ' + WIN_SCORE, W / 2, 380, '600 15px ' + FONT, 'rgba(255,255,255,0.4)');
-  button('begin', W / 2 - 170, 430, 340, 72, 'BEGIN ▸', o.color, 'space / tap');
-  button('back', W / 2 - 150, 518, 300, 56, '‹ MENU', '#9fb3cc');
+  button('begin', W / 2 - 170, 430, 340, 72, 'BEGIN >', o.color, 'space / tap');
+  button('back', W / 2 - 150, 518, 300, 56, '< MENU', '#9fb3cc');
 }
 function overTexts() {
   // returns {headline, color, sub, primary, primaryId}
-  const s = G.scoreL + ' – ' + G.scoreR;
+  const s = G.scoreL + ' - ' + G.scoreR;
   if (G.match === 'ladder') {
     const o = LADDER[G.ladderIdx];
     if (G.winner === 1) {
       if (G.ladderIdx < LADDER.length - 1) {
         const nx = LADDER[G.ladderIdx + 1];
-        return { headline: o.name + ' DOWN', color: COL_L, sub: s + '   ·   next: ' + nx.name + ' — ' + nx.title, primary: 'NEXT ▸', primaryId: 'primary' };
+        return { headline: o.name + ' DOWN', color: COL_L, sub: s + '   ·   next: ' + nx.name + ' - ' + nx.title, primary: 'NEXT >', primaryId: 'primary' };
       }
-      return { headline: 'NOVA DOWN', color: COL_GOLD, sub: s + '   ·   the crown is yours to claim', primary: 'CLAIM THE CROWN ▸', primaryId: 'primary' };
+      return { headline: 'NOVA DOWN', color: COL_GOLD, sub: s + '   ·   the crown is yours to claim', primary: 'CLAIM THE CROWN >', primaryId: 'primary' };
     }
     return { headline: o.name + ' TAKES IT', color: o.color, sub: s + '   ·   the ladder waits', primary: 'RETRY', primaryId: 'primary' };
   }
@@ -993,7 +1064,7 @@ function drawServeOverlay() {
 // ---------- vignette + main ----------
 let vignette = null, fadeT = 0, lastState = 'menu';
 function render() {
-  ctx.setTransform(dpr * viewScale, 0, 0, dpr * viewScale, 0, 0);
+  ctx.setTransform(1 / PX, 0, 0, 1 / PX, 0, 0);  // buffer pixel : unités logiques
   hot.length = 0;
   const sh = G.trauma * G.trauma * 15;
   ctx.save();
@@ -1038,6 +1109,11 @@ function render() {
     ctx.fillRect(0, 0, W, H);
   }
   if (muted) text('MUTED (M)', W - 18, 26, '500 14px ' + FONT, 'rgba(255,255,255,0.4)', null, 0, 'right');
+  // ---------- composite pixel : buffer -> écran, net sans adoucissement ----------
+  dctx.setTransform(1, 0, 0, 1, 0, 0);
+  dctx.imageSmoothingEnabled = false;
+  dctx.drawImage(pbuf, 0, 0, canvas.width, canvas.height);
+  dctx.imageSmoothingEnabled = true;
 }
 
 let last = performance.now(), acc = 0;
