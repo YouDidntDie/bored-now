@@ -414,7 +414,7 @@ const G={
 };
 const knight={x:1.5,y:1.5,dir:{x:0,y:0},want:{x:0,y:0},face:'down',
   speed:KNIGHT_SPEED, dead:false, deadT:0, charges:0, nudge:0,
-  slashCD:0, slashT:0, slashFace:'down', dryT:0, rootT:0, armored:false, invulnT:0};
+  slashCD:0, slashT:0, slashFace:'down', dryT:0, rootT:0, armorN:0, invulnT:0};
 const p2={want:{x:0,y:0}, reaver:null, banishT:0, nudge:0};
 const ENEMY_COL={sentry:'#4dc9ff', reaver:'#ff4d5e', wisp:'#b78bff'};
 function maxAlive(){ return Math.min(3+(G.level-1),6); }
@@ -433,13 +433,13 @@ function resetKnight(){
   knight.x=knightStart.x+0.5; knight.y=knightStart.y+0.5;
   knight.dir={x:0,y:0}; knight.want={x:0,y:0}; knight.face='down'; knight.nudge=0;
   knight.dead=false; knight.deadT=0; knight.slashCD=0; knight.slashT=0; knight.dryT=0;
-  knight.invulnT=0; // armored persists: you keep it until you get hit
+  knight.invulnT=0; // armorN persists: you keep it until you get hit
 }
 function spawnArmor(){
   // quest only, ~40% of levels, random floor tile away from knight start.
-  // one at a time: no new armor while one is worn. kept until it takes a hit.
+  // stacks to 5: no new armor while at max. kept until hits spend it.
   G.armor=null;
-  if(knight.armored) return;
+  if(knight.armorN>=5) return;
   if(Math.random()<0.40){
     const spots=[];
     for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++){
@@ -469,7 +469,7 @@ function startLevel(){
 }
 function startQuest(){
   G.score=0; G.lives=3; G.level=1;
-  knight.armored=false; knight.invulnT=0;
+  knight.armorN=0; knight.invulnT=0;
   startLevel(); G.state='quest';
 }
 function startVersus(){
@@ -487,7 +487,7 @@ function startRound(){
   // P2 is the REAVER; two AI foes keep P1 honest
   const r=spawnEnemy('reaver',0); r.player=true; p2.reaver=r; p2.banishT=0; p2.want={x:0,y:0}; p2.nudge=0;
   spawnEnemy('sentry',1); spawnEnemy('wisp',2);
-  knight.armored=false; // versus stays armor-free
+  knight.armorN=0; // versus stays armor-free
   G.roundT=90; G.state='versus'; G.introT=1.6;
 }
 function toMenu(){ G.state='menu'; }
@@ -800,7 +800,7 @@ function updateKnight(dt){
   // armor
   const Ar=G.armor;
   if(Ar&&!Ar.taken&&Ar.x===tx&&Ar.y===ty){
-    Ar.taken=true; knight.armored=true;
+    Ar.taken=true; knight.armorN=Math.min(5,knight.armorN+1);
     G.floaters.push({x:Ar.x+0.5,y:Ar.y,txt:'ARMOR!',t:1.4});
   }
   // chalice
@@ -868,8 +868,8 @@ function updateEnemies(dt, aiOnly){
       const d=Math.hypot(e.x-knight.x,e.y-knight.y);
       if(d<0.55){
         if(knight.invulnT>0) continue;      // armor grace: untouchable
-        if(knight.armored){                  // armor takes the hit
-          knight.armored=false; knight.invulnT=2.0;
+        if(knight.armorN>0){                  // armor takes the hit
+          knight.armorN--; knight.invulnT=2.0;
           G.floaters.push({x:knight.x,y:knight.y-0.6,txt:'SAVED!',t:1.4});
           continue;
         }
@@ -1022,8 +1022,6 @@ function drawKnight(){
   if(knight.charges>0){    bctx.strokeStyle='#ffd24d'; bctx.lineWidth=1.5;
     bctx.beginPath(); bctx.arc(cx,cy-3,10+2*Math.sin(perfNow()*6),0,7); bctx.stroke();
   }
-  // armored: little shield floats above the helm
-  if(knight.armored) shieldSpr(cx,cy-17+Math.sin(perfNow()*3)*1.5,9);
   if(knight.slashT>0){
     const s=SLASH_SPR[knight.slashFace];
     bctx.drawImage(s,cx-7.5,cy-7.5-3,15,15);
@@ -1060,16 +1058,18 @@ function drawHUD(){
   const by=H-34;
   text('LIVES', 14, by, 12, '#8a93a6', null);
   for(let i=0;i<G.lives;i++) spr(KNIGHT_SPR.down, 70+i*20, by-6);
-  if(knight.armored){
-    const ax=70+G.lives*20+8;
-    shieldSpr(ax, by-1, 12);
-    text('ARMOR', ax+11, by, 12, '#ffd24d', null);
-  }
   text('BLADE', 14, by+16, 12, '#8a93a6', null);
   for(let i=0;i<knight.charges;i++) spr(SWORD, 70+i*12, by+10, i<3?'#dfe8ff':'#ffd24d');
   if(knight.charges===0) text('FIND A BLADE', 80, by+16, 12, '#4a4a6a', null);
   // cooldown meter
   const mw2=90, mx=W-58-10-mw2;
+  // armor: label left of SWORD at same height, shields stack underneath (max 5)
+  if(knight.armorN>0){
+    const axR=mx-8, al='ARMOR';
+    text(al, axR-pixW(al,12), by, 12, '#ffd24d', null);
+    const ix0=axR-57; // 5 slots: 4*12+9
+    for(let i=0;i<knight.armorN;i++) shieldSpr(ix0+4.5+i*12, by+19, 9);
+  }
   text('SWORD', mx, by, 12, '#8a93a6', null);
   R(mx,by+16,mw2,6,'#1a1a2e');
   const f=knight.slashCD>0?1-knight.slashCD/SLASH_CD:1;
@@ -1136,7 +1136,7 @@ function drawHowto(){
     'TAP TOWARD A FOE TO AIM.',
     'FIND A BLADE: 3 CHARGES.',
     'EACH SLASH SPENDS ONE.',
-    'FIND ARMOR: BLOCKS ONE HIT.',
+    'FIND ARMOR: BLOCKS ONE HIT. STACKS TO 5.',
     '',
     'SENTRIES PATROL THE CRYPTS.',
     'REAVERS HUNT YOU - BUT FLEE',
