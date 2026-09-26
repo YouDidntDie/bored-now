@@ -41,6 +41,8 @@ const PX=2;
 const DIRS4=[{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}];
 const KNIGHT_SPEED=6.4, THROW_CD=0.65, LANCE_SPEED=14, LANCE_RANGE=6;
 const CHARGES_PER_BLADE=3, MAX_CHARGES=6, SWORDS_PER_MAZE=3, CRYPT_COUNT=3;
+const KINDS=['sentry','reaver','wisp']; // crypt i is the house of KINDS[i]
+const CRYPT_HP=3, CRYPT_PTS=1000;
 const COMBO_T=3.0, COMBO_PTS=[200,400,800,1600];
 const CHALICE_FRAC_A=0.35, CHALICE_FRAC_B=0.75, CHALICE_T=9, CHALICE_PTS=500;
 
@@ -286,7 +288,7 @@ function setupLevel(){
   for(let i=0;i<CRYPT_COUNT;i++){
     const dd=minDistTo(pts);
     const c=argmaxFloor(dd,skip);
-    crypts.push(c); pts.push(c); skip.add(c.x+','+c.y);
+    crypts.push({x:c.x, y:c.y, hp:CRYPT_HP, dead:false}); pts.push(c); skip.add(c.x+','+c.y);
   }
   // floor tiles near each crypt (sentry patrol ground)
   for(const c of crypts){
@@ -403,6 +405,7 @@ const G={
   lances:[],
   combo:0, lastKillT:-99,
   introT:0, overT:0, clearT:0,
+  exor:null, // {c, t} while the knight channels an exorcism on a crypt
   // versus
   round:1, p1Wins:0, p2Wins:0, roundT:90, roundEndT:0, roundWinner:0,
 };
@@ -453,11 +456,11 @@ function startLevel(){
   G.pelletsLeft=totalPellets; G.pelletsEaten=0;
   G.chalice=null; G.chaliceA=false; G.chaliceB=false;
   G.floaters=[]; G.enemies=[]; G.combo=0; G.lastKillT=-99;
+  G.exor=null;
   knight.charges=0;
   resetKnight();
-  // opening cast: one of each kind rises from the crypts
-  const kinds=['sentry','reaver','wisp'];
-  for(let i=0;i<3;i++) spawnEnemy(kinds[i], i%CRYPT_COUNT);
+  // opening cast: one of each kind rises from its own crypt
+  for(let i=0;i<3;i++) spawnEnemy(KINDS[i], i%CRYPT_COUNT);
   G.spawnT=spawnInterval();
   G.introT=1.6;
 }
@@ -519,6 +522,39 @@ function spawnEnemy(kind, cryptIdx){
   return e;
 }
 function randomOf(a){ return a[(Math.random()*a.length)|0]; }
+const EXORCISE_T=3.0;
+function updateExorcism(dt){
+  if(G.state!=='quest'||knight.dead){ G.exor=null; return; }
+  const tx=Math.floor(knight.x), ty=Math.floor(knight.y);
+  const c=crypts.find(c=>!c.dead&&c.x===tx&&c.y===ty);
+  if(!c){ G.exor=null; return; } // stepped off: the rite breaks
+  if(!G.exor||G.exor.c!==c) G.exor={c, t:0};
+  G.exor.t+=dt;
+  if(G.exor.t>=EXORCISE_T){
+    // the rite completes: its ghosts vanish, the crypt goes dark
+    const kind=KINDS[crypts.indexOf(c)];
+    for(const e of G.enemies){
+      if(e.kind===kind&&(e.state==='active'||e.state==='emerge'||e.state==='dying')){ e.state='dying'; e.dieT=0.9; }
+    }
+    c.dead=true; c.hp=0;
+    addScore(CRYPT_PTS);
+    G.floaters.push({x:c.x+0.5,y:c.y+0.5,txt:''+CRYPT_PTS,t:1.2});
+    G.floaters.push({x:c.x+0.5,y:c.y-0.3,txt:'EXORCISED',t:1.6});
+    G.exor=null;
+  }
+}
+function hitCrypt(c){
+  if(c.dead||G.state!=='quest') return;
+  c.hp--;
+  if(c.hp<=0){
+    c.dead=true;
+    addScore(CRYPT_PTS);
+    G.floaters.push({x:c.x+0.5,y:c.y+0.5,txt:''+CRYPT_PTS,t:1.2});
+    G.floaters.push({x:c.x+0.5,y:c.y-0.3,txt:'CRYPT FELLED',t:1.6});
+  }else{
+    G.floaters.push({x:c.x+0.5,y:c.y+0.5,txt:'CRACK',t:0.7});
+  }
+}
 function slay(e){
   const now=perfNow();
   if(now-G.lastKillT<COMBO_T) G.combo=Math.min(G.combo+1,3); else G.combo=0;
@@ -578,6 +614,14 @@ function updateLances(dt){
       if(e.state!=='active') continue;
       const dx=e.x-l.x, dy=e.y-l.y;
       if(dx*dx+dy*dy<0.2){ slay(e); l.dead=true; break; }
+    }
+    if(!l.dead&&G.state==='quest'){
+      // lances can break crypts: that kind never spawns again
+      for(const c of crypts){
+        if(c.dead) continue;
+        const dx=c.x+0.5-l.x, dy=c.y+0.5-l.y;
+        if(dx*dx+dy*dy<0.3){ hitCrypt(c); l.dead=true; break; }
+      }
     }
   }
   G.lances=G.lances.filter(l=>!l.dead);
@@ -905,6 +949,7 @@ function updateQuest(dt){
   if(G.introT>0){ G.introT-=dt; return; }
   updateKnight(dt);
   updateLances(dt);
+  updateExorcism(dt);
   if(G.state!=='quest') return;
   updateEnemies(dt);
   // spawn scheduler
@@ -912,7 +957,11 @@ function updateQuest(dt){
   if(G.spawnT<=0){
     G.spawnT=spawnInterval();
     const alive=G.enemies.filter(e=>e.state==='emerge'||e.state==='active').length;
-    if(alive<maxAlive()) spawnEnemy(randomOf(['sentry','reaver','wisp']),(Math.random()*CRYPT_COUNT)|0);
+    const kinds=KINDS.filter((k,i)=>!crypts[i].dead); // felled crypts stay silent
+    if(alive<maxAlive()&&kinds.length){
+      const k=randomOf(kinds);
+      spawnEnemy(k, KINDS.indexOf(k));
+    }
   }
 }
 function updateVersus(dt){
@@ -945,6 +994,14 @@ function drawMaze(){
   // crypts: tombs breathing purple (animated, drawn live)
   for(const c of crypts){
     const px=ox+c.x*TS, py=oy+c.y*TS;
+    if(c.dead){
+      // rubble: felled crypts stay silent
+      R(px+6,py+10,TS-12,TS-12,'#23232e');
+      R(px+9,py+14,8,5,'#3a3a4a');
+      R(px+TS-16,py+12,7,6,'#3a3a4a');
+      R(px+12,py+TS-10,10,4,'#2a2a36');
+      continue;
+    }
     const gl=0.5+0.5*Math.sin(perfNow()*2+c.x*1.7+c.y);
     bctx.globalAlpha=0.10+0.09*gl;
     circle(px+TS/2,py+TS/2,TS+4,'#7a3fd1');
@@ -955,6 +1012,16 @@ function drawMaze(){
     R(px+8,py+4,TS-16,2,'#54546e');
     R(px+10,py+12,TS-20,5,'#07070e');
     R(px+5,py+TS-2,TS-10,2,'#1a1a28');
+    // battle damage: cracks deepen with each lance hit
+    const dmg=CRYPT_HP-c.hp;
+    if(dmg>=1) R(px+9,py+9,2,TS-16,'#0a0a12');
+    if(dmg>=2) R(px+7,py+14,TS-14,2,'#0a0a12');
+    // exorcism channel: golden ring fills as the rite progresses
+    if(G.exor&&G.exor.c===c){
+      const p=Math.min(1,G.exor.t/EXORCISE_T);
+      bctx.strokeStyle='#ffd24d'; bctx.lineWidth=3;
+      bctx.beginPath(); bctx.arc(px+TS/2,py+TS/2,TS/2+6,-Math.PI/2,-Math.PI/2+p*Math.PI*2); bctx.stroke();
+    }
   }
 }
 function drawPellets(){
@@ -1156,14 +1223,14 @@ function drawHowto(){
     '',
     'LANCE: SPACE OR TAP.',
     'TAP TOWARD A FOE TO AIM.',
-    'FIND A BLADE: 3 THROWS.',
-    'EACH THROW SPENDS ONE.',
+    'BLADES GIVE 3 LANCE THROWS.',
     'FIND ARMOR: BLOCKS ONE HIT. STACKS TO 5.',
     '',
     'SENTRIES PATROL THE CRYPTS.',
-    'REAVERS HUNT YOU - BUT FLEE',
-    'AN ARMED KNIGHT. WISPS DRIFT.',
-    'THE SLAIN RISE AGAIN.',
+    'REAVERS HUNT - FLEE THE ARMED.',
+    'WISPS DRIFT. THE SLAIN RETURN.',
+    'BREAK (3 LANCES) OR EXORCISE:',
+    'STAND ON IT 3S. KIND GONE FOREVER.',
     '',
     'CHAIN KILLS FOR COMBO:',
     '200 · 400 · 800 · 1600',
@@ -1236,6 +1303,8 @@ const GAME={
     setWant:(x,y)=>setWant(x,y),
     p2Want:(x,y)=>{p2.want={x:x,y:y};},
     killEnemy:(i)=>{const e=G.enemies[i]; if(e&&e.state==='active') slay(e);},
+    breakCrypt:(i)=>hitCrypt(crypts[i]),
+    exorT:()=>G.exor?G.exor.t:-1,
     eatPellets:(n)=>{let c=0; for(const idx of [...pelSet]){ if(c>=n)break; pelSet.delete(idx); c++; }
       G.pelletsLeft-=c; G.pelletsEaten+=c;},
     hurt:()=>hurtKnight(),
