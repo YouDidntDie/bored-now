@@ -413,9 +413,9 @@ const G={
   round:1, p1Wins:0, p2Wins:0, roundT:90, roundEndT:0, roundWinner:0,
 };
 const knight={x:1.5,y:1.5,dir:{x:0,y:0},want:{x:0,y:0},face:'down',
-  speed:KNIGHT_SPEED, dead:false, deadT:0, charges:0,
-  slashCD:0, slashT:0, slashFace:'down', dryT:0, rootT:0};
-const p2={want:{x:0,y:0}, reaver:null, banishT:0};
+  speed:KNIGHT_SPEED, dead:false, deadT:0, charges:0, nudge:0,
+  slashCD:0, slashT:0, slashFace:'down', dryT:0, rootT:0, armored:false, invulnT:0};
+const p2={want:{x:0,y:0}, reaver:null, banishT:0, nudge:0};
 const ENEMY_COL={sentry:'#4dc9ff', reaver:'#ff4d5e', wisp:'#b78bff'};
 function maxAlive(){ return Math.min(3+(G.level-1),6); }
 function spawnInterval(){ return Math.max(2.5, 6-0.6*(G.level-1)); }
@@ -431,11 +431,31 @@ function addScore(n){ G.score+=n; if(G.score>G.best){G.best=G.score;localStorage
 /* ---------- flow ---------- */
 function resetKnight(){
   knight.x=knightStart.x+0.5; knight.y=knightStart.y+0.5;
-  knight.dir={x:0,y:0}; knight.want={x:0,y:0}; knight.face='down';
+  knight.dir={x:0,y:0}; knight.want={x:0,y:0}; knight.face='down'; knight.nudge=0;
   knight.dead=false; knight.deadT=0; knight.slashCD=0; knight.slashT=0; knight.dryT=0;
+  knight.invulnT=0; // armored persists: you keep it until you get hit
+}
+function spawnArmor(){
+  // quest only, ~40% of levels, random floor tile away from knight start.
+  // one at a time: no new armor while one is worn. kept until it takes a hit.
+  G.armor=null;
+  if(knight.armored) return;
+  if(Math.random()<0.40){
+    const spots=[];
+    for(let y=1;y<MH-1;y++)for(let x=1;x<MW-1;x++){
+      if(!walk(x,y))continue;
+      if(Math.abs(x-knightStart.x)+Math.abs(y-knightStart.y)<6)continue;
+      spots.push({x,y});
+    }
+    if(spots.length){
+      const s=spots[(Math.random()*spots.length)|0];
+      G.armor={x:s.x,y:s.y,taken:false};
+    }
+  }
 }
 function startLevel(){
   setupLevel();
+  spawnArmor();
   G.pelletsLeft=totalPellets; G.pelletsEaten=0;
   G.chalice=null; G.chaliceA=false; G.chaliceB=false;
   G.floaters=[]; G.enemies=[]; G.combo=0; G.lastKillT=-99;
@@ -449,6 +469,7 @@ function startLevel(){
 }
 function startQuest(){
   G.score=0; G.lives=3; G.level=1;
+  knight.armored=false; knight.invulnT=0;
   startLevel(); G.state='quest';
 }
 function startVersus(){
@@ -457,14 +478,16 @@ function startVersus(){
 }
 function startRound(){
   setupLevel();
+  G.armor=null; // versus stays armor-free, even quest->versus
   G.pelletsLeft=totalPellets; G.pelletsEaten=0;
   G.chalice=null; G.chaliceA=false; G.chaliceB=false;
   G.floaters=[]; G.enemies=[];
   knight.charges=0; G.lives=1;
   resetKnight();
   // P2 is the REAVER; two AI foes keep P1 honest
-  const r=spawnEnemy('reaver',0); r.player=true; p2.reaver=r; p2.banishT=0; p2.want={x:0,y:0};
+  const r=spawnEnemy('reaver',0); r.player=true; p2.reaver=r; p2.banishT=0; p2.want={x:0,y:0}; p2.nudge=0;
   spawnEnemy('sentry',1); spawnEnemy('wisp',2);
+  knight.armored=false; // versus stays armor-free
   G.roundT=90; G.state='versus'; G.introT=1.6;
 }
 function toMenu(){ G.state='menu'; }
@@ -517,6 +540,13 @@ function perfNow(){ return performance.now()/1000; }
 /* ---------- input ---------- */
 const keyDir={ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0],w:[0,-1],s:[0,1],a:[-1,0],d:[1,0],W:[0,-1],S:[0,1],A:[-1,0],D:[1,0]};
 function setWant(x,y){ knight.want={x,y}; if(knight.dir.x===0&&knight.dir.y===0&&walk(Math.floor(knight.x)+x,Math.floor(knight.y)+y)){knight.dir={x,y};} }
+function setP2Want(x,y){
+  p2.want={x,y};
+  const r=p2.reaver;
+  if(r&&r.dir.x===0&&r.dir.y===0&&walk(Math.floor(r.x)+x,Math.floor(r.y)+y)) r.dir={x,y};
+}
+/* movement model: quick flick = short step (NUDGE tiles), hold = keep going, release = stop */
+const NUDGE=1.5, FLICK_T=350;
 function trySlash(tx,ty){
   if(G.state!=='quest'&&G.state!=='versus') return false;
   if(knight.dead||knight.slashCD>0) return false;
@@ -555,25 +585,39 @@ function angleToFace(a){
 }
 function faceAngle(f){ return f==='right'?0:f==='down'?Math.PI/2:f==='left'?Math.PI:-Math.PI/2; }
 function dirToFace(d){ if(d.x===1)return'right'; if(d.x===-1)return'left'; if(d.y===1)return'down'; if(d.y===-1)return'up'; return null; }
+const held={p1:[],p2:[]}; // keys held, in press order
+function keyPlayer(key){ return G.state==='versus'?(key.startsWith('Arrow')?'p2':'p1'):'p1'; }
+function applyHeld(pl){
+  const h=held[pl], k=h[h.length-1], kd=k?keyDir[k]:null;
+  if(pl==='p1'){
+    if(kd){ setWant(kd[0],kd[1]); knight.nudge=0; }
+    else if(G.state==='quest'||G.state==='versus'){ knight.want={x:0,y:0}; knight.dir={x:0,y:0}; knight.nudge=0; }
+  }else{
+    if(kd){ setP2Want(kd[0],kd[1]); p2.nudge=0; }
+    else if(G.state==='versus'){ p2.want={x:0,y:0}; p2.nudge=0; if(p2.reaver) p2.reaver.dir={x:0,y:0}; }
+  }
+}
 window.addEventListener('keydown',(e)=>{
   if(e.key==='p'||e.key==='P'||e.key==='Escape'){ togglePause(); return; }
   if(e.key===' '){ e.preventDefault(); trySlash(); return; }
   const kd=keyDir[e.key];
-  if(kd){
-    if(G.state==='versus'&&(e.key.startsWith('Arrow'))) { /* P1 uses WASD in versus; arrows are P2 */ }
-    if(G.state==='quest'||G.state==='versus'){
-      if(G.state==='versus'&&e.key.startsWith('Arrow')) p2.want={x:kd[0],y:kd[1]};
-      else setWant(kd[0],kd[1]);
-    }
+  if(kd&&(G.state==='quest'||G.state==='versus')){
+    const pl=keyPlayer(e.key), h=held[pl];
+    if(!h.includes(e.key)) h.push(e.key);
+    applyHeld(pl);
     if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
   }
   if(e.key==='Enter'&&G.state==='menu'){ startQuest(); }
 });
-/* touch: swipe = move, tap = slash */
-/* touch: per-finger tracking — one finger can steer while another taps.
-   (A single shared anchor broke multi-touch: the tap finger clobbered
-   the steering finger's anchor and killed steering on every slash.) */
-const touches=new Map(); // pointerId -> {x,y,t0,moved,half}
+window.addEventListener('keyup',(e)=>{
+  const kd=keyDir[e.key]; if(!kd) return;
+  let changed=false;
+  for(const pl of ['p1','p2']){ const i=held[pl].indexOf(e.key); if(i>=0){ held[pl].splice(i,1); changed=true; } }
+  if(changed){ applyHeld('p1'); applyHeld('p2'); }
+});
+/* touch: flick = short step, hold = keep going, release = stop, tap = slash.
+   Per-finger tracking: one finger can steer while another taps. */
+const touches=new Map(); // pointerId -> {x,y,t0,moved,half,ldx,ldy}
 function steerRoles(){
   // earliest touch steers the knight (quest) or per-half (versus)
   let k=null, r=null;
@@ -585,29 +629,55 @@ function steerRoles(){
   }
   return {k,r};
 }
+function touchRole(id){
+  if(G.state!=='quest'&&G.state!=='versus') return null;
+  const {k,r}=steerRoles();
+  return id===k?'k':id===r?'r':null;
+}
+function steerHold(role,dx,dy){
+  if(role==='k'){ setWant(dx,dy); knight.nudge=0; }
+  else if(role==='r'){ setP2Want(dx,dy); p2.nudge=0; }
+}
+function steerFlick(role,dx,dy){
+  if(role==='k'){ setWant(dx,dy); knight.nudge=NUDGE; }
+  else if(role==='r'){ setP2Want(dx,dy); p2.nudge=NUDGE; }
+}
+function steerStop(role){
+  if(role==='k'){ knight.want={x:0,y:0}; knight.dir={x:0,y:0}; knight.nudge=0; }
+  else if(role==='r'){ p2.want={x:0,y:0}; p2.nudge=0; if(p2.reaver) p2.reaver.dir={x:0,y:0}; }
+}
 cv.addEventListener('pointerdown',(e)=>{
   touches.set(e.pointerId,{x:e.clientX,y:e.clientY,t0:performance.now(),moved:false,
-                           half:e.clientX<window.innerWidth/2});
+                           half:e.clientX<window.innerWidth/2,ldx:0,ldy:0});
 });
 cv.addEventListener('pointermove',(e)=>{
   const t=touches.get(e.pointerId); if(!t) return;
   const dx=e.clientX-t.x, dy=e.clientY-t.y;
   if(Math.hypot(dx,dy)>24){
     t.moved=true;
-    const {k,r}=steerRoles();
     const d=Math.abs(dx)>Math.abs(dy)?[Math.sign(dx),0]:[0,Math.sign(dy)];
-    if(e.pointerId===k) setWant(d[0],d[1]);
-    else if(e.pointerId===r) p2.want={x:d[0],y:d[1]};
+    t.ldx=d[0]; t.ldy=d[1];
+    const role=touchRole(e.pointerId);
+    if(role) steerHold(role,d[0],d[1]);
     t.x=e.clientX; t.y=e.clientY; // re-anchor: keep steering while the finger stays down
   }
 });
 function endTouch(e){
   const t=touches.get(e.pointerId); if(!t) return;
+  const role=touchRole(e.pointerId);
   touches.delete(e.pointerId);
-  if(!t.moved&&performance.now()-t.t0<400) handleTap(e.clientX,e.clientY);
+  const dt=performance.now()-t.t0;
+  if(!t.moved&&dt<400){ handleTap(e.clientX,e.clientY); return; } // tap: slash / buttons
+  if(t.moved&&role){
+    if(dt<FLICK_T) steerFlick(role,t.ldx,t.ldy); // quick flick: short step
+    else steerStop(role);                        // was held: stop on release
+  }
 }
 cv.addEventListener('pointerup',endTouch);
-cv.addEventListener('pointercancel',(e)=>{ touches.delete(e.pointerId); });
+cv.addEventListener('pointercancel',(e)=>{
+  const t=touches.get(e.pointerId);
+  if(t){ const role=touchRole(e.pointerId); touches.delete(e.pointerId); if(t.moved&&role) steerStop(role); }
+});
 function handleTap(px,py){
   const r=cv.getBoundingClientRect();
   const x=(px-r.left)/r.width*W, y=(py-r.top)/r.height*H;
@@ -615,7 +685,7 @@ function handleTap(px,py){
   if(G.state==='howto'){ const bkY=(W>H)?436:600; if(x>W/2-70&&x<W/2+70&&y>bkY&&y<bkY+48){ toMenu(); } return; }
   if(G.state==='over'||G.state==='clear'){ toMenu(); return; }
   if(G.state==='quest'||G.state==='versus'){
-    if(x>W-64&&y<H-64){ togglePause(); return; }
+    if(x>W-64&&y>H-64){ togglePause(); return; }
     trySlash((x-mox())/TS,(y-moy())/TS); // screen px -> world tiles
   }
 }
@@ -700,8 +770,17 @@ function updateKnight(dt){
     return;
   }
   if(knight.rootT>0){ knight.rootT-=dt; }
+  else if(knight.nudge>0){
+    const bx=knight.x, by=knight.y;
+    moveEnt(knight,dt,knightAtCenter);
+    knight.nudge-=Math.hypot(knight.x-bx,knight.y-by);
+    if(knight.nudge<=0||(knight.dir.x===0&&knight.dir.y===0)){
+      knight.nudge=0; knight.want={x:0,y:0}; knight.dir={x:0,y:0}; // step done: stop
+    }
+  }
   else moveEnt(knight,dt,knightAtCenter);
   knight.slashCD-=dt; knight.slashT-=dt; knight.dryT-=dt;
+  knight.invulnT=Math.max(0,knight.invulnT-dt);
   // pellets
   const tx=Math.floor(knight.x), ty=Math.floor(knight.y), idx=ty*MW+tx;
   if(pelSet.has(idx)){
@@ -717,6 +796,12 @@ function updateKnight(dt){
       knight.charges=Math.min(MAX_CHARGES,knight.charges+CHARGES_PER_BLADE);
       G.floaters.push({x:b.x+0.5,y:b.y,txt:'BLADE +3',t:1.2});
     }
+  }
+  // armor
+  const Ar=G.armor;
+  if(Ar&&!Ar.taken&&Ar.x===tx&&Ar.y===ty){
+    Ar.taken=true; knight.armored=true;
+    G.floaters.push({x:Ar.x+0.5,y:Ar.y,txt:'ARMOR!',t:1.4});
   }
   // chalice
   if(G.chalice){
@@ -746,7 +831,7 @@ function updateEnemies(dt, aiOnly){
       if(e.banishT<=0){
         const c=crypts[0];
         e.x=c.x+0.5; e.y=c.y+0.5; e.dir={x:1,y:0};
-        e.state='emerge'; e.emergeT=0.7; p2.want={x:0,y:0};
+        e.state='emerge'; e.emergeT=0.7; p2.want={x:0,y:0}; p2.nudge=0;
       }
       continue;
     }
@@ -766,14 +851,30 @@ function updateEnemies(dt, aiOnly){
     }else if(e.kind==='reaver'&&!e.player){
       e.speed=enemySpeed('reaver',(knight.charges>0&&!knight.dead)?'flee':'hunt');
     }
-    moveEnt(e,dt,enemyAtCenter);
+    if(e.player&&p2.nudge>0){
+      const bx=e.x, by=e.y;
+      moveEnt(e,dt,enemyAtCenter);
+      p2.nudge-=Math.hypot(e.x-bx,e.y-by);
+      if(p2.nudge<=0||(e.dir.x===0&&e.dir.y===0)){
+        p2.nudge=0; p2.want={x:0,y:0}; e.dir={x:0,y:0}; // step done: stop
+      }
+    }
+    else moveEnt(e,dt,enemyAtCenter);
   }
   // collisions
   if(!knight.dead){
     for(const e of G.enemies){
       if(e.state!=='active') continue;
       const d=Math.hypot(e.x-knight.x,e.y-knight.y);
-      if(d<0.55){ hurtKnight(); break; }
+      if(d<0.55){
+        if(knight.invulnT>0) continue;      // armor grace: untouchable
+        if(knight.armored){                  // armor takes the hit
+          knight.armored=false; knight.invulnT=2.0;
+          G.floaters.push({x:knight.x,y:knight.y-0.6,txt:'SAVED!',t:1.4});
+          continue;
+        }
+        hurtKnight(); break;
+      }
     }
   }
 }
@@ -854,6 +955,23 @@ function drawBlades(){
     bctx.globalAlpha=1;
   }
 }
+// mini shield sprite (armor), centered on (cx,cy), height h
+function shieldSpr(cx,cy,h){
+  const w=h*0.75, x=cx-w/2, y=cy-h/2;
+  bctx.fillStyle='#8a6d1f'; bctx.fillRect(x,y,w,h);                 // gold rim
+  bctx.fillStyle='#9fb4cc'; bctx.fillRect(x+1.5,y+1.5,w-3,h-3);     // steel face
+  bctx.fillStyle='#dfe8ff'; bctx.fillRect(x+w/2-1,y+2.5,2,h*0.3);   // glint
+  bctx.fillStyle='#8a6d1f'; bctx.fillRect(x+w/2-1.5,y+h*0.42,3,3);  // boss
+}
+function drawArmor(){
+  const A=G.armor; if(!A||A.taken) return;
+  const ox=mox(), oy=moy();
+  const cx=ox+A.x*TS+TS/2, cy=oy+A.y*TS+TS/2+Math.sin(perfNow()*3)*2;
+  const pulse=0.7+0.3*Math.sin(perfNow()*4);
+  bctx.globalAlpha=pulse;
+  shieldSpr(cx,cy,16);
+  bctx.globalAlpha=1;
+}
 function drawChalice(){
   if(!G.chalice) return;
   const ox=mox(), oy=moy();
@@ -896,12 +1014,16 @@ function drawKnight(){
     bctx.globalAlpha=1;
     return;
   }
+  // armor grace blink
+  if(knight.invulnT>0) bctx.globalAlpha=Math.sin(perfNow()*20)>0?1:0.35;
   spr(KNIGHT_SPR[knight.face],cx-5.5,cy-8);
+  bctx.globalAlpha=1;
   // armed glint
-  if(knight.charges>0){
-    bctx.strokeStyle='#ffd24d'; bctx.lineWidth=1.5;
+  if(knight.charges>0){    bctx.strokeStyle='#ffd24d'; bctx.lineWidth=1.5;
     bctx.beginPath(); bctx.arc(cx,cy-3,10+2*Math.sin(perfNow()*6),0,7); bctx.stroke();
   }
+  // armored: little shield floats above the helm
+  if(knight.armored) shieldSpr(cx,cy-17+Math.sin(perfNow()*3)*1.5,9);
   if(knight.slashT>0){
     const s=SLASH_SPR[knight.slashFace];
     bctx.drawImage(s,cx-7.5,cy-7.5-3,15,15);
@@ -938,6 +1060,11 @@ function drawHUD(){
   const by=H-34;
   text('LIVES', 14, by, 12, '#8a93a6', null);
   for(let i=0;i<G.lives;i++) spr(KNIGHT_SPR.down, 70+i*20, by-6);
+  if(knight.armored){
+    const ax=70+G.lives*20+8;
+    shieldSpr(ax, by-1, 12);
+    text('ARMOR', ax+11, by, 12, '#ffd24d', null);
+  }
   text('BLADE', 14, by+16, 12, '#8a93a6', null);
   for(let i=0;i<knight.charges;i++) spr(SWORD, 70+i*12, by+10, i<3?'#dfe8ff':'#ffd24d');
   if(knight.charges===0) text('FIND A BLADE', 80, by+16, 12, '#4a4a6a', null);
@@ -1003,12 +1130,13 @@ function drawHowto(){
     'YOU ARE THE KNIGHT.',
     'CLEAR EVERY PELLET.',
     'EVERY MAZE IS NEW.',
-    'DRAG OR ARROWS TO STEER.',
+    'SWIPE TO STEP. HOLD TO RUN.',
     '',
     'SWORD: SPACE OR TAP.',
     'TAP TOWARD A FOE TO AIM.',
     'FIND A BLADE: 3 CHARGES.',
     'EACH SLASH SPENDS ONE.',
+    'FIND ARMOR: BLOCKS ONE HIT.',
     '',
     'SENTRIES PATROL THE CRYPTS.',
     'REAVERS HUNT YOU - BUT FLEE',
@@ -1018,8 +1146,8 @@ function drawHowto(){
     'CHAIN KILLS FOR COMBO:',
     '200 · 400 · 800 · 1600',
   ];
-  let y=land?86:130;
-  const pitch=land?21:26;
+  let y=land?78:130;
+  const pitch=land?20:26;
   for(const ln of lines){
     if(ln) text(ln, cx-pixW(ln,14)/2, y, 14, '#c9cfe8', null);
     y+=pitch;
@@ -1042,7 +1170,7 @@ function render(){
   else if(G.state==='howto'){ drawHowto(); }
   else{
     clear();
-    drawMaze(); drawPellets(); drawBlades(); drawChalice();
+    drawMaze(); drawPellets(); drawBlades(); drawArmor(); drawChalice();
     for(const e of G.enemies) drawWraith(e);
     drawKnight(); drawFloaters(); drawHUD();
     if(G.state==='paused') drawCenter('PAUSED','P OR TAP ❚❚ TO RESUME');
@@ -1091,7 +1219,7 @@ const GAME={
     setRoundT:(t)=>{G.roundT=t;},
     enemy:(i)=>G.enemies[i],
     tp:(x,y)=>{knight.x=x;knight.y=y;},
-    freeze:()=>{knight.dir={x:0,y:0};knight.want={x:0,y:0};},
+    freeze:()=>{knight.dir={x:0,y:0};knight.want={x:0,y:0};knight.nudge=0;},
     setDir:(dx,dy)=>{knight.dir={x:dx,y:dy};const f=dirToFace(knight.dir);if(f)knight.face=f;},
     giveBlade:()=>{knight.charges=Math.min(MAX_CHARGES,knight.charges+CHARGES_PER_BLADE);},
     lastPellet:()=>{for(const idx of pelSet) return {x:idx%MW,y:(idx/MW)|0}; return null;},
@@ -1102,6 +1230,7 @@ const GAME={
     los:(x0,y0,x1,y1)=>losClear(x0,y0,x1,y1),
     pelletAt:(x,y)=>pelSet.has(y*MW+x),
     clearFoes:()=>{G.enemies.length=0;},
+    spawnArmor:()=>{G.armor={x:Math.floor(knight.x),y:Math.floor(knight.y),taken:false};},
   },
 };
 window.GAME=GAME;
