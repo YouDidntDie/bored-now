@@ -570,31 +570,44 @@ window.addEventListener('keydown',(e)=>{
   if(e.key==='Enter'&&G.state==='menu'){ startQuest(); }
 });
 /* touch: swipe = move, tap = slash */
-let tS=null,tT=0,tMoved=false,tHalf=true;
-cv.addEventListener('pointerdown',(e)=>{ tS={x:e.clientX,y:e.clientY}; tT=performance.now(); tMoved=false; tHalf=e.clientX<window.innerWidth/2; });
-cv.addEventListener('pointermove',(e)=>{
-  if(!tS) return;
-  const dx=e.clientX-tS.x, dy=e.clientY-tS.y;
-  if(Math.hypot(dx,dy)>24){
-    tMoved=true;
-    const d=Math.abs(dx)>Math.abs(dy)?[Math.sign(dx),0]:[0,Math.sign(dy)];
-    handleSwipe(d[0],d[1]);
-    tS={x:e.clientX,y:e.clientY}; // re-anchor: keep steering while the finger stays down
+/* touch: per-finger tracking — one finger can steer while another taps.
+   (A single shared anchor broke multi-touch: the tap finger clobbered
+   the steering finger's anchor and killed steering on every slash.) */
+const touches=new Map(); // pointerId -> {x,y,t0,moved,half}
+function steerRoles(){
+  // earliest touch steers the knight (quest) or per-half (versus)
+  let k=null, r=null;
+  for(const [id,t] of touches){
+    if(G.state==='versus'){
+      if(t.half&&k===null) k=id;
+      else if(!t.half&&r===null) r=id;
+    }else if(k===null) k=id;
   }
-});
-cv.addEventListener('pointerup',(e)=>{
-  if(!tS) return;
-  const dt=performance.now()-tT;
-  if(!tMoved&&dt<400) handleTap(e.clientX,e.clientY);
-  tS=null;
-});
-function handleSwipe(dx,dy){
-  if(G.state==='quest') setWant(dx,dy);
-  else if(G.state==='versus'){
-    // left half: P1 (knight), right half: P2 (reaver)
-    if(tHalf) setWant(dx,dy); else p2.want={x:dx,y:dy};
-  }
+  return {k,r};
 }
+cv.addEventListener('pointerdown',(e)=>{
+  touches.set(e.pointerId,{x:e.clientX,y:e.clientY,t0:performance.now(),moved:false,
+                           half:e.clientX<window.innerWidth/2});
+});
+cv.addEventListener('pointermove',(e)=>{
+  const t=touches.get(e.pointerId); if(!t) return;
+  const dx=e.clientX-t.x, dy=e.clientY-t.y;
+  if(Math.hypot(dx,dy)>24){
+    t.moved=true;
+    const {k,r}=steerRoles();
+    const d=Math.abs(dx)>Math.abs(dy)?[Math.sign(dx),0]:[0,Math.sign(dy)];
+    if(e.pointerId===k) setWant(d[0],d[1]);
+    else if(e.pointerId===r) p2.want={x:d[0],y:d[1]};
+    t.x=e.clientX; t.y=e.clientY; // re-anchor: keep steering while the finger stays down
+  }
+});
+function endTouch(e){
+  const t=touches.get(e.pointerId); if(!t) return;
+  touches.delete(e.pointerId);
+  if(!t.moved&&performance.now()-t.t0<400) handleTap(e.clientX,e.clientY);
+}
+cv.addEventListener('pointerup',endTouch);
+cv.addEventListener('pointercancel',(e)=>{ touches.delete(e.pointerId); });
 function handleTap(px,py){
   const r=cv.getBoundingClientRect();
   const x=(px-r.left)/r.width*W, y=(py-r.top)/r.height*H;
