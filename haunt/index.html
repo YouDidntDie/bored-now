@@ -595,7 +595,7 @@ function handleTap(px,py){
   if(G.state==='over'||G.state==='clear'){ toMenu(); return; }
   if(G.state==='quest'||G.state==='versus'){
     if(x>W-64&&y<H-64){ togglePause(); return; }
-    trySlash(x,y);
+    trySlash((x-mox())/TS,(y-moy())/TS); // screen px -> world tiles
   }
 }
 
