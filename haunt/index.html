@@ -39,7 +39,7 @@
 const TS=22, MW=21, MH=21, MOX=9, MOY=74;
 const PX=2;
 const DIRS4=[{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}];
-const KNIGHT_SPEED=6.4, SLASH_CD=0.65, SLASH_ROOT=0.10, SLASH_RANGE=1.7, SLASH_HALF=1.13;
+const KNIGHT_SPEED=6.4, THROW_CD=0.65, LANCE_SPEED=14, LANCE_RANGE=6;
 const CHARGES_PER_BLADE=3, MAX_CHARGES=6, SWORDS_PER_MAZE=3, CRYPT_COUNT=3;
 const COMBO_T=3.0, COMBO_PTS=[200,400,800,1600];
 const CHALICE_FRAC_A=0.35, CHALICE_FRAC_B=0.75, CHALICE_T=9, CHALICE_PTS=500;
@@ -368,17 +368,10 @@ const EYES={
   left:mkSprite(7,3,(g)=>{g.fillStyle='#fff';g.fillRect(0,1,3,1);g.fillRect(4,1,3,1);g.fillStyle='#22d';g.fillRect(0,1,1,1);g.fillRect(4,1,1,1);}),
   right:mkSprite(7,3,(g)=>{g.fillStyle='#fff';g.fillRect(0,1,3,1);g.fillRect(4,1,3,1);g.fillStyle='#22d';g.fillRect(2,1,1,1);g.fillRect(6,1,1,1);})
 };
-function slashSprite(dx,dy){
-  return mkSprite(15,15,(g)=>{
-    g.strokeStyle='#fff'; g.lineWidth=2; g.lineCap='round';
-    const cx=7,cy=7,r=6;
-    const a0=Math.atan2(dy,dx)-SLASH_HALF, a1=Math.atan2(dy,dx)+SLASH_HALF;
-    g.beginPath(); g.arc(cx,cy,r,a0,a1); g.stroke();
-    g.strokeStyle='#9fd8ff';
-    g.beginPath(); g.arc(cx,cy,r-2.5,a0,a1); g.stroke();
-  });
-}
-const SLASH_SPR={up:slashSprite(0,-1),down:slashSprite(0,1),left:slashSprite(-1,0),right:slashSprite(1,0)};
+const LANCE=mkSprite(11,5,(g)=>{
+  g.fillStyle='#fff'; g.fillRect(0,2,7,1); // shaft
+  g.fillRect(7,1,4,3);                     // head
+});
 const SWORD=mkSprite(7,13,(g)=>{
   g.fillStyle='#dfe8ff';
   g.fillRect(3,0,1,9); g.fillRect(2,1,3,2);
@@ -407,6 +400,7 @@ const G={
   chalice:null, chaliceA:false, chaliceB:false,
   floaters:[],
   enemies:[], spawnT:0,
+  lances:[],
   combo:0, lastKillT:-99,
   introT:0, overT:0, clearT:0,
   // versus
@@ -414,17 +408,17 @@ const G={
 };
 const knight={x:1.5,y:1.5,dir:{x:0,y:0},want:{x:0,y:0},face:'down',
   speed:KNIGHT_SPEED, dead:false, deadT:0, charges:0, nudge:0,
-  slashCD:0, slashT:0, slashFace:'down', dryT:0, rootT:0, armorN:0, invulnT:0};
+  throwCD:0, dryT:0, armorN:0, invulnT:0};
 const p2={want:{x:0,y:0}, reaver:null, banishT:0, nudge:0};
 const ENEMY_COL={sentry:'#4dc9ff', reaver:'#ff4d5e', wisp:'#b78bff'};
 function maxAlive(){ return Math.min(3+(G.level-1),6); }
 function spawnInterval(){ return Math.max(2.5, 6-0.6*(G.level-1)); }
 function enemySpeed(kind,mode){
-  let base=5.05;
-  if(kind==='sentry') base=(mode==='chase'||mode==='flee')?6.15:4.38;
-  else if(kind==='reaver') base=(mode==='flee')?5.89:5.81;
-  else base=5.05;
-  return Math.min(6.23, base+0.185*(G.level-1));
+  let base=4.3;
+  if(kind==='sentry') base=(mode==='chase'||mode==='flee')?5.2:3.7;
+  else if(kind==='reaver') base=(mode==='flee')?5.0:4.95;
+  else base=4.3;
+  return Math.min(5.3, base+0.16*(G.level-1));
 }
 function addScore(n){ G.score+=n; if(G.score>G.best){G.best=G.score;localStorage.setItem('haunt_best',G.best);} }
 
@@ -432,7 +426,7 @@ function addScore(n){ G.score+=n; if(G.score>G.best){G.best=G.score;localStorage
 function resetKnight(){
   knight.x=knightStart.x+0.5; knight.y=knightStart.y+0.5;
   knight.dir={x:0,y:0}; knight.want={x:0,y:0}; knight.face='down'; knight.nudge=0;
-  knight.dead=false; knight.deadT=0; knight.slashCD=0; knight.slashT=0; knight.dryT=0;
+  knight.dead=false; knight.deadT=0; knight.throwCD=0; knight.dryT=0; G.lances=[];
   knight.invulnT=0; // armorN persists: you keep it until you get hit
 }
 function spawnArmor(){
@@ -546,13 +540,14 @@ function setP2Want(x,y){
   if(r&&r.dir.x===0&&r.dir.y===0&&walk(Math.floor(r.x)+x,Math.floor(r.y)+y)) r.dir={x,y};
 }
 /* movement model: quick flick = short step (NUDGE tiles), hold = keep going, release = stop */
-const NUDGE=1.5, FLICK_T=350;
-function trySlash(tx,ty){
+const NUDGE=1, FLICK_T=350;
+/* thrown lance: tap to throw toward a foe, kills at range */
+function tryThrow(tx,ty){
   if(G.state!=='quest'&&G.state!=='versus') return false;
-  if(knight.dead||knight.slashCD>0) return false;
+  if(knight.dead||knight.throwCD>0) return false;
   if(knight.charges<=0){ knight.dryT=0.18; return false; } // dry fire: empty click
   knight.charges--;
-  knight.slashCD=SLASH_CD; knight.slashT=0.22;
+  knight.throwCD=THROW_CD;
   // aim: toward the tap point when given (touch), else the facing (keys)
   let a=faceAngle(knight.face);
   if(tx!==undefined&&ty!==undefined){
@@ -567,17 +562,24 @@ function trySlash(tx,ty){
     }
     if(best) a=Math.atan2(best.y-knight.y,best.x-knight.x);
   }
-  knight.face=angleToFace(a); knight.slashFace=knight.face;
-  knight.rootT=SLASH_ROOT;
-  for(const e of G.enemies){
-    if(e.state!=='active') continue;
-    const dx=e.x-knight.x, dy=e.y-knight.y, d=Math.hypot(dx,dy);
-    if(d>SLASH_RANGE) continue;
-    let da=Math.atan2(dy,dx)-a;
-    while(da>Math.PI)da-=2*Math.PI; while(da<-Math.PI)da+=2*Math.PI;
-    if(Math.abs(da)<SLASH_HALF){ slay(e); }
-  }
+  knight.face=angleToFace(a);
+  G.lances.push({x:knight.x, y:knight.y, dx:Math.cos(a), dy:Math.sin(a), dist:0});
   return true;
+}
+function updateLances(dt){
+  for(const l of G.lances){
+    const step=LANCE_SPEED*dt;
+    const nx=l.x+l.dx*step, ny=l.y+l.dy*step;
+    if(!walk(Math.floor(nx),Math.floor(ny))){ l.dead=true; continue; }
+    l.x=nx; l.y=ny; l.dist+=step;
+    if(l.dist>LANCE_RANGE){ l.dead=true; continue; }
+    for(const e of G.enemies){
+      if(e.state!=='active') continue;
+      const dx=e.x-l.x, dy=e.y-l.y;
+      if(dx*dx+dy*dy<0.2){ slay(e); l.dead=true; break; }
+    }
+  }
+  G.lances=G.lances.filter(l=>!l.dead);
 }
 function angleToFace(a){
   const dx=Math.cos(a), dy=Math.sin(a);
@@ -599,7 +601,7 @@ function applyHeld(pl){
 }
 window.addEventListener('keydown',(e)=>{
   if(e.key==='p'||e.key==='P'||e.key==='Escape'){ togglePause(); return; }
-  if(e.key===' '){ e.preventDefault(); trySlash(); return; }
+  if(e.key===' '){ e.preventDefault(); tryThrow(); return; }
   const kd=keyDir[e.key];
   if(kd&&(G.state==='quest'||G.state==='versus')){
     const pl=keyPlayer(e.key), h=held[pl];
@@ -686,7 +688,7 @@ function handleTap(px,py){
   if(G.state==='over'||G.state==='clear'){ toMenu(); return; }
   if(G.state==='quest'||G.state==='versus'){
     if(x>W-64&&y>H-64){ togglePause(); return; }
-    trySlash((x-mox())/TS,(y-moy())/TS); // screen px -> world tiles
+    tryThrow((x-mox())/TS,(y-moy())/TS); // screen px -> world tiles
   }
 }
 
@@ -769,17 +771,16 @@ function updateKnight(dt){
     if(knight.deadT<=0) afterDeath();
     return;
   }
-  if(knight.rootT>0){ knight.rootT-=dt; }
-  else if(knight.nudge>0){
+  if(knight.nudge>0){
     const bx=knight.x, by=knight.y;
-    moveEnt(knight,dt,knightAtCenter);
+    moveEnt(knight,Math.min(dt,knight.nudge/knight.speed),knightAtCenter); // clamp last step: no overshoot
     knight.nudge-=Math.hypot(knight.x-bx,knight.y-by);
     if(knight.nudge<=0||(knight.dir.x===0&&knight.dir.y===0)){
       knight.nudge=0; knight.want={x:0,y:0}; knight.dir={x:0,y:0}; // step done: stop
     }
   }
   else moveEnt(knight,dt,knightAtCenter);
-  knight.slashCD-=dt; knight.slashT-=dt; knight.dryT-=dt;
+  knight.throwCD-=dt; knight.dryT-=dt;
   knight.invulnT=Math.max(0,knight.invulnT-dt);
   // pellets
   const tx=Math.floor(knight.x), ty=Math.floor(knight.y), idx=ty*MW+tx;
@@ -853,7 +854,7 @@ function updateEnemies(dt, aiOnly){
     }
     if(e.player&&p2.nudge>0){
       const bx=e.x, by=e.y;
-      moveEnt(e,dt,enemyAtCenter);
+      moveEnt(e,Math.min(dt,p2.nudge/e.speed),enemyAtCenter); // clamp last step: no overshoot
       p2.nudge-=Math.hypot(e.x-bx,e.y-by);
       if(p2.nudge<=0||(e.dir.x===0&&e.dir.y===0)){
         p2.nudge=0; p2.want={x:0,y:0}; e.dir={x:0,y:0}; // step done: stop
@@ -881,6 +882,7 @@ function updateEnemies(dt, aiOnly){
 function updateQuest(dt){
   if(G.introT>0){ G.introT-=dt; return; }
   updateKnight(dt);
+  updateLances(dt);
   if(G.state!=='quest') return;
   updateEnemies(dt);
   // spawn scheduler
@@ -894,6 +896,7 @@ function updateQuest(dt){
 function updateVersus(dt){
   if(G.introT>0){ G.introT-=dt; return; }
   updateKnight(dt);
+  updateLances(dt);
   if(G.state!=='versus') return;
   updateEnemies(dt);
   // AI scheduler: keep 2 AI foes
@@ -1022,14 +1025,15 @@ function drawKnight(){
   if(knight.charges>0){    bctx.strokeStyle='#ffd24d'; bctx.lineWidth=1.5;
     bctx.beginPath(); bctx.arc(cx,cy-3,10+2*Math.sin(perfNow()*6),0,7); bctx.stroke();
   }
-  if(knight.slashT>0){
-    const s=SLASH_SPR[knight.slashFace];
-    bctx.drawImage(s,cx-7.5,cy-7.5-3,15,15);
-  }else if(knight.dryT>0){
-    bctx.globalAlpha=0.4;
-    const s=SLASH_SPR[knight.face];
-    bctx.drawImage(s,cx-7.5,cy-7.5-3,15,15);
-    bctx.globalAlpha=1;
+}
+function drawLances(){
+  const ox=mox(), oy=moy();
+  for(const l of G.lances){
+    const cx=ox+l.x*TS, cy=oy+l.y*TS;
+    bctx.save(); bctx.translate(cx,cy); bctx.rotate(Math.atan2(l.dy,l.dx));
+    R(-8,-1,13,2,'#8a6d3b');   // shaft
+    R(5,-2,5,4,'#dfe8ff');     // head
+    bctx.restore();
   }
 }
 function drawFloaters(){
@@ -1054,26 +1058,22 @@ function drawHUD(){
     const pips='P1 '+'●'.repeat(G.p1Wins)+'○'.repeat(2-G.p1Wins)+'   P2 '+'●'.repeat(G.p2Wins)+'○'.repeat(2-G.p2Wins);
     text(pips, W/2-pixW(pips,12)/2, 34, 12, '#8a93a6', null);
   }
-  // bottom bar: lives, blades, cooldown
+  // bottom bar: lives | armor + sword, all under the maze
   const by=H-34;
   text('LIVES', 14, by, 12, '#8a93a6', null);
   for(let i=0;i<G.lives;i++) spr(KNIGHT_SPR.down, 70+i*20, by-6);
-  text('BLADE', 14, by+16, 12, '#8a93a6', null);
-  for(let i=0;i<knight.charges;i++) spr(SWORD, 70+i*12, by+10, i<3?'#dfe8ff':'#ffd24d');
-  if(knight.charges===0) text('FIND A BLADE', 80, by+16, 12, '#4a4a6a', null);
-  // cooldown meter
-  const mw2=90, mx=W-58-10-mw2;
-  // armor: label left of SWORD at same height, shields stack underneath (max 5)
+  const mx=W-58-10-90;
+  // armor: label left of LANCE at same height, shields stack underneath (max 5)
   if(knight.armorN>0){
     const axR=mx-8, al='ARMOR';
     text(al, axR-pixW(al,12), by, 12, '#ffd24d', null);
     const ix0=axR-57; // 5 slots: 4*12+9
     for(let i=0;i<knight.armorN;i++) shieldSpr(ix0+4.5+i*12, by+19, 9);
   }
-  text('SWORD', mx, by, 12, '#8a93a6', null);
-  R(mx,by+16,mw2,6,'#1a1a2e');
-  const f=knight.slashCD>0?1-knight.slashCD/SLASH_CD:1;
-  R(mx,by+16,mw2*f,6, knight.charges>0?'#ffd24d':'#4a4a6a');
+  // sword + blades together: charge pips under the label, no cooldown bar
+  text('LANCE', mx, by, 12, '#8a93a6', null);
+  for(let i=0;i<knight.charges;i++) spr(LANCE, mx+i*12, by+14, i<3?'#dfe8ff':'#ffd24d');
+  if(knight.charges===0) text('FIND A BLADE', mx, by+16, 12, '#4a4a6a', null);
   // pause button
   R(W-58,H-58,44,44,'#141428');
   bctx.strokeStyle='#4a4a8a'; bctx.lineWidth=2; bctx.strokeRect(W-58,H-58,44,44);
@@ -1132,10 +1132,10 @@ function drawHowto(){
     'EVERY MAZE IS NEW.',
     'SWIPE TO STEP. HOLD TO RUN.',
     '',
-    'SWORD: SPACE OR TAP.',
+    'LANCE: SPACE OR TAP.',
     'TAP TOWARD A FOE TO AIM.',
-    'FIND A BLADE: 3 CHARGES.',
-    'EACH SLASH SPENDS ONE.',
+    'FIND A BLADE: 3 THROWS.',
+    'EACH THROW SPENDS ONE.',
     'FIND ARMOR: BLOCKS ONE HIT. STACKS TO 5.',
     '',
     'SENTRIES PATROL THE CRYPTS.',
@@ -1172,7 +1172,7 @@ function render(){
     clear();
     drawMaze(); drawPellets(); drawBlades(); drawArmor(); drawChalice();
     for(const e of G.enemies) drawWraith(e);
-    drawKnight(); drawFloaters(); drawHUD();
+    drawKnight(); drawLances(); drawFloaters(); drawHUD();
     if(G.state==='paused') drawCenter('PAUSED','P OR TAP ❚❚ TO RESUME');
     else if(G.introT>0&&(G.state==='quest'||G.state==='versus'))
       drawCenter(G.state==='versus'?('ROUND '+G.round):('LEVEL '+G.level),
@@ -1204,12 +1204,13 @@ const GAME={
   get p1Wins(){return G.p1Wins;}, get p2Wins(){return G.p2Wins;},
   get roundT(){return G.roundT;}, get knight(){return knight;},
   get enemies(){return G.enemies;}, get chalice(){return G.chalice;},
+  get lances(){return G.lances;},
   get crypts(){return crypts;}, get blades(){return blades;},
   startMode:(m)=>{m==='versus'?startVersus():startQuest();},
   toMenu:()=>toMenu(),
   debug:{
-    slash:()=>trySlash(),
-    slashAt:(x,y)=>trySlash(x,y),
+    throw:()=>tryThrow(),
+    throwAt:(x,y)=>tryThrow(x,y),
     setWant:(x,y)=>setWant(x,y),
     p2Want:(x,y)=>{p2.want={x:x,y:y};},
     killEnemy:(i)=>{const e=G.enemies[i]; if(e&&e.state==='active') slay(e);},
@@ -1230,6 +1231,7 @@ const GAME={
     los:(x0,y0,x1,y1)=>losClear(x0,y0,x1,y1),
     pelletAt:(x,y)=>pelSet.has(y*MW+x),
     clearFoes:()=>{G.enemies.length=0;},
+    resetCombo:()=>{G.combo=0; G.lastKillT=-99;},
     spawnArmor:()=>{G.armor={x:Math.floor(knight.x),y:Math.floor(knight.y),taken:false};},
   },
 };
