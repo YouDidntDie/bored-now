@@ -39,7 +39,7 @@
 const TS=22, MW=21, MH=21, MOX=9, MOY=74;
 const PX=2;
 const DIRS4=[{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}];
-const KNIGHT_SPEED=7.6, SLASH_CD=0.65, SLASH_ROOT=0.16, SLASH_RANGE=1.55, SLASH_HALF=1.0;
+const KNIGHT_SPEED=7.6, SLASH_CD=0.65, SLASH_ROOT=0.10, SLASH_RANGE=1.7, SLASH_HALF=1.13;
 const CHARGES_PER_BLADE=3, MAX_CHARGES=6, SWORDS_PER_MAZE=3, CRYPT_COUNT=3;
 const COMBO_T=3.0, COMBO_PTS=[200,400,800,1600];
 const CHALICE_FRAC_A=0.35, CHALICE_FRAC_B=0.75, CHALICE_T=9, CHALICE_PTS=500;
@@ -517,14 +517,20 @@ function perfNow(){ return performance.now()/1000; }
 /* ---------- input ---------- */
 const keyDir={ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0],w:[0,-1],s:[0,1],a:[-1,0],d:[1,0],W:[0,-1],S:[0,1],A:[-1,0],D:[1,0]};
 function setWant(x,y){ knight.want={x,y}; if(knight.dir.x===0&&knight.dir.y===0&&walk(Math.floor(knight.x)+x,Math.floor(knight.y)+y)){knight.dir={x,y};} }
-function trySlash(){
+function trySlash(tx,ty){
   if(G.state!=='quest'&&G.state!=='versus') return false;
   if(knight.dead||knight.slashCD>0) return false;
   if(knight.charges<=0){ knight.dryT=0.18; return false; } // dry fire: empty click
   knight.charges--;
-  knight.slashCD=SLASH_CD; knight.slashT=0.22; knight.slashFace=knight.face;
+  knight.slashCD=SLASH_CD; knight.slashT=0.22;
+  // aim: toward the tap point when given (touch), else the facing (keys)
+  let a=faceAngle(knight.face);
+  if(tx!==undefined&&ty!==undefined){
+    const tdx=tx-knight.x, tdy=ty-knight.y;
+    if(tdx*tdx+tdy*tdy>0.16) a=Math.atan2(tdy,tdx); // ignore taps right on the knight
+  }
+  knight.face=angleToFace(a); knight.slashFace=knight.face;
   knight.rootT=SLASH_ROOT;
-  const a=faceAngle(knight.face);
   for(const e of G.enemies){
     if(e.state!=='active') continue;
     const dx=e.x-knight.x, dy=e.y-knight.y, d=Math.hypot(dx,dy);
@@ -534,6 +540,10 @@ function trySlash(){
     if(Math.abs(da)<SLASH_HALF){ slay(e); }
   }
   return true;
+}
+function angleToFace(a){
+  const dx=Math.cos(a), dy=Math.sin(a);
+  return Math.abs(dx)>=Math.abs(dy)?(dx>=0?'right':'left'):(dy>=0?'down':'up');
 }
 function faceAngle(f){ return f==='right'?0:f==='down'?Math.PI/2:f==='left'?Math.PI:-Math.PI/2; }
 function dirToFace(d){ if(d.x===1)return'right'; if(d.x===-1)return'left'; if(d.y===1)return'down'; if(d.y===-1)return'up'; return null; }
@@ -585,7 +595,7 @@ function handleTap(px,py){
   if(G.state==='over'||G.state==='clear'){ toMenu(); return; }
   if(G.state==='quest'||G.state==='versus'){
     if(x>W-64&&y<H-64){ togglePause(); return; }
-    trySlash();
+    trySlash(x,y);
   }
 }
 
@@ -973,7 +983,8 @@ function drawHowto(){
     'CLEAR EVERY PELLET.',
     'EVERY MAZE IS NEW.',
     '',
-    'SWORD - SPACE OR TAP.',
+    'SWORD: SPACE OR TAP.',
+    'TAP TOWARD A FOE TO AIM.',
     'FIND A BLADE: 3 CHARGES.',
     'EACH SLASH SPENDS ONE.',
     '',
@@ -1048,6 +1059,7 @@ const GAME={
   toMenu:()=>toMenu(),
   debug:{
     slash:()=>trySlash(),
+    slashAt:(x,y)=>trySlash(x,y),
     setWant:(x,y)=>setWant(x,y),
     p2Want:(x,y)=>{p2.want={x:x,y:y};},
     killEnemy:(i)=>{const e=G.enemies[i]; if(e&&e.state==='active') slay(e);},
