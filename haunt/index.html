@@ -697,6 +697,9 @@ function handleTap(px,py){
 function moveEnt(e,dt,atCenter){
   if(e.dir.x===0&&e.dir.y===0) return;
   const step=e.speed*dt;
+  // magnetic corridor: ease the perpendicular axis toward the tile center line (no pops, no drift)
+  if(e.dir.x!==0){ const lcy=Math.floor(e.y)+0.5; e.y+=(lcy-e.y)*Math.min(1,dt*8); }
+  else { const lcx=Math.floor(e.x)+0.5; e.x+=(lcx-e.x)*Math.min(1,dt*8); }
   const tx=Math.floor(e.x), ty=Math.floor(e.y);
   const cx=tx+0.5, cy=ty+0.5;
   const toC=(cx-e.x)*e.dir.x+(cy-e.y)*e.dir.y;
@@ -708,7 +711,12 @@ function moveEnt(e,dt,atCenter){
     const nx=Math.floor(e.x)+e.dir.x, ny=Math.floor(e.y)+e.dir.y;
     if(!walk(nx,ny)){ e.dir={x:0,y:0}; return; }
     e.x+=e.dir.x*left; e.y+=e.dir.y*left;
-  }else{ e.x+=e.dir.x*step; e.y+=e.dir.y*step; }
+  }else{
+    // never cross a tile boundary into a wall
+    const px=e.x+e.dir.x*step, py=e.y+e.dir.y*step;
+    if((Math.floor(px)!==tx||Math.floor(py)!==ty)&&!walk(Math.floor(px),Math.floor(py))){ e.dir={x:0,y:0}; return; }
+    e.x=px; e.y=py;
+  }
 }
 function knightAtCenter(){
   const tx=Math.floor(knight.x), ty=Math.floor(knight.y);
