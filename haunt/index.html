@@ -642,8 +642,20 @@ function steerHold(role,dx,dy){
   else if(role==='r'){ setP2Want(dx,dy); p2.nudge=0; }
 }
 function steerFlick(role,dx,dy){
-  if(role==='k'){ setWant(dx,dy); knight.nudge=NUDGE; }
-  else if(role==='r'){ setP2Want(dx,dy); p2.nudge=NUDGE; }
+  // flick = an immediate 1-tile step in the flick direction (not a deferred want)
+  if(role==='k'){
+    const tx=Math.floor(knight.x), ty=Math.floor(knight.y);
+    knight.want={x:dx,y:dy};
+    if(walk(tx+dx,ty+dy)){ knight.dir={x:dx,y:dy}; knight.nudge=NUDGE; }
+    else { knight.dir={x:0,y:0}; knight.nudge=0; } // flick into a wall: just stop
+  }
+  else if(role==='r'){
+    const r=p2.reaver; if(!r) return;
+    const tx=Math.floor(r.x), ty=Math.floor(r.y);
+    p2.want={x:dx,y:dy};
+    if(walk(tx+dx,ty+dy)){ r.dir={x:dx,y:dy}; p2.nudge=NUDGE; }
+    else { r.dir={x:0,y:0}; p2.nudge=0; }
+  }
 }
 function steerStop(role){
   if(role==='k'){ knight.want={x:0,y:0}; knight.dir={x:0,y:0}; knight.nudge=0; }
