@@ -698,7 +698,8 @@ function handleTap(px,py){
   const x=(px-r.left)/r.width*W, y=(py-r.top)/r.height*H;
   if(G.state==='menu'){ const b=menuButtonAt(x,y); if(b) b.fn(); return; }
   if(G.state==='howto'){ const bkY=(W>H)?436:600; if(x>W/2-70&&x<W/2+70&&y>bkY&&y<bkY+48){ toMenu(); } return; }
-  if(G.state==='over'||G.state==='clear'){ toMenu(); return; }
+  if(G.state==='over'){ toMenu(); return; }
+  if(G.state==='clear'){ G.level++; startLevel(); G.state='quest'; return; }
   if(G.state==='quest'||G.state==='versus'){
     if(x>W-64&&y>H-64){ togglePause(); return; }
     tryThrow((x-mox())/TS,(y-moy())/TS); // screen px -> world tiles
