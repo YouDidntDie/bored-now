@@ -824,10 +824,8 @@ function update(dt){
   if(state==='serve'){ if(stateT>1.6)state='play'; return; }
   if(state==='stageClear'){
     if(stateT>2.0){
-      const last=(mode==='apex'&&stage>=APEX_STAGES)||(mode==='climb'&&stage>=CLIMB_STAGES);
-      if(last){ if(mode==='apex')saveApexBest(); else if(score>best){best=score;try{localStorage.setItem('apex_best',best);}catch(_){}}
-        state='campWin'; stateT=0; sWin(); confetti(60);
-      }else{ stage++; resetStage(); banner='STAGE '+stage; bannerT=1.6; state='serve'; stateT=0; }
+      // unlimited: towers regenerate forever, difficulty keeps scaling
+      stage++; resetStage(); banner='STAGE '+stage; bannerT=1.6; state='serve'; stateT=0;
     }
     return;
   }
@@ -883,13 +881,13 @@ function drawCenter(msg,sub){
 function drawHUD(){
   if(mode==='apex'){
     text('SCORE '+score,W/2,22,'16','#8a93a0','center');
-    text('STAGE '+stage+'/'+APEX_STAGES,W/2,42,'16','#8a93a0','center');
+    text('STAGE '+stage,W/2,42,'16','#8a93a0','center');
     text('HITS '+hits+'/3',14,22,'16','#ffd75a','left');
     text('ALARM '+alarms+'/3',W-14,22,'16','#ff5a5a','right');
   }else if(mode==='climb'){
     text('SCORE '+score,14,22,'16','#8a93a0','left');
     text('BEST '+best,14,42,'16','#5a6270','left');
-    text('STAGE '+stage+'/'+CLIMB_STAGES,W-14,22,'16','#8a93a0','right');
+    text('STAGE '+stage,W-14,22,'16','#8a93a0','right');
     text('LIVES '+lives,W-14,42,'16','#7dff9a','right');
   }else{
     text('P1 '+wins.p1+' - '+wins.p2+' P2',W/2,22,'16','#8a93a0','center');
