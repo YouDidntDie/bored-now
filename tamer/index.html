@@ -144,7 +144,9 @@ const S = {
   pending:{a:null,b:null},  // chosen actions
   log:[],
   ladderIdx:0,
+  stable:null,          // persistent team IDs for overworld
   recruit:null,         // {wrestler, chance} pending post-fight offer
+  ow:null,              // overworld state {px,py,dir,moving}
   wins:{a:0,b:0},
   anims:[],                 // active tween list
   t:0,
@@ -396,13 +398,31 @@ S.buttons=[]; S.focus=0; S.paused=false;
 function btn(x,y,w,h,label,fn,opts){ S.buttons.push(Object.assign({x,y,w,h,label,fn},opts||{})); }
 function toGame(e){ const r=cv.getBoundingClientRect();
   const cx=(e.clientX-r.left)/r.width*W, cy=(e.clientY-r.top)/r.height*H; return [cx,cy]; }
+let ptrX=0, ptrY=0;
 cv.addEventListener('pointerdown', e=>{ e.preventDefault(); const [x,y]=toGame(e);
   for(const b of S.buttons){ if(x>=b.x&&x<=b.x+b.w&&y>=b.y&&y<=b.y+b.h&&!b.disabled){ SFX.click(); b.fn(); return; } }
+  ptrX=x; ptrY=y;
+});
+cv.addEventListener('pointerup', e=>{ const [x,y]=toGame(e);
+  if(S.screen==='overworld'&&S.ow){
+    const dx=x-ptrX, dy=y-ptrY;
+    if(Math.hypot(dx,dy)>24){
+      if(Math.abs(dx)>Math.abs(dy)) owMove(dx>0?1:-1, 0);
+      else owMove(0, dy>0?1:-1);
+    }
+  }
 });
 addEventListener('keydown', e=>{
   const k=e.key;
   if(k==='m'||k==='M'){ muted=!muted; drawAll(); return; }
   if(k==='p'||k==='P'){ S.paused=!S.paused; drawAll(); return; }
+  if(S.screen==='overworld'&&S.ow){
+    if(k==='ArrowUp'||k==='w'||k==='W') owMove(0,-1);
+    else if(k==='ArrowDown'||k==='s'||k==='S') owMove(0,1);
+    else if(k==='ArrowLeft'||k==='a'||k==='A') owMove(-1,0);
+    else if(k==='ArrowRight'||k==='d'||k==='D') owMove(1,0);
+    return;
+  }
   if(S.screen!=='battle'||!S.battle||S.battle.over) {
     if(k==='Enter'){ const b=S.buttons[S.focus]; if(b&&!b.disabled){b.fn();} }
     if(k==='ArrowDown'||k==='ArrowRight'){ S.focus=(S.focus+1)%Math.max(1,S.buttons.length); drawAll(); }
@@ -521,8 +541,10 @@ function drawMenu(){
   btn(90,398,300,56,'QUICK BATTLE','',{}); S.buttons[S.buttons.length-1].sub='random teams · one fight';
   btn(90,466,300,56,'VERSUS (2P)','',{}); S.buttons[S.buttons.length-1].sub='pass-and-pick · one battle';
   btn(90,534,300,56,'TYPE CHART','',{}); S.buttons[S.buttons.length-1].sub='who beats who';
+  btn(90,602,300,56,'WORLD','',{}); S.buttons[S.buttons.length-1].sub='explore · arenas · recruit';
   S.buttons[0].fn=()=>startMode('ladder'); S.buttons[1].fn=()=>startMode('quick');
   S.buttons[2].fn=()=>startMode('versus'); S.buttons[3].fn=()=>{S.screen='chart';drawAll();};
+  S.buttons[4].fn=()=>{ S.stable=['anvil','lola','prof','maddog','jax']; S.mode='world'; startOverworld(); };
   S.buttons.forEach(b=>{b.big=true;});
   drawButtons();
   text('P pause · M mute',W/2,640,12,'#54655c','center');
@@ -693,6 +715,82 @@ function drawOver(){
   btn(90,468,300,56,'MENU',()=>{ S.screen='menu'; S.battle=null; drawAll(); },{big:true});
   drawButtons();
 }
+
+// ---------- OVERWORLD ----------
+// Tiles: 0 grass, 1 path, 2 water, 3 wall, 4 door, 5 tallgrass, 6 flower, 7 arena floor
+const OW_T = 16; // tile size in game px
+const OW_MAP = [
+  [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],
+  [2,0,0,0,0,5,5,0,0,0,0,0,5,5,0,0,0,0,0,2],
+  [2,0,3,3,3,0,0,0,3,3,3,0,0,0,0,3,3,3,0,2],
+  [2,0,3,7,3,0,5,0,3,7,3,0,5,0,0,3,7,3,0,2],
+  [2,0,3,3,3,0,0,0,3,3,3,0,0,0,0,3,3,3,0,2],
+  [2,0,0,4,0,0,0,0,0,4,0,0,0,0,0,0,4,0,0,2],
+  [2,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2],
+  [2,0,0,0,0,5,5,0,0,0,0,0,5,5,0,0,0,0,0,2],
+  [2,0,5,0,0,0,0,0,5,0,0,5,0,0,0,5,0,0,5,2],
+  [2,0,0,0,5,0,0,5,0,0,0,0,5,0,0,0,0,5,0,2],
+  [2,0,0,5,5,0,0,0,0,5,5,0,0,0,5,5,0,0,0,2],
+  [2,0,0,0,0,0,5,0,0,0,0,0,0,5,0,0,0,0,0,2],
+  [2,0,3,3,0,0,0,0,3,3,0,0,0,0,0,3,3,0,0,2],
+  [2,0,3,3,0,0,0,0,3,3,0,0,0,0,0,3,3,0,0,2],
+  [2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2],
+];
+const OW_W = 20, OW_H = 15;
+function owTile(x,y){ if(x<0||y<0||x>=OW_W||y>=OW_H) return 2; return OW_MAP[y][x]; }
+function owBlocked(x,y){ const t=owTile(x,y); return t===2||t===3; }
+function startOverworld(){
+  S.ow = { px:3, py:6, dir:'down', moving:false, mt:0 };
+  S.screen='overworld'; drawAll();
+}
+function drawOverworld(){
+  ctx.fillStyle='#0e1420'; ctx.fillRect(0,0,W,H);
+  const ox = W/2 - (S.ow.px*OW_T+OW_T/2), oy = 120 - (S.ow.py*OW_T+OW_T/2);
+  // tiles
+  for(let y=0;y<OW_H;y++) for(let x=0;x<OW_W;x++){
+    const t=OW_MAP[y][x], sx=x*OW_T+ox, sy=y*OW_T+oy;
+    if(sx<-OW_T||sy<-OW_T||sx>W+OW_T||sy>H+OW_T) continue;
+    if(t===0||t===5||t===6){ ctx.fillStyle=t===5?'#2d6a2d':'#3a8a3a'; ctx.fillRect(sx,sy,OW_T,OW_T);
+      if(t===5){ ctx.fillStyle='#1e4d1e'; for(let i=0;i<3;i++) ctx.fillRect(sx+3+i*5,sy+4,2,8); }
+      if(t===6){ ctx.fillStyle='#ff6b9d'; ctx.fillRect(sx+6,sy+6,4,4); }
+    }
+    else if(t===1){ ctx.fillStyle='#c9a06a'; ctx.fillRect(sx,sy,OW_T,OW_T); }
+    else if(t===2){ ctx.fillStyle='#3fa9ff'; ctx.fillRect(sx,sy,OW_T,OW_T);
+      ctx.fillStyle='#2d7dd9'; ctx.fillRect(sx,sy+10,OW_T,3); }
+    else if(t===3){ ctx.fillStyle='#8a6a4a'; ctx.fillRect(sx,sy,OW_T,OW_T);
+      ctx.fillStyle='#6a4f36'; ctx.fillRect(sx,sy,OW_T,4); }
+    else if(t===4){ ctx.fillStyle='#4a3520'; ctx.fillRect(sx,sy,OW_T,OW_T);
+      ctx.fillStyle='#ffd93f'; ctx.fillRect(sx+5,sy+5,6,6); }
+    else if(t===7){ ctx.fillStyle='#d4a574'; ctx.fillRect(sx,sy,OW_T,OW_T); }
+  }
+  // player (simple pixel wrestler, top-down)
+  const px=S.ow.px*OW_T+ox, py=S.ow.py*OW_T+oy;
+  ctx.fillStyle='#e8b88a'; ctx.fillRect(px+5,py+3,6,6); // head
+  ctx.fillStyle='#ff5252'; ctx.fillRect(px+4,py+9,8,5); // torso
+  ctx.fillStyle='#2a2f3a'; ctx.fillRect(px+4,py+14,3,2); ctx.fillRect(px+9,py+14,3,2); // feet
+  text('TAMERS WORLD', 10, 10, 14, '#e8f5ee', 'left', 'bold ');
+  text('Find the arenas!', 10, 30, 12, '#8fa89b', 'left');
+  S.buttons=[];
+}
+function owMove(dx,dy){
+  if(!S.ow||S.ow.moving) return;
+  const nx=S.ow.px+dx, ny=S.ow.py+dy;
+  S.ow.dir = dy<0?'up':dy>0?'down':dx<0?'left':'right';
+  if(owBlocked(nx,ny)){ drawAll(); return; }
+  const t=owTile(nx,ny);
+  S.ow.px=nx; S.ow.py=ny; SFX.click();
+  if(t===4){ // door -> arena battle!
+    startBattle(mkTeam(S.stable), randTeam(), {a:'human',b:'ai'});
+    S.screen='battle'; drawAll(); return;
+  }
+  if(t===5 && Math.random()<0.15){ // tall grass encounter!
+    startBattle(mkTeam(S.stable), randTeam(), {a:'human',b:'ai'});
+    log('A rival wrestler wants a fight!');
+    S.screen='battle'; drawAll(); return;
+  }
+  drawAll();
+}
+
 function drawAll(){
   S.focus=0;
   if(S.screen==='menu') drawMenu();
@@ -701,6 +799,7 @@ function drawAll(){
   else if(S.screen==='battle') drawBattle();
   else if(S.screen==='over') drawOver();
   else if(S.screen==='recruit') drawRecruit();
+  else if(S.screen==='overworld') drawOverworld();
   if(S.paused){ ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(0,0,W,H);
     text('PAUSED',W/2,340,40,'#e8f5ee','center','bold '); text('P to resume',W/2,390,14,'#8fa89b','center'); }
 }
