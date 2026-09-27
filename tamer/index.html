@@ -461,30 +461,120 @@ function doSwitchPick(idx){
 
 // ---------- CRITTERS ----------
 function drawCritter(shape, x, y, r, color, o){
-  // shape now = body type: 'big' (POWER), 'lean' (AERIAL), 'avg' (TECH/SHOW), 'stocky' (BRAWL)
+  // Pokémon-battle-style detailed wrestler sprite
+  // shape: 'big' (POWER), 'lean' (AERIAL), 'avg' (TECH/SHOW), 'stocky' (BRAWL)
   o=o||{}; ctx.save(); ctx.translate(x,y);
   if(o.alpha!==undefined) ctx.globalAlpha=o.alpha;
-  const skin='#e8b88a', dark='rgba(0,0,0,0.45)';
-  const bw = shape==='big'?r*0.55 : shape==='lean'?r*0.32 : shape==='stocky'?r*0.48 : r*0.4;
-  const hh = r*0.32;
-  ctx.lineWidth=3; ctx.strokeStyle=dark;
-  // legs
-  ctx.fillStyle='#2a2f3a';
-  ctx.fillRect(-bw*0.7, r*0.25, bw*0.55, r*0.55); ctx.strokeRect(-bw*0.7, r*0.25, bw*0.55, r*0.55);
-  ctx.fillRect(bw*0.15, r*0.25, bw*0.55, r*0.55); ctx.strokeRect(bw*0.15, r*0.25, bw*0.55, r*0.55);
-  // torso (style color = ring gear)
-  ctx.fillStyle=color;
-  ctx.fillRect(-bw, -r*0.35, bw*2, r*0.6); ctx.strokeRect(-bw, -r*0.35, bw*2, r*0.6);
-  // arms
+  const u = r/40; // unit scale
+  const skin='#e8b88a', skinD='#c9986a', skinL='#f7d4a8';
+  const gear=color;
+  const dark='rgba(0,0,0,0.4)';
+  const wide = shape==='big'?1.25 : shape==='lean'?0.8 : shape==='stocky'?1.15 : 1.0;
+  ctx.scale(u*wide, u);
+  ctx.lineWidth=2; ctx.strokeStyle=dark;
+  // --- shadow ---
+  ctx.fillStyle='rgba(0,0,0,0.25)';
+  ctx.beginPath(); ctx.ellipse(0, 38, 22, 5, 0, 0, 7); ctx.fill();
+  // --- legs (wrestling tights) ---
+  ctx.fillStyle='#232833';
+  // left leg
+  ctx.fillRect(-14, 8, 11, 24); ctx.strokeRect(-14, 8, 11, 24);
+  // right leg
+  ctx.fillRect(3, 8, 11, 24); ctx.strokeRect(3, 8, 11, 24);
+  // quad shading
+  ctx.fillStyle='#343c4e';
+  ctx.fillRect(-14, 8, 11, 6); ctx.fillRect(3, 8, 11, 6);
+  // knee pads (gear color)
+  ctx.fillStyle=gear; ctx.fillRect(-14, 20, 11, 6); ctx.fillRect(3, 20, 11, 6);
+  ctx.fillStyle='rgba(255,255,255,0.2)'; ctx.fillRect(-14, 20, 11, 2); ctx.fillRect(3, 20, 11, 2);
+  // boots
+  ctx.fillStyle='#15181f';
+  ctx.fillRect(-15, 30, 13, 8); ctx.fillRect(2, 30, 13, 8);
+  ctx.strokeStyle=dark; ctx.strokeRect(-15, 30, 13, 8); ctx.strokeRect(2, 30, 13, 8);
+  ctx.fillStyle='#2a2f3a'; ctx.fillRect(-15, 30, 13, 2); ctx.fillRect(2, 30, 13, 2);
+  // --- torso (bare chest with gear trim, like a wrestler) ---
+  // chest skin
+  ctx.fillStyle=skin; ctx.fillRect(-16, -18, 32, 28);
+  // pecs
+  ctx.fillStyle=skinD; ctx.fillRect(-16, -8, 32, 2);
+  ctx.fillRect(-2, -18, 2, 12);
+  // pec highlights
+  ctx.fillStyle=skinL; ctx.fillRect(-14, -16, 10, 4); ctx.fillRect(4, -16, 10, 4);
+  // abs
+  ctx.fillStyle=skinD;
+  ctx.fillRect(-8, -2, 16, 1); ctx.fillRect(-6, 2, 12, 1); ctx.fillRect(-4, 6, 8, 1);
+  // side shading
+  ctx.fillStyle=skinD; ctx.fillRect(-16, -18, 3, 28); ctx.fillRect(13, -18, 3, 28);
+  ctx.strokeStyle=dark; ctx.strokeRect(-16, -18, 32, 28);
+  // gear straps (shoulder straps in gear color)
+  ctx.fillStyle=gear; ctx.fillRect(-16, -18, 7, 28); ctx.fillRect(9, -18, 7, 28);
+  ctx.fillStyle='rgba(255,255,255,0.25)'; ctx.fillRect(-16, -18, 7, 3); ctx.fillRect(9, -18, 7, 3);
+  // championship belt
+  ctx.fillStyle='#1a1d24'; ctx.fillRect(-16, 6, 32, 5);
+  ctx.fillStyle='#ffd93f'; ctx.fillRect(-5, 5, 10, 7);
+  ctx.fillStyle='#b8962f'; ctx.fillRect(-5, 5, 10, 2);
+  ctx.fillStyle='#fff'; ctx.fillRect(-2, 7, 4, 3);
+  // --- arms (muscular) ---
+  // left arm
+  ctx.fillStyle=skin; ctx.fillRect(-24, -16, 8, 20);
+  // deltoid
+  ctx.beginPath(); ctx.arc(-20, -14, 6, 0, 7); ctx.fillStyle=skin; ctx.fill();
+  ctx.fillStyle=skinL; ctx.beginPath(); ctx.arc(-21, -15, 3, 0, 7); ctx.fill();
+  // bicep shading
+  ctx.fillStyle=skinD; ctx.fillRect(-24, -6, 8, 3);
+  ctx.strokeStyle=dark; ctx.strokeRect(-24, -16, 8, 20);
+  // right arm
+  ctx.fillStyle=skin; ctx.fillRect(16, -16, 8, 20);
+  ctx.beginPath(); ctx.arc(20, -14, 6, 0, 7); ctx.fillStyle=skin; ctx.fill();
+  ctx.fillStyle=skinL; ctx.beginPath(); ctx.arc(19, -15, 3, 0, 7); ctx.fill();
+  ctx.fillStyle=skinD; ctx.fillRect(16, -6, 8, 3);
+  ctx.strokeStyle=dark; ctx.strokeRect(16, -16, 8, 20);
+  // wristbands
+  ctx.fillStyle=gear; ctx.fillRect(-24, 0, 8, 4); ctx.fillRect(16, 0, 8, 4);
+  // fists
   ctx.fillStyle=skin;
-  ctx.fillRect(-bw-r*0.18, -r*0.3, r*0.18, r*0.5); ctx.strokeRect(-bw-r*0.18, -r*0.3, r*0.18, r*0.5);
-  ctx.fillRect(bw, -r*0.3, r*0.18, r*0.5); ctx.strokeRect(bw, -r*0.3, r*0.18, r*0.5);
-  // head
-  ctx.fillStyle=skin;
-  ctx.beginPath(); ctx.arc(0, -r*0.35-hh*0.6, hh, 0, Math.PI*2); ctx.fill(); ctx.stroke();
-  // mask/face paint (style color headband)
-  ctx.fillStyle=color;
-  ctx.fillRect(-hh, -r*0.35-hh*1.1, hh*2, hh*0.35);
+  ctx.beginPath(); ctx.arc(-20, 8, 5, 0, 7); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(20, 8, 5, 0, 7); ctx.fill(); ctx.stroke();
+  // --- head ---
+  const hy=-30;
+  // neck
+  ctx.fillStyle=skinD; ctx.fillRect(-6, -22, 12, 6);
+  // head base
+  ctx.fillStyle=skin; ctx.beginPath(); ctx.arc(0, hy, 11, 0, 7); ctx.fill();
+  // jaw shading
+  ctx.fillStyle=skinD; ctx.beginPath(); ctx.arc(0, hy+3, 9, 0.3, Math.PI-0.3); ctx.fill();
+  ctx.strokeStyle=dark; ctx.beginPath(); ctx.arc(0, hy, 11, 0, 7); ctx.stroke();
+  // hair (style varies by shape)
+  ctx.fillStyle = shape==='big' ? '#1a1210' : shape==='lean' ? '#d4a017' : shape==='stocky' ? '#4a2a18' : '#2a2a2a';
+  // top hair
+  ctx.fillRect(-11, hy-11, 22, 6);
+  ctx.fillRect(-11, hy-11, 5, 12); ctx.fillRect(6, hy-11, 5, 12);
+  if(shape==='lean'){ // long hair flowing
+    ctx.fillRect(-13, hy-5, 4, 14); ctx.fillRect(9, hy-5, 4, 14);
+  }
+  if(shape==='big'){ // mohawk
+    ctx.fillRect(-3, hy-16, 6, 6);
+  }
+  // headband (gear color)
+  ctx.fillStyle=gear; ctx.fillRect(-11, hy-6, 22, 4);
+  ctx.fillStyle='rgba(255,255,255,0.3)'; ctx.fillRect(-11, hy-6, 22, 1);
+  // eyes (fierce)
+  ctx.fillStyle='#fff'; ctx.fillRect(-8, hy-1, 6, 4); ctx.fillRect(2, hy-1, 6, 4);
+  ctx.fillStyle='#111'; ctx.fillRect(-6, hy, 3, 3); ctx.fillRect(4, hy, 3, 3);
+  ctx.fillStyle='#fff'; ctx.fillRect(-5, hy, 1, 1); ctx.fillRect(5, hy, 1, 1);
+  // angry brows
+  ctx.fillStyle='#1a1210';
+  ctx.save(); ctx.translate(-5, hy-3); ctx.rotate(-0.3); ctx.fillRect(-4, -1, 8, 2); ctx.restore();
+  ctx.save(); ctx.translate(5, hy-3); ctx.rotate(0.3); ctx.fillRect(-4, -1, 8, 2); ctx.restore();
+  // nose
+  ctx.fillStyle=skinD; ctx.fillRect(-1, hy+2, 2, 3);
+  // mouth (gritted teeth)
+  ctx.fillStyle='#5a2a20'; ctx.fillRect(-5, hy+6, 10, 3);
+  ctx.fillStyle='#fff'; ctx.fillRect(-5, hy+6, 10, 1);
+  // --- flash effect ---
+  if(o.flash){ ctx.globalAlpha=o.flash*0.7; ctx.fillStyle='#fff';
+    ctx.beginPath(); ctx.ellipse(0, 0, 26, 42, 0, 0, 7); ctx.fill();
+    ctx.globalAlpha=o.alpha!==undefined?o.alpha:1; }
   ctx.restore();
 }
 function monById(id){ return WRESTLERS.find(m=>m.id===id); }
