@@ -225,7 +225,7 @@ function drawSoul(x, y, t){
   } else {
     frame = soul.vy < 0 ? 3 : 4; // jump up vs fall down
   }
-  const bob = soul.onGround ? (Math.floor(t*5)%2)*1 : 0; // old-school: 2-frame bob
+  const bob = (soul.onGround && frame !== 5) ? (Math.floor(t*5)%2)*1 : 0; // bob only when moving, not when standing
   const w = 36, h = 36;
   ctx.save();
   ctx.translate(x, y + bob);
