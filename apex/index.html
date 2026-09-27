@@ -28,10 +28,10 @@
   <div class="grp"><button id="tU">&#9650;</button><button id="tD">&#9660;</button></div>
   <div class="grp"><button id="tJ">JMP</button></div>
 </div>
-<div id="hint">v4.0</div>
+<div id="hint">v4.2</div>
 <script>
 /* ================= APEX v4 =================
-   1981, inverted: YOU ARE THE BEAVER. Gnaw trees, drop logs on the lumberjack.
+   1981, inverted: YOU ARE THE BEAVER. Steal the lumberjack's stacked logs, drop them on him.
    Or climb as the lumberjack. Or both, same screen.
    Pixel-native. Mobile-first. Everything original. */
 /* ---------- pixel infra ---------- */
@@ -201,8 +201,8 @@ function surfY(i,x){ return GY[i]+TILT*GDIR[i]*(x-240)/210; }
 function inGap(i,x){ return i>=1&&i<=4&&Math.abs(x-GAPC)<GAPH; }
 function onGirderX(i,x){ return x>=GX0&&x<=GX1&&!inGap(i,x); }
 const GRAV=1500, RUN=172, JUMPV=520, CLIMBV=135, ROLL_BASE=132;
-/* trees live on the top girder — the beaver's turf */
-let TREEX=[110,220,320,420];
+/* log stacks live on the top girder — the beaver's turf */
+let STACKX=[110,220,320,420];
 const GNAW_T=1.15, REGROW_T=3.2;
 /* ---------- procedural tower: new layout every stage ---------- */
 function genTower(){
@@ -217,12 +217,12 @@ function genTower(){
     while(guard<60&&Math.abs(x-GAPC)<GAPH+24);
     LX[i]=x;
   }
-  const n=3+((Math.random()*2)|0); // 3-4 trees, on the shaft side
-  TREEX=[];
+  const n=3+((Math.random()*2)|0); // 3-4 stacks, on the shaft side
+  STACKX=[];
   const lo=left?140:60, hi=left?420:340;
   for(let i=0;i<n;i++){
     const x=Math.round(lo+(hi-lo)*(i+0.5)/n+(Math.random()*40-20));
-    TREEX.push(Math.max(lo,Math.min(hi,x)));
+    STACKX.push(Math.max(lo,Math.min(hi,x)));
   }
 }
 /* ---------- pre-baked backdrop ---------- */
@@ -279,41 +279,39 @@ function drawLadders(){
     for(let y=yT+6;y<yB-4;y+=12) bctx.fillRect(L.x-8,y,16,4);
   }
 }
-function drawTree(t){
+function drawStack(t){
   const x=Math.round(t.x), gy=t.gy!==undefined?Math.round(t.gy):Math.round(surfY(5,x));
-  if(t.stage===0){ // stump
-    bctx.fillStyle='#5e3a10'; bctx.fillRect(x-7,gy-8,14,8);
-    bctx.fillStyle='#8a5a20'; bctx.fillRect(x-7,gy-8,14,3);
-    bctx.fillStyle='#c89840'; bctx.fillRect(x-4,gy-8,8,2);
+  const shake=t.gnaw>0?Math.sin(time*44)*t.gnaw*3:0;
+  const sx=x+Math.round(shake);
+  const pLog=(lx,ly,w)=>{ // one horizontal log in the pile
+    bctx.fillStyle='#8a5a20'; bctx.fillRect(lx,ly,w,10);
+    bctx.fillStyle='#c89840'; bctx.fillRect(lx,ly,w,3);
+    bctx.fillStyle='#5e3a10'; bctx.fillRect(lx,ly,4,10);
+    bctx.fillStyle='#4a2c10'; bctx.fillRect(lx,ly+8,w,2);
+  };
+  if(t.stage===0){ // looted bare — pallet + sawdust
+    bctx.fillStyle='#4a3520'; bctx.fillRect(sx-16,gy-4,32,4);
+    bctx.fillStyle='#c89840';
+    bctx.fillRect(sx-12,gy-6,4,2); bctx.fillRect(sx+4,gy-7,5,2); bctx.fillRect(sx-2,gy-5,3,2);
     return;
   }
-  const shake=t.gnaw>0?Math.sin(time*44)*t.gnaw*3:0;
-  if(t.stage===1){ // sapling
-    const sx=x+Math.round(shake*0.5);
-    bctx.fillStyle='#5e3a10'; bctx.fillRect(sx-2,gy-22,4,22);
-    bctx.fillStyle='#2a7a2a'; bctx.fillRect(sx-8,gy-32,16,12);
-    bctx.fillStyle='#3a9a3a'; bctx.fillRect(sx-8,gy-32,16,4);
+  if(t.stage===1){ // partial — 2 logs
+    pLog(sx-22,gy-10,24); pLog(sx+2,gy-10,22);
     return;
   }
   let shear=0;
   if(t.falling>0){ const f=1-t.falling/0.45; shear=f*f*30*GDIR[5]; }
-  const sx=x+Math.round(shake);
-  bctx.fillStyle='#5e3a10';
-  for(let r=0;r<17;r++){ const off=Math.round(shear*r/17); bctx.fillRect(sx-4+off,gy-34+r*2,8,2); }
-  bctx.fillStyle='#4a2c10'; bctx.fillRect(sx-7,gy-4,14,4);
   const fx=sx+Math.round(shear);
-  bctx.fillStyle='#1e5a1e';
-  bctx.fillRect(fx-17,gy-64,34,16); bctx.fillRect(fx-13,gy-74,26,12); bctx.fillRect(fx-8,gy-82,16,10);
-  bctx.fillStyle='#2a7a2a';
-  bctx.fillRect(fx-17,gy-64,34,5); bctx.fillRect(fx-13,gy-74,26,4);
-  if(t.gnaw>0.04){ // the notch grows as you chew
-    bctx.fillStyle='#c89840';
-    bctx.fillRect(sx-4,gy-10,Math.round(2+t.gnaw*6),6);
+  pLog(fx-27,gy-10,18); pLog(fx-9,gy-10,18); pLog(fx+9,gy-10,18); // bottom 3
+  pLog(fx-18,gy-20,18); pLog(fx,gy-20,18); // top 2
+  if(t.gnaw>0.04){ // the beaver worries the bottom log loose
+    bctx.fillStyle='#3a2410';
+    bctx.fillRect(sx-9,gy-10,Math.round(2+t.gnaw*6),10);
   }
-  if(t.highlight){ // targeted tree pulses
+  if(t.highlight){ // targeted stack pulses
     const p=2+Math.floor(time*6)%2;
     bctx.fillStyle='#ffd75a';
-    bctx.fillRect(sx-20,gy-70,40,p); bctx.fillRect(sx-20,gy-8,40,p);
+    bctx.fillRect(sx-30,gy-26,60,p); bctx.fillRect(sx-30,gy-6,60,p);
   }
 }
 function drawLog(b){
@@ -383,7 +381,7 @@ function drawJack(c){
 let state='menu', stateT=0, mode='apex', paused=false, time=0;
 let jack=null, logs=[], parts=[], floats=[];
 let beaver={x:240,y:0,vx:0,face:1,gnawMode:false};
-let trees=[];
+let stacks=[];
 let score=0, dodges=0, lives=3, stage=1, hits=0, alarms=0, stageT=0, matchT=0;
 let round=1, wins={p1:0,p2:0}, roundT=0, roundWinner=null;
 let banner='', bannerT=0, shake=0;
@@ -405,8 +403,8 @@ function resetStage(){
   logs=[]; parts=[]; floats=[];
   genTower();
   beaver={x:240,y:surfY(5,240),vx:0,face:1,gnawMode:false};
-  trees=TREEX.map(x=>({x,stage:2,growT:99,gnaw:0,falling:0,highlight:false}));
-  hits=0; alarms=0; stageT=0; aiGnawT=1.2; aiTree=null; holdPtr=null; holdKeyT=null;
+  stacks=STACKX.map(x=>({x,stage:2,growT:99,gnaw:0,falling:0,highlight:false}));
+  hits=0; alarms=0; stageT=0; aiGnawT=1.2; aiStack=null; holdPtr=null; holdKeyT=null;
   lastInputT=time; idleWarned=false;
   resetJack();
 }
@@ -422,26 +420,26 @@ function sawdust(x,y){
 function floatText(x,y,txt,color){ floats.push({x,y,txt,color:color||'#ffd75a',t:0}); }
 function confetti(n){ for(let i=0;i<n;i++) burst(rnd(60,W-60),rnd(60,300),1,['#ffd75a','#7dff9a','#ff5a5a','#7fb2dd'][i%4]); }
 /* ---------- beaver + gnaw ---------- */
-let holdPtr=null;   // {id, tree} — pointer currently gnawing
+let holdPtr=null;   // {id, stack} — pointer currently stealing
 let holdKeyT=null;  // tree targeted by keyboard gnaw key
-let aiTree=null, aiGnawT=0, aiThinkT=0;
+let aiStack=null, aiGnawT=0, aiThinkT=0;
 let lastInputT=0, idleWarned=false;
 const aiPlan={left:false,right:false,up:false,down:false,jump:false};
 function nearestTree(x,maxD){
   let bt=null, bd=maxD;
-  for(const t of trees){ if(t.stage!==2||t.falling>0) continue;
+  for(const t of stacks){ if(t.stage!==2||t.falling>0) continue;
     const d=Math.abs(t.x-x); if(d<bd){bd=d;bt=t;} }
   return bt;
 }
-function fellTree(t){
+function fellStack(t){
   t.falling=0.45; t.gnaw=0; t.highlight=false;
-  if(holdPtr&&holdPtr.tree===t) holdPtr=null;
+  if(holdPtr&&holdPtr.stack===t) holdPtr=null;
   if(holdKeyT===t) holdKeyT=null;
   if(mode==='climb'){
     const impatient=time-lastInputT>25;
     aiGnawT=Math.max(impatient?0.5:0.85,2.4-0.3*stage);
     if(impatient&&!idleWarned){ idleWarned=true; banner='THE BEAVER GROWS IMPATIENT'; bannerT=1.6; }
-    aiTree=null;
+    aiStack=null;
   }
 }
 function spawnLog(t){
@@ -450,19 +448,19 @@ function spawnLog(t){
   logs.push({x:t.x,y:surfY(5,t.x)-6,vx:GDIR[5]*sp,vy:0,r:10,girder:5,state:'roll',rot:0,jumped:false});
   sCrack(); shake=Math.max(shake,0.6);
   burst(t.x,surfY(5,t.x)-10,10,'#8a5a20');
-  floatText(t.x,surfY(5,t.x)-70,'TIMBER!','#ffd75a');
+  floatText(t.x,surfY(5,t.x)-70,'THIEF!','#ffd75a');
 }
 function updateBeaver(dt){
   const b=beaver, ai=(mode==='climb');
   const spd=ai?aiBeavSpd():BEAV_SPD;
   b.gnawMode=false;
   let T=null;
-  if(ai) T=aiTree;
+  if(ai) T=aiStack;
   else{
-    if(holdPtr&&holdPtr.tree.stage===2&&holdPtr.tree.falling<=0) T=holdPtr.tree;
+    if(holdPtr&&holdPtr.stack.stage===2&&holdPtr.stack.falling<=0) T=holdPtr.stack;
     else if(keyGnaw) T=nearestTree(b.x,70);
   }
-  for(const t of trees) t.highlight=false;
+  for(const t of stacks) t.highlight=false;
   if(T) T.highlight=true;
   let mv=0;
   if(T){
@@ -480,11 +478,11 @@ function updateBeaver(dt){
     b.gnawMode=true; b.face=T.x>=b.x?1:-1;
     T.gnaw+=dt/gnawTime(); sGnaw();
     if(Math.random()<10*dt) sawdust(T.x+b.face*8,surfY(5,T.x)-8);
-    if(T.gnaw>=1) fellTree(T);
+    if(T.gnaw>=1) fellStack(T);
   }else{
-    for(const t of trees) t.gnaw=Math.max(0,t.gnaw-dt*(t===T?0.5:2)/gnawTime());
+    for(const t of stacks) t.gnaw=Math.max(0,t.gnaw-dt*(t===T?0.5:2)/gnawTime());
   }
-  for(const t of trees){
+  for(const t of stacks){
     if(t.falling>0){
       t.falling-=dt;
       if(t.falling<=0){ spawnLog(t); t.stage=0; t.growT=0; t.gnaw=0; }
@@ -495,16 +493,16 @@ function updateBeaver(dt){
   }
 }
 /* ---------- AI beaver (lumberjack mode) ---------- */
-function pickTree(){
+function pickStack(){
   let b=null,bd=1e9;
-  for(const t of trees){ if(t.stage!==2||t.falling>0)continue;
+  for(const t of stacks){ if(t.stage!==2||t.falling>0)continue;
     const d=Math.abs(t.x-jack.x)+rnd(0,90);
     if(d<bd){bd=d;b=t;} }
   return b;
 }
 function aiBeaver(dt){
-  if(aiGnawT>0){ aiGnawT-=dt; aiTree=null; return; }
-  if(!aiTree||aiTree.stage!==2||aiTree.falling>0) aiTree=pickTree();
+  if(aiGnawT>0){ aiGnawT-=dt; aiStack=null; return; }
+  if(!aiStack||aiStack.stage!==2||aiStack.falling>0) aiStack=pickStack();
 }
 /* ---------- logs (ported barrel physics) ---------- */
 function updateLogs(dt){
@@ -658,10 +656,10 @@ function jackControl(){
 }
 function tryHoldTree(x,y,pid){
   let bt=null, bd=52;
-  for(const t of trees){ if(t.stage!==2||t.falling>0)continue;
+  for(const t of stacks){ if(t.stage!==2||t.falling>0)continue;
     const d=Math.hypot(t.x-x,surfY(5,t.x)-34-y);
     if(d<bd){bd=d;bt=t;} }
-  if(bt){ holdPtr={id:pid,tree:bt}; lastInputT=time; }
+  if(bt){ holdPtr={id:pid,stack:bt}; lastInputT=time; }
 }
 const menuBtns=[
   {id:'apex',y:372,label:'BEAVER',sub:'1P - you are the beaver'},
@@ -704,7 +702,7 @@ function startMode(m){
   mode=m; score=0; dodges=0; lives=3; stage=1; hits=0; matchT=0;
   round=1; wins={p1:0,p2:0}; roundWinner=null;
   resetStage(); paused=false;
-  if(m==='apex')banner='YOU ARE THE BEAVER - HOLD THE TOWER';
+  if(m==='apex')banner='YOU ARE THE BEAVER - STEAL HIS LOGS';
   else if(m==='climb')banner='CLIMB - REACH THE TOP';
   else{ banner='VERSUS - LUMBERJACK VS BEAVER'; bannerT=2.0; startRound(); return; }
   bannerT=2.2; state='serve'; stateT=0; sUI();
@@ -860,9 +858,9 @@ function drawMenu(){
   text('APEX',W/2,140+bob,'76','#ffd75a','center');
   text('BEAVER VS LUMBERJACK',W/2,196,'20','#7fb2dd','center');
   text('A 1981 TOWER TALE',W/2,222,'16','#5a6270','center');
-  drawTree({x:64,gy:312,stage:2,gnaw:0,falling:0,highlight:false});
+  drawStack({x:64,gy:312,stage:2,gnaw:0,falling:0,highlight:false});
   drawBeaver({x:416,y:308,face:-1,vx:0,gnawMode:false});
-  drawTree({x:448,gy:312,stage:1,gnaw:0,falling:0,highlight:false});
+  drawStack({x:448,gy:312,stage:1,gnaw:0,falling:0,highlight:false});
   text('BEAVER VS LUMBERJACK',W/2,196,'20','#7fb2dd','center');
   text('A 1981 TOWER TALE',W/2,222,'16','#5a6270','center');
   for(const b of menuBtns){
@@ -879,11 +877,12 @@ function drawHowto(){
   bctx.drawImage(sky,0,0,W,H);
   text('HOW TO PLAY',W/2,84,'34','#e8f4ff','center');
   const secs=[
-    ['BEAVER - YOU FELL THE TREES','#ffd75a',[
-      'PRESS AND HOLD A TREE TO GNAW IT.',
-      'THE BEAVER SCURRIES OVER AND CHEWS.',
-      'WHEN THE TRUNK GIVES - TIMBER! THE',
-      'LOG TUMBLES DOWN THE TOWER.',
+    ['BEAVER - YOU STEAL THE LOGS','#ffd75a',[
+      'THE JACK STACKED HIS LOGS UP TOP.',
+      'PRESS AND HOLD A STACK TO WORRY IT LOOSE.',
+      'THE BEAVER SCURRIES OVER AND GNAWS.',
+      'WHEN A LOG BREAKS FREE - THIEF! IT',
+      'TUMBLES DOWN THE TOWER.',
       '3 LOG HITS CLEAR THE STAGE. BUT EACH',
       'TIME THE JACK REACHES THE TOP:',
       'ALARM. 3 ALARMS AND THE RUN IS OVER.',
@@ -897,8 +896,8 @@ function drawHowto(){
     ['VERSUS - SAME SCREEN','#7fb2dd',[
       'P1 LUMBERJACK: ARROWS + SPACE.',
       'P2 BEAVER: A/D TO MOVE, HOLD F OR',
-      'PRESS-AND-HOLD A TREE TO GNAW.',
-      'TOUCH: P1 BUTTONS, P2 HOLDS TREES.',
+      'PRESS-AND-HOLD A STACK TO STEAL.',
+      'TOUCH: P1 BUTTONS, P2 HOLDS STACKS.',
       'BEST OF 3. 60S ROUNDS.']],
   ];
   let y=128;
@@ -920,7 +919,7 @@ function render(){
     if(shake>0)bctx.translate(rnd(-3,3)*shake,rnd(-3,3)*shake);
     bctx.drawImage(sky,0,0,W,H);
     drawGirders(); drawLadders();
-    for(const t of trees)drawTree(t);
+    for(const t of stacks)drawStack(t);
     for(const b of logs)drawLog(b);
     drawJack(jack);
     drawBeaver(beaver);
@@ -953,11 +952,11 @@ requestAnimationFrame(frame);
 /* ---------- debug hooks ---------- */
 window.__apex={
   get state(){return state;}, get mode(){return mode;}, get stage(){return stage;},
-  get beaver(){return beaver;}, get trees(){return trees;}, get logs(){return logs;},
+  get beaver(){return beaver;}, get stacks(){return stacks;}, get logs(){return logs;},
   get jack(){return jack;}, get hits(){return hits;}, get alarms(){return alarms;},
   get score(){return score;}, get lives(){return lives;},
-  startMode, fellTree, update, toMenu,
-  holdTreeAt(i){ const t=trees[i]; if(t){ holdPtr={id:'dbg',tree:t}; } },
+  startMode, fellStack, update, toMenu,
+  holdStackAt(i){ const t=stacks[i]; if(t){ holdPtr={id:"dbg",stack:t}; } },
   releaseHold(){ holdPtr=null; },
   setKeys(o){ for(const k in o)keys[k]=o[k]; },
 };
