@@ -624,7 +624,7 @@ function drawDemon(d,sx,horizon,vh,depth,fog){
   if(spr && spr.complete && spr.naturalWidth){
     const sw = size*1.1, sh = size*1.35;
     const attacking = d.atkT>0 || d.state==='attack';
-    const wf = attacking ? 2 : Math.floor(d.anim*4) % 2; // attack frame or walk cycle
+    const wf = attacking ? 2 : Math.floor(d.anim*0.8) % 2; // slow old-school walk cycle
     const sx0 = wf*64; // frame offset in sheet
     let sy = groundY - sh + bob; // feet on the ground
     let rot = 0, alpha = 1;
