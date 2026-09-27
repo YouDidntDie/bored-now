@@ -324,12 +324,12 @@ function mkSprite(w,h,fn){
 const KNIGHT_SPR={};
 (function(){
   const P={
-    up:   ["....rrr....","....rrr....","...wwwww...","...wswsw...","...wwwww...","....ssss...","..sssssss..",".ssSSSSSss.",".sSSSSSSSs.","..ssSSsSS..","...s...s...","..ss...ss.."],
-    down: ["....rrr....","....rrr....","...wwwww...","...wswsw...","...wwwww...","....ssss...","..sssssss..",".ssSSSSSss.",".sSSSSSSSs.","..ssSSsSS..","...s...s...","..ss...ss.."],
-    left: ["....rrr....","....rrr....","...wwwww...","...wswsw...","...wwwww...","....ssss...","..sssssss..",".ssSSSSSss.",".sSSSSSSSs.","..ssSSsSS..","...s...s...","..ss...ss.."],
-    right:["....rrr....","....rrr....","...wwwww...","...wswsw...","...wwwww...","....ssss...","..sssssss..",".ssSSSSSss.",".sSSSSSSSs.","..ssSSsSS..","...s...s...","..ss...ss.."]
+    up:   ["...rrrrr...","...rrrrr...","...wwwww...","...wwwww...","...wwwww...","....ssss...","..sssssss..",".ssSSSSSss.",".sSSSSSSSs.","..ssSSsSS..","...s...s...","..ss...ss.."],
+    down: ["....rrr....","....rrr....","...wwwww...","...wdddw...","...wwwww...","....ssss...","..sssssss..",".ssSSSSSss.",".sSSSSSSSs.","..ssSSsSS..","...s...s...","..ss...ss.."],
+    left: ["....rrr....",".....rrrr..","...wwwww...","...ddww....","..wwwwww...","....ssss...","..sssssss..",".ssSSSSSss.",".sSSSSSSSs.","..ssSSsSS..","....s..s...","...ss..ss.."],
+    right:["....rrr....","..rrrr.....","...wwwww...","....wwdd...","...wwwwww..","....ssss...","..sssssss..",".ssSSSSSss.",".sSSSSSSSs.","..ssSSsSS..","...s..s....","..ss..ss..."]
   };
-  const cols={r:'#c22',w:'#e8dcc0',s:'#8a93a6',S:'#5a6378'};
+  const cols={r:'#c22',w:'#e8dcc0',s:'#8a93a6',S:'#5a6378',d:'#14141c'};
   for(const k of ['up','down','left','right']){
     KNIGHT_SPR[k]=mkSprite(11,12,(g)=>{
       const rows=P[k];
@@ -337,33 +337,59 @@ const KNIGHT_SPR={};
         const ch=rows[y][x]; if(ch==='.') continue;
         g.fillStyle=cols[ch]; g.fillRect(x,y,1,1);
       }
-      // plume direction accent
-      g.fillStyle='#ff4d5e';
-      if(k==='up')g.fillRect(4,0,3,2);
-      if(k==='down')g.fillRect(4,0,3,2);
-      if(k==='left')g.fillRect(0,4,2,3);
-      if(k==='right')g.fillRect(9,4,2,3);
     });
   }
 })();
-const WRAITH=mkSprite(11,11,(g)=>{
+const FOE_SPR={
+sentry:mkSprite(11,11,(g)=>{
+  const rows=[
+    "..wwwwwww..",
+    ".wwwwwwwww.",
+    ".wwwwwwwww.",
+    "wwwwwwwwwww",
+    "wwwwwwwwwww",
+    ".wwwwwwwww.",
+    ".wwwwwwwww.",
+    ".wwwwwwwww.",
+    "..wwwwwww..",
+    "..www.www..",
+    "..ww...ww.."];
+  g.fillStyle='#fff';
+  for(let y=0;y<11;y++)for(let x=0;x<11;x++) if(rows[y][x]==='w') g.fillRect(x,y,1,1);
+}),
+reaver:mkSprite(11,11,(g)=>{
   const rows=[
     ".....w.....",
     "....www....",
+    "....www....",
     "...wwwww...",
     "...wwwww...",
+    "..wwwwwww..",
+    "..wwwwwww..",
     "...wwwww...",
-    "....www....",
-    "....www....",
-    "....www....",
-    "...ww.ww...",
-    "...w...w...",
-    "..w.....w.."];
+    "...w.w.w...",
+    "..w..w..w..",
+    ".w...w...w."];
   g.fillStyle='#fff';
   for(let y=0;y<11;y++)for(let x=0;x<11;x++) if(rows[y][x]==='w') g.fillRect(x,y,1,1);
-  g.fillStyle='#101018';
-  g.fillRect(3,3,2,2); g.fillRect(6,3,2,2); // eyes cut out
-});
+}),
+wisp:mkSprite(11,11,(g)=>{
+  const rows=[
+    "...........",
+    "....www....",
+    "..wwwwwww..",
+    ".wwwwwwwww.",
+    ".wwwwwwwww.",
+    ".wwwwwwwww.",
+    "..wwwwwww..",
+    "..www.www..",
+    "...w...w...",
+    "...........",
+    "..........."];
+  g.fillStyle='#fff';
+  for(let y=0;y<11;y++)for(let x=0;x<11;x++) if(rows[y][x]==='w') g.fillRect(x,y,1,1);
+}),
+};
 const EYES={
   up:mkSprite(7,3,(g)=>{g.fillStyle='#fff';g.fillRect(0,1,3,1);g.fillRect(4,1,3,1);g.fillStyle='#22d';g.fillRect(1,0,1,1);g.fillRect(5,0,1,1);}),
   down:mkSprite(7,3,(g)=>{g.fillStyle='#fff';g.fillRect(0,1,3,1);g.fillRect(4,1,3,1);g.fillStyle='#22d';g.fillRect(1,2,1,1);g.fillRect(5,2,1,1);}),
@@ -1077,16 +1103,16 @@ function drawWraith(e){
   const cx=ox+e.x*TS, cy=oy+e.y*TS;
   if(e.state==='emerge'){
     if(Math.floor(perfNow()*12)%2===0) return; // shimmer
-    spr(WRAITH,cx-5.5,cy-9,e.color);
+    spr(FOE_SPR[e.kind],cx-5.5,cy-9,e.color);
     return;
   }
   if(e.state==='dying'){
     bctx.save(); bctx.translate(cx,cy); bctx.scale(1,e.dieT>0.3?1:-1);
-    spr(WRAITH,-5.5,-9,'#ffffff');
+    spr(FOE_SPR[e.kind],-5.5,-9,'#ffffff');
     bctx.restore(); return;
   }
   if(e.state==='gone') return;
-  spr(WRAITH,cx-5.5,cy-9,e.color);
+  spr(FOE_SPR[e.kind],cx-5.5,cy-9,e.color);
   const f=dirToFace(e.dir)||'down';
   const ey=EYES[f];
   bctx.drawImage(ey,cx-3.5,cy-6,7,3);
@@ -1183,8 +1209,8 @@ function drawMenu(){
     const ox=mox(), oy=250;
     spr(KNIGHT_SPR.right, ox+120, oy, null);
     spr(SWORD, ox+138, oy-4, '#dfe8ff');
-    spr(WRAITH, ox+220, oy, '#ff4d5e');
-    spr(WRAITH, ox+260, oy+6, '#4dc9ff');
+    spr(FOE_SPR.reaver, ox+220, oy, '#ff4d5e');
+    spr(FOE_SPR.sentry, ox+260, oy+6, '#4dc9ff');
   }
   const by0=land?150:360, pitch=land?76:76;
   menuBtns=[
