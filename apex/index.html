@@ -651,12 +651,14 @@ function beaverControl(){
   };
 }
 const touchHeld={left:false,right:false,up:false,down:false,jump:false};
-const coarsePointer=()=>(window.matchMedia&&window.matchMedia('(pointer:coarse)').matches)||'ontouchstart' in window;
+let touchSeen=false;
+window.addEventListener('touchstart',()=>{touchSeen=true;},{passive:true});
+const coarsePointer=()=>touchSeen||(window.matchMedia&&window.matchMedia('(pointer:coarse)').matches)||'ontouchstart' in window;
 function syncTouch(){
   const el=document.getElementById('touch');
   const want=coarsePointer()&&(mode==='climb'||mode==='versus')&&(state==='play'||state==='serve')&&!paused;
   if(want!==el.classList.contains('on'))el.classList.toggle('on',want);
-  if(!want){ touchHeld.left=touchHeld.right=touchHeld.up=touchHeld.down=touchHeld.jump=false; }
+  if(!want)touchHeld.jump=false; // swipe directions are managed by startSwipe/endSwipe, not cleared here
 }
 [['tJ','jump']].forEach(([id,name])=>{
   const el=document.getElementById(id);
