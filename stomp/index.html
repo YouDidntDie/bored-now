@@ -246,49 +246,120 @@ function drawDemon(d, t){
   }
 }
 function drawBG(t){
+  // === HELL SKY: blood red to black, lava glow at horizon ===
   const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#0a0005');
-  g.addColorStop(0.5, '#1a0505');
-  g.addColorStop(0.8, '#2a0a05');
-  g.addColorStop(1, '#0a0005');
+  g.addColorStop(0, '#050000');
+  g.addColorStop(0.45, '#1a0303');
+  g.addColorStop(0.7, '#3a0a02');
+  g.addColorStop(0.85, '#5a1502');
+  g.addColorStop(1, '#7a2005');
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  const p1 = camX * 0.2;
-  ctx.fillStyle = 'rgba(255,80,0,0.15)';
-  for(let i=0; i<20; i++){
-    const fx = ((i*97 - p1) % (W+80) + W+80) % (W+80) - 40;
-    const fh = 30 + Math.sin(t*2+i)*8;
+  
+  // === LAYER 1 (far): giant demon horns + burning ruins on horizon ===
+  const p1 = camX * 0.15;
+  ctx.fillStyle = '#0d0202';
+  for(let i=0; i<10; i++){
+    const hx = ((i*211 - p1) % (W+160) + W+160) % (W+160) - 80;
+    const hh = 60 + (i%4)*25;
+    // horn: curved triangle
     ctx.beginPath();
-    ctx.moveTo(fx-12, H); ctx.quadraticCurveTo(fx, H-fh, fx+12, H);
+    ctx.moveTo(hx-25, H-40);
+    ctx.quadraticCurveTo(hx-15, H-40-hh, hx+8, H-40-hh-15);
+    ctx.quadraticCurveTo(hx-5, H-40-hh+20, hx+25, H-40);
     ctx.fill();
   }
-  const p2 = camX * 0.4;
-  ctx.fillStyle = '#120608';
-  for(let i=0; i<12; i++){
-    const px = ((i*173 - p2) % (W+120) + W+120) % (W+120) - 60;
-    const ph = 80 + (i%3)*30;
-    ctx.fillRect(px, H-ph-40, 24, ph);
+  // distant flames (bigger, angrier)
+  for(let i=0; i<24; i++){
+    const fx = ((i*67 - p1*1.3) % (W+80) + W+80) % (W+80) - 40;
+    const fh = 40 + Math.sin(t*3+i*1.7)*12 + (i%3)*10;
+    const grad = ctx.createLinearGradient(0, H-fh, 0, H);
+    grad.addColorStop(0, 'rgba(255,200,50,0)');
+    grad.addColorStop(0.6, 'rgba(255,100,10,0.35)');
+    grad.addColorStop(1, 'rgba(255,50,0,0.5)');
+    ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.moveTo(px, H-ph-40); ctx.lineTo(px+12, H-ph-55); ctx.lineTo(px+24, H-ph-40);
+    ctx.moveTo(fx-14, H-35); ctx.quadraticCurveTo(fx-4, H-35-fh*0.7, fx, H-35-fh);
+    ctx.quadraticCurveTo(fx+4, H-35-fh*0.7, fx+14, H-35);
     ctx.fill();
   }
-  const p3 = camX * 0.6;
-  ctx.strokeStyle = '#1a1a1a'; ctx.lineWidth = 3;
-  for(let i=0; i<8; i++){
-    const cx = ((i*211 - p3) % (W+100) + W+100) % (W+100) - 50;
-    const len = 40 + (i%4)*20 + Math.sin(t+i)*3;
+  
+  // === LAYER 2: jagged obsidian spires ===
+  const p2 = camX * 0.35;
+  ctx.fillStyle = '#0a0305';
+  for(let i=0; i<14; i++){
+    const px = ((i*149 - p2) % (W+100) + W+100) % (W+100) - 50;
+    const ph = 90 + (i%5)*28;
+    const pw = 18 + (i%3)*8;
+    ctx.beginPath();
+    ctx.moveTo(px-pw/2, H-20);
+    ctx.lineTo(px-4, H-20-ph*0.6);
+    ctx.lineTo(px+2, H-20-ph);
+    ctx.lineTo(px+6, H-20-ph*0.5);
+    ctx.lineTo(px+pw/2, H-20);
+    ctx.fill();
+    // lava veins on spires
+    ctx.fillStyle = 'rgba(255,60,0,0.25)';
+    ctx.fillRect(px-1, H-20-ph*0.8, 2, ph*0.5);
+    ctx.fillStyle = '#0a0305';
+  }
+  
+  // === LAYER 3: chains with hooks ===
+  const p3 = camX * 0.55;
+  ctx.strokeStyle = '#1f1512'; ctx.lineWidth = 4;
+  for(let i=0; i<9; i++){
+    const cx = ((i*179 - p3) % (W+90) + W+90) % (W+90) - 45;
+    const len = 50 + (i%4)*25 + Math.sin(t*0.8+i)*4;
     ctx.beginPath(); ctx.moveTo(cx, 0);
-    for(let s=0; s<len; s+=8) ctx.lineTo(cx + Math.sin(s*0.5+i)*2, s);
+    for(let s=0; s<len; s+=10) ctx.lineTo(cx + Math.sin(s*0.4+i*2)*3, s);
     ctx.stroke();
-    ctx.fillStyle = '#2a2a2a';
-    ctx.fillRect(cx-3, len, 6, 8);
+    // hook
+    ctx.strokeStyle = '#2a1a12'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(cx, len+6, 7, 0.3, Math.PI*1.4); ctx.stroke();
+    ctx.strokeStyle = '#1f1512'; ctx.lineWidth = 4;
   }
-  const p4 = camX * 0.8;
-  for(let i=0; i<15; i++){
-    const sx = ((i*137 - p4) % (W+60) + W+60) % (W+60) - 30;
-    const sy = 60 + (i*53)%120 + Math.sin(t*1.5+i)*6;
-    const alpha = 0.15 + Math.sin(t*2+i)*0.05;
-    ctx.fillStyle = `rgba(100,150,255,${alpha})`;
-    ctx.beginPath(); ctx.ellipse(sx, sy, 4, 6, 0, 0, 7); ctx.fill();
+  
+  // === LAYER 4: tormented souls reaching up (orange, desperate) ===
+  const p4 = camX * 0.75;
+  for(let i=0; i<18; i++){
+    const sx = ((i*113 - p4) % (W+60) + W+60) % (W+60) - 30;
+    const sy = 70 + (i*47)%110 + Math.sin(t*2+i*1.3)*8;
+    const alpha = 0.25 + Math.sin(t*3+i)*0.1;
+    // reaching figure: vertical streak with arms up
+    ctx.fillStyle = `rgba(255,${120+Math.floor(Math.sin(t*2+i)*30)},30,${alpha})`;
+    ctx.fillRect(sx-2, sy-8, 4, 14); // body
+    ctx.fillRect(sx-5, sy-12, 3, 8); // left arm up
+    ctx.fillRect(sx+2, sy-12, 3, 8); // right arm up
+    ctx.beginPath(); ctx.arc(sx, sy-10, 3, 0, 7); ctx.fill(); // head
+  }
+  
+  // === EMBERS rising ===
+  for(let i=0; i<30; i++){
+    const ex = (i*97 + Math.sin(t*0.5+i)*20 - camX*0.9) % (W+20);
+    const exw = ((ex % (W+20)) + W+20) % (W+20) - 10;
+    const ey = H - ((t*30 + i*53) % (H+40)) + 20;
+    const es = 1 + (i%3);
+    const ealpha = Math.max(0, 1 - (H-ey)/H);
+    ctx.fillStyle = `rgba(255,${100+(i%3)*50},20,${ealpha*0.8})`;
+    ctx.fillRect(exw, ey, es, es);
+  }
+  
+  // === LAVA POOLS in midground ===
+  const p5 = camX * 0.85;
+  for(let i=0; i<6; i++){
+    const lx = ((i*293 - p5) % (W+120) + W+120) % (W+120) - 60;
+    const lw = 40 + (i%3)*20;
+    const ly = H - 28;
+    const lgrad = ctx.createLinearGradient(0, ly, 0, ly+14);
+    lgrad.addColorStop(0, '#ffdd44');
+    lgrad.addColorStop(0.4, '#ff7711');
+    lgrad.addColorStop(1, '#882200');
+    ctx.fillStyle = lgrad;
+    ctx.beginPath();
+    ctx.ellipse(lx, ly+7, lw/2, 7, 0, 0, 7);
+    ctx.fill();
+    // glow above pool
+    ctx.fillStyle = 'rgba(255,100,20,0.12)';
+    ctx.fillRect(lx-lw/2, ly-20, lw, 20);
   }
 }
 
