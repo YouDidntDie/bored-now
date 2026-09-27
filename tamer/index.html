@@ -213,7 +213,8 @@ function calcDmg(user, move, target){
   const dmg = Math.max(1, Math.floor(move.p * (user.atk/target.def) * 0.45 * eff * stab * rand));
   return {dmg, eff};
 }
-function startBattle(teamA, teamB, controllers){ // controllers: {a:'human'|'ai'|'p1'|'p2', b:...}
+function startBattle(teamA, teamB, controllers){
+  startBattleAnim(); // controllers: {a:'human'|'ai'|'p1'|'p2', b:...}
   S.battle = { a:{team:teamA, active:0}, b:{team:teamB, active:0}, ctrl:controllers, over:false, winner:null, turn:1 };
   S.log = []; S.ui='main'; S.chooser='a'; S.pending={a:null,b:null};
   log('Battle start!');
@@ -884,14 +885,77 @@ function drawDraft(){
     text(m.moves[0].n+' / '+m.moves[1].n, b.x+16, b.y+128, 11, '#8fa89b');
   });
 }
+// Continuous animation loop for battle idle animations
+let battleAnimId=null;
+function startBattleAnim(){
+  if(battleAnimId) return;
+  const loop=()=>{
+    if(S.screen==='battle' && S.battle){
+      S.t=(S.t||0)+0.016;
+      drawBattle();
+      battleAnimId=requestAnimationFrame(loop);
+    } else {
+      battleAnimId=null;
+    }
+  };
+  battleAnimId=requestAnimationFrame(loop);
+}
 function drawBattle(){
   const B=S.battle; if(!B) return;
   S.buttons=[];
-  ctx.fillStyle='#0a0d13'; ctx.fillRect(0,0,W,H);
-  // arena
-  ctx.strokeStyle='rgba(0,255,157,0.15)'; ctx.lineWidth=2;
-  ctx.beginPath(); ctx.ellipse(350,258,90,18,0,0,7); ctx.stroke();
-  ctx.beginPath(); ctx.ellipse(130,468,90,18,0,0,7); ctx.stroke();
+  // ARENA BACKGROUND
+  // dark arena
+  const bgGrad = ctx.createLinearGradient(0,0,0,H);
+  bgGrad.addColorStop(0,'#0a0a12');
+  bgGrad.addColorStop(0.6,'#12121e');
+  bgGrad.addColorStop(1,'#0a0a12');
+  ctx.fillStyle=bgGrad; ctx.fillRect(0,0,W,H);
+  // crowd (dark silhouettes with tiny lights)
+  ctx.fillStyle='#080810';
+  for(let i=0;i<40;i++){
+    const cx=(i*47)%W, cy=20+((i*31)%80);
+    ctx.fillRect(cx,cy,8,12);
+    if(i%7===0){ ctx.fillStyle='#ffdd44'; ctx.fillRect(cx+2,cy+2,2,2); ctx.fillStyle='#080810'; }
+  }
+  // spotlights
+  ctx.save(); ctx.globalAlpha=0.08;
+  ctx.fillStyle='#ffffff';
+  ctx.beginPath(); ctx.moveTo(100,0); ctx.lineTo(200,0); ctx.lineTo(350,400); ctx.lineTo(150,400); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(300,0); ctx.lineTo(400,0); ctx.lineTo(250,400); ctx.lineTo(50,400); ctx.fill();
+  ctx.restore();
+  // WRESTLING RING
+  // mat
+  ctx.fillStyle='#2a2d3a'; 
+  ctx.beginPath(); ctx.ellipse(240,340,200,90,0,0,7); ctx.fill();
+  ctx.fillStyle='#323544';
+  ctx.beginPath(); ctx.ellipse(240,335,190,82,0,0,7); ctx.fill();
+  // mat texture (canvas lines)
+  ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=1;
+  for(let i=0;i<5;i++){ ctx.beginPath(); ctx.ellipse(240,335,190-i*35,82-i*16,0,0,7); ctx.stroke(); }
+  // apron (ring skirt)
+  ctx.fillStyle='#1a1c26';
+  ctx.fillRect(40,335,400,25);
+  ctx.fillStyle='#c0392b'; ctx.font='bold 12px monospace'; ctx.textAlign='center';
+  ctx.fillText('★ TAMERS ★', 240, 352);
+  // posts
+  const posts=[[70,250],[410,250],[70,420],[410,420]];
+  posts.forEach(([px,py])=>{
+    ctx.fillStyle='#555'; ctx.fillRect(px-4,py-60,8,60);
+    ctx.fillStyle='#c0392b'; ctx.fillRect(px-6,py-65,12,8);
+  });
+  // ropes (3 levels)
+  ctx.strokeStyle='#e0e0e0'; ctx.lineWidth=3;
+  [280,310,340].forEach(ry=>{
+    ctx.beginPath(); ctx.moveTo(70,ry-30); ctx.lineTo(410,ry-30); ctx.stroke();
+  });
+  ctx.strokeStyle='#c0392b'; ctx.lineWidth=2;
+  [280,310,340].forEach(ry=>{
+    ctx.beginPath(); ctx.moveTo(70,ry-30); ctx.lineTo(410,ry-30); ctx.stroke();
+  });
+  // shadows under wrestlers
+  ctx.fillStyle='rgba(0,0,0,0.4)';
+  ctx.beginPath(); ctx.ellipse(350,265,60,14,0,0,7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(130,475,60,14,0,0,7); ctx.fill();
   const A=activeMon('a'), F=activeMon('b');
   const bobA=Math.sin(S.t*3)*4, bobF=Math.sin(S.t*3+1.5)*4;
   drawPlate(F,16,12,220,'left');
