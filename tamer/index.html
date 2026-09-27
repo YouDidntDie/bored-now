@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>TAMER — 1996</title>
+<title>TAMERS — 1996</title>
 <style>
   html,body{margin:0;padding:0;background:#07090d;height:100%;overflow:hidden;
     font-family:'Courier New',ui-monospace,monospace;-webkit-user-select:none;user-select:none;
@@ -16,66 +16,92 @@
 <div id="wrap"><canvas id="c" width="480" height="720"></canvas></div>
 <script>
 'use strict';
-/* ================= TAMER (1996) — a monster-duel game. Original monsters, types, moves. ================= */
+/* ================= TAMERS (1996) — a wrestling-duel game. Original wrestlers, styles, moves. ================= */
 
 // ---------- DATA ----------
-const TYPES = ['EMBER','TIDE','LEAF','VOLT','STONE','SHADE'];
-const TCOL = { EMBER:'#ff7a2f', TIDE:'#3fa9ff', LEAF:'#5dd65d', VOLT:'#ffd93f', STONE:'#c9a06a', SHADE:'#a06ae0' };
-// CHART[attacker][defender]
+const TYPES = ['POWER','AERIAL','TECH','BRAWL','SHOW'];
+const TCOL = { POWER:'#ff5252', AERIAL:'#3fa9ff', TECH:'#5dd65d', BRAWL:'#ff9a3f', SHOW:'#c06ae0' };
+// CHART[attacker][defender] — wrestling style matchups
 const CHART = {
-  EMBER: { EMBER:1, TIDE:0.5, LEAF:2,   VOLT:1, STONE:0.5, SHADE:1 },
-  TIDE:  { EMBER:2, TIDE:1,   LEAF:0.5, VOLT:0.5, STONE:2, SHADE:1 },
-  LEAF:  { EMBER:0.5, TIDE:2,  LEAF:1,   VOLT:1, STONE:2,   SHADE:1 },
-  VOLT:  { EMBER:1, TIDE:2,   LEAF:1,   VOLT:1, STONE:0.5, SHADE:1 },
-  STONE: { EMBER:2, TIDE:0.5,  LEAF:0.5, VOLT:2, STONE:1,   SHADE:1 },
-  SHADE: { EMBER:1, TIDE:1,    LEAF:0.5, VOLT:2, STONE:1,   SHADE:2 },
+  POWER:  { POWER:1,  AERIAL:0.5, TECH:2,   BRAWL:2,   SHOW:0.5 },
+  AERIAL: { POWER:2,  AERIAL:1,   TECH:0.5, BRAWL:0.5, SHOW:2   },
+  TECH:   { POWER:0.5,AERIAL:2,   TECH:1,   BRAWL:2,   SHOW:0.5 },
+  BRAWL:  { POWER:0.5,AERIAL:2,   TECH:0.5, BRAWL:1,   SHOW:2   },
+  SHOW:   { POWER:2,  AERIAL:0.5, TECH:2,   BRAWL:0.5, SHOW:1   },
 };
-// move: {n:name, t:type, p:power, a:accuracy, e:effect|null}  effect: {k:'burn'|'par', ch:chance}
-const MONSTERS = [
-  { id:'cindra', name:'CINDRA', type:'EMBER', hp:100, atk:95, def:70, spd:90, shape:'tri',
+// move: {n:name, t:type, p:power, a:accuracy, e:effect|null}  effect: {k:'bleed'|'dazed', ch:chance}
+const WRESTLERS = [
+  { id:'anvil', name:'"THE ANVIL" BRUNO KANE', type:'POWER', hp:120, atk:100, def:90, spd:50, shape:'big',
     moves:[
-      {n:'Flare Bite',  t:'EMBER', p:65, a:100, e:null},
-      {n:'Magma Burst', t:'EMBER', p:90, a:85,  e:null},
-      {n:'Singe',       t:'EMBER', p:40, a:100, e:{k:'burn', ch:0.5}},
-      {n:'Stone Hurl',  t:'STONE', p:60, a:95,  e:null},
+      {n:'Chokeslam',      t:'POWER', p:65, a:100, e:null},
+      {n:'Powerbomb',      t:'POWER', p:90, a:85,  e:null},
+      {n:'Shoulder Tackle',t:'POWER', p:40, a:100, e:{k:'dazed', ch:0.5}},
+      {n:'Bear Hug',       t:'TECH',  p:60, a:95,  e:null},
     ]},
-  { id:'wavern', name:'WAVERN', type:'TIDE', hp:110, atk:85, def:85, spd:70, shape:'drop',
+  { id:'lola', name:'"LIGHTNING" LOLA RAY', type:'AERIAL', hp:90, atk:90, def:60, spd:105, shape:'lean',
     moves:[
-      {n:'Aqua Slam',   t:'TIDE', p:65, a:100, e:null},
-      {n:'Tidal Crash', t:'TIDE', p:90, a:85,  e:null},
-      {n:'Brine Spray', t:'TIDE', p:40, a:100, e:{k:'par', ch:0.4}},
-      {n:'Sludge Spit',    t:'STONE', p:60, a:95, e:null},
+      {n:'Hurricanrana',       t:'AERIAL', p:65, a:100, e:null},
+      {n:'450 Splash',         t:'AERIAL', p:90, a:85,  e:null},
+      {n:'Springboard Dropkick',t:'AERIAL',p:40, a:100, e:{k:'dazed', ch:0.5}},
+      {n:'Quick Rollup',       t:'TECH',   p:60, a:95,  e:null},
     ]},
-  { id:'fernix', name:'FERNIX', type:'LEAF', hp:120, atk:80, def:90, spd:55, shape:'hex',
+  { id:'prof', name:'"THE PROFESSOR" IVAN VOLKOV', type:'TECH', hp:110, atk:85, def:85, spd:70, shape:'avg',
     moves:[
-      {n:'Vine Lash',   t:'LEAF', p:65, a:100, e:null},
-      {n:'Canopy Cyclone',  t:'LEAF', p:90, a:85,  e:null},
-      {n:'Spore Cloud', t:'LEAF', p:40, a:100, e:{k:'par', ch:0.5}},
-      {n:'Mud Ball',    t:'STONE', p:60, a:95, e:null},
+      {n:'German Suplex',   t:'TECH',  p:65, a:100, e:null},
+      {n:'Sharpshooter',    t:'TECH',  p:90, a:85,  e:null},
+      {n:'Ankle Lock',      t:'TECH',  p:40, a:100, e:{k:'bleed', ch:0.5}},
+      {n:'Precision Strike',t:'POWER', p:60, a:95,  e:null},
     ]},
-  { id:'voltiq', name:'VOLTIQ', type:'VOLT', hp:90, atk:90, def:60, spd:105, shape:'bolt',
+  { id:'maddog', name:'"MAD DOG" REX HARLOW', type:'BRAWL', hp:115, atk:95, def:80, spd:60, shape:'stocky',
     moves:[
-      {n:'Zap',          t:'VOLT', p:65, a:100, e:null},
-      {n:'Thunder Crash',t:'VOLT', p:90, a:85,  e:null},
-      {n:'Static Field', t:'VOLT', p:40, a:100, e:{k:'par', ch:0.5}},
-      {n:'Torrent Dash',     t:'TIDE', p:60, a:95,  e:null},
+      {n:'Brawling Fists', t:'BRAWL', p:65, a:100, e:null},
+      {n:'Chair Shot',     t:'BRAWL', p:90, a:85,  e:null},
+      {n:'Eye Gouge',      t:'BRAWL', p:40, a:100, e:{k:'dazed', ch:0.4}},
+      {n:'Low Blow',       t:'SHOW',  p:60, a:95,  e:null},
     ]},
-  { id:'terrax', name:'TERRAX', type:'STONE', hp:115, atk:100, def:95, spd:50, shape:'rock',
+  { id:'jax', name:'"THE SHOWSTOPPER" JAX DIAMOND', type:'SHOW', hp:100, atk:92, def:70, spd:90, shape:'avg',
     moves:[
-      {n:'Boulder Roll', t:'STONE', p:65, a:100, e:null},
-      {n:'Quake',      t:'STONE', p:90, a:85,  e:null},
-      {n:'Dune Snare',  t:'STONE', p:40, a:100, e:{k:'par', ch:0.4}},
-      {n:'Blaze Fist', t:'EMBER', p:60, a:95,  e:null},
+      {n:'Showtime Kick', t:'SHOW',  p:65, a:100, e:null},
+      {n:'Grand Finale',  t:'SHOW',  p:90, a:85,  e:null},
+      {n:'Taunt',         t:'SHOW',  p:40, a:100, e:{k:'dazed', ch:0.4}},
+      {n:"People's Elbow",t:'POWER', p:60, a:95,  e:null},
     ]},
-  { id:'umbra', name:'UMBRA', type:'SHADE', hp:95, atk:92, def:65, spd:98, shape:'crescent',
+  { id:'titan', name:'TITAN CRUSH', type:'POWER', hp:125, atk:105, def:85, spd:45, shape:'stocky',
     moves:[
-      {n:'Dusk Talons', t:'SHADE', p:65, a:100, e:null},
-      {n:'Waking Terror',   t:'SHADE', p:90, a:85,  e:null},
-      {n:'Hex Mark',       t:'SHADE', p:40, a:100, e:{k:'burn', ch:0.4}},
-      {n:'Ember Bite',  t:'EMBER', p:60, a:95,  e:null},
+      {n:'Skull Crusher', t:'POWER', p:65, a:100, e:null},
+      {n:'Demolition',    t:'POWER', p:95, a:80,  e:null},
+      {n:'Headbutt',      t:'POWER', p:40, a:100, e:{k:'dazed', ch:0.4}},
+      {n:'Big Boot',      t:'BRAWL', p:60, a:95,  e:null},
+    ]},
+  { id:'velvet', name:'"VELVET" VERA STORM', type:'AERIAL', hp:95, atk:88, def:65, spd:100, shape:'lean',
+    moves:[
+      {n:'Tornado DDT',   t:'AERIAL', p:65, a:100, e:null},
+      {n:'Sky Dive',      t:'AERIAL', p:88, a:88,  e:null},
+      {n:'Spinning Kick', t:'AERIAL', p:40, a:100, e:{k:'dazed', ch:0.5}},
+      {n:'Snap Suplex',   t:'TECH',   p:60, a:95,  e:null},
+    ]},
+  { id:'sage', name:'"THE SAGE" KENJI SATO', type:'TECH', hp:105, atk:90, def:90, spd:75, shape:'avg',
+    moves:[
+      {n:'Dragon Suplex', t:'TECH',  p:65, a:100, e:null},
+      {n:'Crippler Lock', t:'TECH',  p:88, a:88,  e:null},
+      {n:'Wrist Control', t:'TECH',  p:40, a:100, e:{k:'bleed', ch:0.4}},
+      {n:'Lariat',        t:'POWER', p:60, a:95,  e:null},
+    ]},
+  { id:'brutus', name:'BRUTUS "THE BUTCHER"', type:'BRAWL', hp:118, atk:98, def:82, spd:55, shape:'big',
+    moves:[
+      {n:'Meat Hook',     t:'BRAWL', p:65, a:100, e:null},
+      {n:'Slaughterhouse',t:'BRAWL', p:92, a:82,  e:null},
+      {n:'Thumb to Eye',  t:'BRAWL', p:40, a:100, e:{k:'dazed', ch:0.5}},
+      {n:'Piledriver',    t:'POWER', p:60, a:95,  e:null},
+    ]},
+  { id:'dazzle', name:'"DAZZLE" DANNY NOVA', type:'SHOW', hp:98, atk:90, def:68, spd:95, shape:'lean',
+    moves:[
+      {n:'Spotlight Kick',t:'SHOW',  p:65, a:100, e:null},
+      {n:'Encore',        t:'SHOW',  p:88, a:88,  e:null},
+      {n:'Mic Drop',      t:'SHOW',  p:40, a:100, e:{k:'dazed', ch:0.5}},
+      {n:'Diving Crossbody',t:'AERIAL',p:60, a:95, e:null},
     ]},
 ];
-const LADDER_NAMES = ['RIVAL KAI', 'VETERAN MIRA', 'CHAMPION SOL'];
 
 // ---------- AUDIO ----------
 let AC = null, muted = false;
@@ -118,19 +144,20 @@ const S = {
   pending:{a:null,b:null},  // chosen actions
   log:[],
   ladderIdx:0,
+  recruit:null,         // {wrestler, chance} pending post-fight offer
   wins:{a:0,b:0},
   anims:[],                 // active tween list
   t:0,
 };
 function log(m){ S.log.push(m); if(S.log.length>40) S.log.shift(); }
 
-// battle mon: {base, name, type, maxhp, hp, atk, def, spd, moves, status:null|'burn'|'par', alive:true}
+// battle mon: {base, name, type, maxhp, hp, atk, def, spd, moves, status:null|'bleed'|'dazed', alive:true}
 function inst(base){ return { base, name:base.name, type:base.type, maxhp:base.hp, hp:base.hp,
   atk:base.atk, def:base.def, spd:base.spd, moves:base.moves.map(m=>({...m})), status:null, alive:true }; }
-function mkTeam(ids){ return ids.map(id=>inst(MONSTERS.find(m=>m.id===id))); }
-function randTeam(){ const ids = MONSTERS.map(m=>m.id);
+function mkTeam(ids){ return ids.map(id=>inst(WRESTLERS.find(m=>m.id===id))); }
+function randTeam(){ const ids = WRESTLERS.map(m=>m.id);
   for(let i=ids.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; [ids[i],ids[j]]=[ids[j],ids[i]]; }
-  return mkTeam(ids.slice(0,3)); }
+  return mkTeam(ids.slice(0,5)); }
 
 // ---------- BATTLE ENGINE ----------
 function effOf(moveType, defType){ return (CHART[moveType] && CHART[moveType][defType]) || 1; }
@@ -158,7 +185,7 @@ function resolveTurn(){
   // switches go first
   [['a',A],['b',Bp]].forEach(([s,act])=>{ if(act && act.kind==='switch') order.push([s,act,Infinity]); });
   [['a',A],['b',Bp]].forEach(([s,act])=>{
-    if(act && act.kind==='move') order.push([s,act, activeMon(s).spd + (activeMon(s).status==='par'?0:0)]);
+    if(act && act.kind==='move') order.push([s,act, activeMon(s).spd + (activeMon(s).status==='dazed'?0:0)]);
   });
   order.sort((x,y)=> y[2]-x[2] || (Math.random()-0.5));
   // queue animation steps
@@ -173,8 +200,8 @@ function resolveTurn(){
       return;
     }
     // paralyze check
-    if(me.status==='par' && Math.random()<0.25){
-      steps.push(()=>{ log(me.name+' is paralyzed! It can\'t move!'); SFX.status(); pushAnim({k:'par', side:s}); });
+    if(me.status==='dazed' && Math.random()<0.25){
+      steps.push(()=>{ log(me.name+' is dazed! They can\'t move!'); SFX.status(); pushAnim({k:'dazed', side:s}); });
       return;
     }
     const mv=me.moves[act.i];
@@ -188,7 +215,7 @@ function resolveTurn(){
       else { log(me.name+' used '+mv.n+'! ('+dmg+')'); SFX.hit(); }
       if(mv.e && foeM.alive && !foeM.status && Math.random()<mv.e.ch){
         foeM.status = mv.e.k;
-        log(foeM.name+(mv.e.k==='burn'?' caught fire!':' is paralyzed!')); SFX.status();
+        log(foeM.name+(mv.e.k==='bleed'?' is bleeding!':' is dazed!')); SFX.status();
       }
       if(foeM.hp<=0 && foeM.alive){
         foeM.alive=false; foeM.hp=0;
@@ -199,8 +226,8 @@ function resolveTurn(){
   // end-of-turn burn
   steps.push(()=>{
     ['a','b'].forEach(s=>{ const m=activeMon(s);
-      if(m.alive && m.status==='burn'){ const d=Math.max(1,Math.floor(m.maxhp/16)); m.hp=Math.max(0,m.hp-d);
-        log(m.name+' is hurt by its burn! ('+d+')');
+      if(m.alive && m.status==='bleed'){ const d=Math.max(1,Math.floor(m.maxhp/16)); m.hp=Math.max(0,m.hp-d);
+        log(m.name+' is hurt by bleeding! ('+d+')');
         if(m.hp<=0){ m.alive=false; log(m.name+' went down!'); SFX.faint(); pushAnim({k:'faint', side:s}); }
       }});
   });
@@ -246,12 +273,14 @@ function onBattleEnd(){
   if(S.mode==='ladder'){
     if(w==='a'){ S.ladderIdx++;
       if(S.ladderIdx>=3){ S.screen='over'; S.overText='CHAMPION OF THE LADDER!'; S.overWin=true; }
-      else { // next rung, heal team
-        S.battle.a.team.forEach(m=>{ m.hp=m.maxhp; m.alive=true; m.status=null; });
-        const foeTeam = randTeam();
-        startBattle(S.battle.a.team, foeTeam, {a:'human', b:'ai'});
-        log('Next challenger: '+LADDER_NAMES[S.ladderIdx]+'!');
-        S.screen='battle';
+      else {
+        // post-fight recruitment: a random foe wrestler is impressed
+        const foeTeam = S.battle.b.team;
+        const candidate = foeTeam[(Math.random()*foeTeam.length)|0];
+        const remaining = S.battle.a.team.filter(m=>m.alive).length;
+        const chance = Math.min(0.95, 0.55 + remaining*0.08);
+        S.recruit = { base:candidate.base, chance };
+        S.screen='recruit';
       }
     } else { S.screen='over'; S.overText='LADDER FAILED vs '+LADDER_NAMES[S.ladderIdx]; S.overWin=false; }
   } else if(S.mode==='quick'){
@@ -326,9 +355,9 @@ function pushAnim(a){ a.t0=performance.now(); S.anims.push(a); }
 // ---------- DRAFT ----------
 function startDraft(mode){
   S.mode=mode; S.screen='draft';
-  S.draftPool = MONSTERS.map(m=>m.id);
+  S.draftPool = WRESTLERS.map(m=>m.id);
   S.draftTeams={a:[],b:[]}; S.draftIdx=0; S.wins={a:0,b:0};
-  S.draftOrder = mode==='versus' ? ['p1','p2','p1','p2','p1','p2'] : ['human','ai','human','ai','human','ai'];
+  S.draftOrder = mode==='versus' ? ['p1','p2','p1','p2','p1','p2','p1','p2','p1','p2'] : ['human','ai','human','ai','human','ai','human','ai','human','ai'];
   S.ladderIdx=0;
   if(mode==='ladder') log('Draft your team of 3!');
   drawAll();
@@ -338,7 +367,7 @@ function draftPick(id){
   S.draftPool=S.draftPool.filter(x=>x!==id);
   if(who==='human'||who==='p1') S.draftTeams.a.push(id); else S.draftTeams.b.push(id);
   SFX.pick(); S.draftIdx++;
-  if(S.draftIdx>=6){ finishDraft(); return; }
+  if(S.draftIdx>=10){ finishDraft(); return; }
   const nxt=S.draftOrder[S.draftIdx];
   drawAll();
   if(nxt==='ai'){ setTimeout(()=>{ // AI draft: prefer type coverage, slight random
@@ -412,29 +441,33 @@ function doSwitchPick(idx){
 
 // ---------- CRITTERS ----------
 function drawCritter(shape, x, y, r, color, o){
+  // shape now = body type: 'big' (POWER), 'lean' (AERIAL), 'avg' (TECH/SHOW), 'stocky' (BRAWL)
   o=o||{}; ctx.save(); ctx.translate(x,y);
   if(o.alpha!==undefined) ctx.globalAlpha=o.alpha;
-  ctx.fillStyle=color; ctx.strokeStyle='rgba(0,0,0,0.45)'; ctx.lineWidth=3;
-  ctx.beginPath();
-  if(shape==='tri'){ ctx.moveTo(0,-r); ctx.lineTo(r*0.9,r*0.75); ctx.lineTo(-r*0.9,r*0.75); ctx.closePath(); }
-  else if(shape==='drop'){ ctx.moveTo(0,-r); ctx.bezierCurveTo(r*0.9,-r*0.2, r*0.75,r*0.6, 0,r*0.85);
-    ctx.bezierCurveTo(-r*0.75,r*0.6, -r*0.9,-r*0.2, 0,-r); }
-  else if(shape==='hex'){ for(let i=0;i<6;i++){ const a=Math.PI/6+i*Math.PI/3;
-      const px=Math.cos(a)*r, py=Math.sin(a)*r; i?ctx.lineTo(px,py):ctx.moveTo(px,py); } ctx.closePath(); }
-  else if(shape==='bolt'){ ctx.moveTo(r*0.25,-r); ctx.lineTo(-r*0.35,-r*0.1); ctx.lineTo(r*0.05,-r*0.1);
-    ctx.lineTo(-r*0.25,r); ctx.lineTo(r*0.35,r*0.1); ctx.lineTo(-r*0.05,r*0.1); ctx.closePath(); }
-  else if(shape==='rock'){ const rr=r*0.9; ctx.moveTo(-rr,-rr*0.7); ctx.lineTo(rr*0.8,-rr);
-    ctx.lineTo(rr,rr*0.6); ctx.lineTo(-rr*0.6,rr*0.85); ctx.closePath(); }
-  else { ctx.arc(0,0,r,Math.PI*0.35,Math.PI*1.65); ctx.quadraticCurveTo(0,0,r*Math.cos(Math.PI*0.35),r*Math.sin(Math.PI*0.35)); ctx.closePath(); }
-  ctx.fill(); ctx.stroke();
-  if(o.flash){ ctx.globalAlpha=o.flash*0.8; ctx.fillStyle='#fff'; ctx.fill(); ctx.globalAlpha=o.alpha!==undefined?o.alpha:1; }
-  // eyes
-  const ex=r*0.28, ey=-r*0.1, er=Math.max(4,r*0.14);
-  ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(-ex,ey,er,0,7); ctx.arc(ex,ey,er,0,7); ctx.fill();
-  ctx.fillStyle='#111'; ctx.beginPath(); ctx.arc(-ex,ey+1,er*0.5,0,7); ctx.arc(ex,ey+1,er*0.5,0,7); ctx.fill();
+  const skin='#e8b88a', dark='rgba(0,0,0,0.45)';
+  const bw = shape==='big'?r*0.55 : shape==='lean'?r*0.32 : shape==='stocky'?r*0.48 : r*0.4;
+  const hh = r*0.32;
+  ctx.lineWidth=3; ctx.strokeStyle=dark;
+  // legs
+  ctx.fillStyle='#2a2f3a';
+  ctx.fillRect(-bw*0.7, r*0.25, bw*0.55, r*0.55); ctx.strokeRect(-bw*0.7, r*0.25, bw*0.55, r*0.55);
+  ctx.fillRect(bw*0.15, r*0.25, bw*0.55, r*0.55); ctx.strokeRect(bw*0.15, r*0.25, bw*0.55, r*0.55);
+  // torso (style color = ring gear)
+  ctx.fillStyle=color;
+  ctx.fillRect(-bw, -r*0.35, bw*2, r*0.6); ctx.strokeRect(-bw, -r*0.35, bw*2, r*0.6);
+  // arms
+  ctx.fillStyle=skin;
+  ctx.fillRect(-bw-r*0.18, -r*0.3, r*0.18, r*0.5); ctx.strokeRect(-bw-r*0.18, -r*0.3, r*0.18, r*0.5);
+  ctx.fillRect(bw, -r*0.3, r*0.18, r*0.5); ctx.strokeRect(bw, -r*0.3, r*0.18, r*0.5);
+  // head
+  ctx.fillStyle=skin;
+  ctx.beginPath(); ctx.arc(0, -r*0.35-hh*0.6, hh, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+  // mask/face paint (style color headband)
+  ctx.fillStyle=color;
+  ctx.fillRect(-hh, -r*0.35-hh*1.1, hh*2, hh*0.35);
   ctx.restore();
 }
-function monById(id){ return MONSTERS.find(m=>m.id===id); }
+function monById(id){ return WRESTLERS.find(m=>m.id===id); }
 
 // ---------- RENDER HELPERS ----------
 function rr(x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r);
@@ -462,7 +495,7 @@ function drawPlate(mon,x,y,w,align){ // name + type + hp
   typeBadge(mon.type, align==='left'?x:x-w+56, y+22);
   hpBar(x+(align==='left'?0:w-160),y+46,160,12,mon.hp/mon.maxhp);
   text(mon.hp+'/'+mon.maxhp, x+(align==='left'?165:w-165), y+44, 12, '#8fa89b', align==='left'?'left':'right');
-  if(mon.status) text(mon.status==='burn'?'BURN':'PARA', x+(align==='left'?w-34:0), y+22, 11, mon.status==='burn'?'#ff7a2f':'#ffd93f', align==='left'?'right':'left','bold ');
+  if(mon.status) text(mon.status==='bleed'?'BLEED':'DAZED', x+(align==='left'?w-34:0), y+22, 11, mon.status==='bleed'?'#ff5252':'#ffd93f', align==='left'?'right':'left','bold ');
 }
 function animState(side){
   const now=performance.now(); let dx=0,dy=0,flash=0,alpha=1,scale=1;
@@ -471,7 +504,7 @@ function animState(side){
     if(a.k==='hit'){ dx = side==='a'?Math.sin(t*20)*6:-Math.sin(t*20)*6; flash=Math.max(0,1-t); }
     else if(a.k==='faint'){ dy=t*40; alpha=1-t; }
     else if(a.k==='send'){ scale=0.3+0.7*Math.min(1,t*2); }
-    else if(a.k==='par'){ dx=Math.sin(t*30)*4; }
+    else if(a.k==='dazed'){ dx=Math.sin(t*30)*4; }
   });
   return {dx,dy,flash,alpha,scale};
 }
@@ -480,10 +513,10 @@ function animState(side){
 function drawMenu(){
   S.buttons=[]; S.focus=0;
   ctx.fillStyle='#0a0d13'; ctx.fillRect(0,0,W,H);
-  text('TAMER',W/2,90,64,'#00ff9d','center','bold ');
+  text('TAMERS',W/2,90,64,'#00ff9d','center','bold ');
   text('1996 — RAISE THEM. BREAK THEM.',W/2,165,14,'#8fa89b','center');
   // mini critter parade
-  MONSTERS.forEach((m,i)=>{ const x=60+i*72; drawCritter(m.shape,x,260,26,TCOL[m.type],{}); });
+  WRESTLERS.forEach((m,i)=>{ const x=60+i*72; drawCritter(m.shape,x,260,26,TCOL[m.type],{}); });
   btn(90,330,300,56,'LADDER','',{}); S.buttons[S.buttons.length-1].sub='draft 3 · beat 3 tamers';
   btn(90,398,300,56,'QUICK BATTLE','',{}); S.buttons[S.buttons.length-1].sub='random teams · one fight';
   btn(90,466,300,56,'VERSUS (2P)','',{}); S.buttons[S.buttons.length-1].sub='pass-and-pick · one battle';
@@ -592,7 +625,7 @@ function drawBattle(){
   } else if(ui==='faintpick'){
     const s=S.faintSide, c=B.ctrl[s];
     const label = c==='p1'?'P1':c==='p2'?'P2':c==='ai'?'FOE':'YOU';
-    text(label+' — choose your next monster!',W/2,604,15,'#ffd93f','center','bold ');
+    text(label+' — choose your next wrestler!',W/2,604,15,'#ffd93f','center','bold ');
     const benched=B[s].team.map((m,i)=>({m,i})).filter(o=>o.i!==B[s].active&&o.m.alive);
     benched.forEach((o,i)=>{ btn(24+i*150,628,140,64,(i+1)+'. '+o.m.name,()=>doSwitchPick(i),{sub:o.m.hp+'/'+o.m.maxhp+' HP'}); });
   } else {
@@ -602,6 +635,52 @@ function drawBattle(){
   // tint move buttons by type
   S.buttons.forEach(b=>{ if(b.tcol){ ctx.strokeStyle=b.tcol; ctx.lineWidth=2; rr(b.x,b.y,b.w,b.h,10); ctx.stroke(); } });
   text('P pause · M mute'+(muted?' (muted)':''),W/2,700,11,'#54655c','center');
+}
+function drawRecruit(){
+  ctx.fillStyle='#0e1420'; ctx.fillRect(0,0,W,H);
+  const r = S.recruit;
+  text('VICTORY!', W/2, 80, 48, '#ffd93f', 'center', 'bold ');
+  text(LADDER_NAMES[S.ladderIdx-1] + ' defeated!', W/2, 140, 18, '#8fa89b', 'center');
+  if(!r.done){
+    drawCritter(r.base.shape, W/2, 260, 40, TCOL[r.base.type], {});
+    text(r.base.name, W/2, 320, 20, '#e8f5ee', 'center', 'bold ');
+    text('was impressed by your victory!', W/2, 350, 16, '#8fa89b', 'center');
+    text('Offer them a contract? (' + Math.round(r.chance*100) + '% chance)', W/2, 375, 16, '#8fa89b', 'center');
+    S.buttons=[
+      {x:W/2-160,y:420,w:140,h:50,label:'OFFER',fn:()=>{
+        if(Math.random()<r.chance){ r.done='yes'; SFX.fanfare(); }
+        else { r.done='no'; SFX.lose(); }
+        drawAll();
+      }},
+      {x:W/2+20,y:420,w:140,h:50,label:'SKIP',fn:()=>{ nextLadderRung(); }},
+    ];
+  } else if(r.done==='no'){
+    text(r.base.name, W/2, 300, 20, '#e8f5ee', 'center', 'bold ');
+    text('wants a rematch first...', W/2, 330, 16, '#8fa89b', 'center');
+    text('Maybe next time.', W/2, 355, 16, '#8fa89b', 'center');
+    S.buttons=[{x:W/2-70,y:420,w:140,h:50,label:'CONTINUE',fn:()=>{ nextLadderRung(); }}];
+  } else {
+    text(r.base.name, W/2, 260, 20, '#ffd93f', 'center', 'bold ');
+    text('JOINS YOUR STABLE!', W/2, 290, 24, '#ffd93f', 'center', 'bold ');
+    text('Choose who to release:', W/2, 330, 16, '#8fa89b', 'center');
+    S.buttons = S.battle.a.team.map((m,i)=>({
+      x:40+(i%5)*82, y:380, w:76, h:60, label:m.name.split(' ').slice(-1)[0],
+      fn:()=>{
+        S.battle.a.team[i] = inst(r.base);
+        const t=S.battle.a.team[i]; t.hp=t.maxhp; t.alive=true; t.status=null;
+        nextLadderRung();
+      }
+    }));
+  }
+  drawButtons();
+}
+function nextLadderRung(){
+  S.recruit=null;
+  S.battle.a.team.forEach(m=>{ m.hp=m.maxhp; m.alive=true; m.status=null; });
+  const foeTeam = randTeam();
+  startBattle(S.battle.a.team, foeTeam, {a:'human', b:'ai'});
+  log('Next challenger: '+LADDER_NAMES[S.ladderIdx]+'!');
+  S.screen='battle'; drawAll();
 }
 function drawOver(){
   S.buttons=[];
@@ -621,6 +700,7 @@ function drawAll(){
   else if(S.screen==='draft') drawDraft();
   else if(S.screen==='battle') drawBattle();
   else if(S.screen==='over') drawOver();
+  else if(S.screen==='recruit') drawRecruit();
   if(S.paused){ ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(0,0,W,H);
     text('PAUSED',W/2,340,40,'#e8f5ee','center','bold '); text('P to resume',W/2,390,14,'#8fa89b','center'); }
 }
