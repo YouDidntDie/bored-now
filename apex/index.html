@@ -10,11 +10,9 @@
   #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
   canvas{display:block;background:#05070c;touch-action:none;}
   #touch{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);
-    display:none;justify-content:space-between;padding:0 16px;pointer-events:none;z-index:5;}
+    display:none;justify-content:flex-end;padding:0 16px;pointer-events:none;z-index:5;}
   #touch.on{display:flex;}
   #touch .grp{display:flex;gap:16px;}
-  #touch .dpad{flex-direction:column;align-items:center;gap:10px;}
-  #touch .drow{display:flex;gap:10px;}
   #touch button{pointer-events:auto;width:76px;height:76px;border-radius:50%;
     border:2px solid rgba(150,180,210,.5);background:rgba(70,90,120,.35);color:#cfe0f2;
     font:bold 22px 'Courier New',monospace;touch-action:none;user-select:none;-webkit-user-select:none;}
@@ -26,10 +24,6 @@
 <body>
 <div id="wrap"><canvas id="c"></canvas></div>
 <div id="touch">
-  <div class="grp dpad">
-    <button id="tU">&#9650;</button>
-    <div class="drow"><button id="tL">&#9664;</button><button id="tD">&#9660;</button><button id="tR">&#9654;</button></div>
-  </div>
   <div class="grp"><button id="tJ">JMP</button></div>
 </div>
 <div id="hint">v4.2</div>
@@ -429,6 +423,23 @@ let holdKeyT=null;  // tree targeted by keyboard gnaw key
 let aiStack=null, aiGnawT=0, aiThinkT=0;
 let lastInputT=0, idleWarned=false;
 const aiPlan={left:false,right:false,up:false,down:false,jump:false};
+/* swipe-to-move (touch): drag sets a direction, release stops */
+let swipeId=null, swipeX0=0, swipeY0=0;
+function startSwipe(pid,x,y){ swipeId=pid; swipeX0=x; swipeY0=y;
+  touchHeld.left=touchHeld.right=touchHeld.up=touchHeld.down=false; }
+function moveSwipe(pid,x,y){
+  if(pid!==swipeId) return;
+  const dx=x-swipeX0, dy=y-swipeY0;
+  touchHeld.left=touchHeld.right=touchHeld.up=touchHeld.down=false;
+  if(Math.hypot(dx,dy)<24) return;
+  if(Math.abs(dx)>Math.abs(dy)) touchHeld[dx>0?'right':'left']=true;
+  else touchHeld[dy>0?'down':'up']=true;
+}
+function endSwipe(pid){
+  if(pid!==swipeId) return;
+  swipeId=null;
+  touchHeld.left=touchHeld.right=touchHeld.up=touchHeld.down=false;
+}
 function nearestTree(x,maxD){
   let bt=null, bd=maxD;
   for(const t of stacks){ if(t.stage!==2||t.falling>0) continue;
@@ -622,7 +633,7 @@ window.addEventListener('keydown',e=>{
   if(e.code==='KeyP'&&(state==='play'||state==='serve')){ paused=!paused; sUI(); return; }
 });
 window.addEventListener('keyup',e=>{ keys[e.code]=false; });
-window.addEventListener('blur',()=>{ for(const k in keys)keys[k]=false; touchHeld.left=touchHeld.right=touchHeld.up=touchHeld.down=touchHeld.jump=false; holdPtr=null; });
+window.addEventListener('blur',()=>{ for(const k in keys)keys[k]=false; touchHeld.left=touchHeld.right=touchHeld.up=touchHeld.down=touchHeld.jump=false; holdPtr=null; swipeId=null; });
 function toGame(e){ const r=cv.getBoundingClientRect(); return {x:(e.clientX-r.left)/r.width*W, y:(e.clientY-r.top)/r.height*H}; }
 function beaverControl(){
   const p2=(mode==='versus');
@@ -640,7 +651,7 @@ function syncTouch(){
   if(want!==el.classList.contains('on'))el.classList.toggle('on',want);
   if(!want){ touchHeld.left=touchHeld.right=touchHeld.up=touchHeld.down=touchHeld.jump=false; }
 }
-[['tL','left'],['tR','right'],['tU','up'],['tD','down'],['tJ','jump']].forEach(([id,name])=>{
+[['tJ','jump']].forEach(([id,name])=>{
   const el=document.getElementById(id);
   el.addEventListener('pointerdown',e=>{ e.preventDefault(); audio(); touchHeld[name]=true; try{el.setPointerCapture(e.pointerId);}catch(_){} });
   const off=e=>{ e.preventDefault(); touchHeld[name]=false; };
@@ -689,8 +700,14 @@ function handleTap(x,y,pid){
   if(Math.hypot(x-muteBtn.x,y-muteBtn.y)<26){ muted=!muted; sUI(); return; }
   if(state!=='play'||paused)return;
   if(mode==='apex'){ tryHoldTree(x,y,pid); return; }
-  if(mode==='versus'){ tryHoldTree(x,y,pid); return; }
-  if(jack&&!jack.climbing) jack.tapJump=true;
+  if(mode==='versus'){
+    // P2 beaver holds stacks, P1 jack swipes to move
+    if(nearestTree(x,52)) tryHoldTree(x,y,pid);
+    else startSwipe(pid,x,y);
+    return;
+  }
+  // climb: swipe to move, JMP button to jump
+  startSwipe(pid,x,y);
 }
 cv.addEventListener('pointerdown',e=>{
   e.preventDefault(); audio();
@@ -698,7 +715,13 @@ cv.addEventListener('pointerdown',e=>{
   handleTap(p.x,p.y,e.pointerId);
   try{cv.setPointerCapture(e.pointerId);}catch(_){}
 });
-const clearHold=e=>{ if(holdPtr&&holdPtr.id===e.pointerId)holdPtr=null; };
+cv.addEventListener('pointermove',e=>{
+  if(e.pointerId!==swipeId) return;
+  e.preventDefault();
+  const p=toGame(e);
+  moveSwipe(e.pointerId,p.x,p.y);
+});
+const clearHold=e=>{ if(holdPtr&&holdPtr.id===e.pointerId)holdPtr=null; endSwipe(e.pointerId); };
 cv.addEventListener('pointerup',clearHold);
 cv.addEventListener('pointercancel',clearHold);
 /* ---------- mode flow ---------- */
@@ -892,7 +915,7 @@ function drawHowto(){
       'ALARM. 3 ALARMS AND THE RUN IS OVER.',
       'CLEAR ALL 8 STAGES.']],
     ['LUMBERJACK - YOU CLIMB','#7dff9a',[
-      'ARROWS OR WASD TO RUN AND CLIMB.',
+      'ARROWS/WASD OR SWIPE TO RUN AND CLIMB.',
       'SPACE TO JUMP THE ROLLING LOGS.',
       'JUMPING A LOG SCORES +25.',
       'REACH THE TOP OF 8 STAGES. 3 LIVES.',
@@ -901,7 +924,7 @@ function drawHowto(){
       'P1 LUMBERJACK: ARROWS + SPACE.',
       'P2 BEAVER: A/D TO MOVE, HOLD F OR',
       'PRESS-AND-HOLD A STACK TO STEAL.',
-      'TOUCH: P1 BUTTONS, P2 HOLDS STACKS.',
+      'TOUCH: P1 SWIPES TO MOVE, P2 HOLDS STACKS.',
       'BEST OF 3. 60S ROUNDS.']],
   ];
   let y=128;
