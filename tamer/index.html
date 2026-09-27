@@ -34,12 +34,9 @@ function drawWrestlerSprite(ctx, wid, x, y, h, isBack, anim){
   const key = wid + (isBack ? '_back' : '_front');
   const img = SPRITE_IMG[key];
   if(!img || !img.complete || !img.naturalWidth) return;
-  const t = performance.now()/1000;
-  // Idle bounce (breathing)
-  const bob = Math.sin(t*3 + (isBack?1:0)) * 4;
-  // Attack lunge / hurt flinch from anim.dx
+  // Attack lunge / hurt flinch from anim.dx/dy (idle bob comes from anim.dy)
   const dx = (anim.dx||0);
-  const dy = (anim.dy||0) + bob;
+  const dy = (anim.dy||0);
   const scale = anim.scale||1;
   const drawH = h * scale;
   const drawW = drawH * (img.naturalWidth/img.naturalHeight);
@@ -954,8 +951,8 @@ function drawBattle(){
   });
   // shadows under wrestlers
   ctx.fillStyle='rgba(0,0,0,0.4)';
-  ctx.beginPath(); ctx.ellipse(350,265,60,14,0,0,7); ctx.fill();
-  ctx.beginPath(); ctx.ellipse(130,475,60,14,0,0,7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(330,340,60,14,0,0,7); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(150,430,60,14,0,0,7); ctx.fill();
   const A=activeMon('a'), F=activeMon('b');
   const bobA=Math.sin(S.t*3)*4, bobF=Math.sin(S.t*3+1.5)*4;
   drawPlate(F,16,12,220,'left');
@@ -963,11 +960,11 @@ function drawBattle(){
   // sprites with anims
   let st=animState('b');
   ctx.save(); ctx.globalAlpha=st.alpha;
-  drawWrestlerSprite(ctx, F.base.id, 350, 210, 180, false, {dx:st.dx, dy:st.dy+bobF, scale:st.scale, flash:st.flash, alpha:st.alpha});
+  drawWrestlerSprite(ctx, F.base.id, 330, 290, 150, false, {dx:st.dx, dy:st.dy+bobF, scale:st.scale, flash:st.flash, alpha:st.alpha});
   ctx.restore();
   st=animState('a');
   ctx.save(); ctx.globalAlpha=st.alpha;
-  drawWrestlerSprite(ctx, A.base.id, 130, 420, 180, true, {dx:st.dx, dy:st.dy+bobA, scale:st.scale, flash:st.flash, alpha:st.alpha});
+  drawWrestlerSprite(ctx, A.base.id, 150, 380, 170, true, {dx:st.dx, dy:st.dy+bobA, scale:st.scale, flash:st.flash, alpha:st.alpha});
   ctx.restore();
   // team pips
   B.a.team.forEach((m,i)=>{ ctx.fillStyle=m.alive?'#3ddc84':'#333'; ctx.beginPath(); ctx.arc(250+i*18,392,6,0,7); ctx.fill(); });
