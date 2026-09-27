@@ -626,11 +626,20 @@ function drawDemon(d,sx,horizon,vh,depth,fog){
     const attacking = d.atkT>0 || d.state==='attack';
     const wf = attacking ? 2 : Math.floor(d.anim*4) % 2; // attack frame or walk cycle
     const sx0 = wf*64; // frame offset in sheet
-    const sy = groundY - sh + bob; // feet on the ground
+    let sy = groundY - sh + bob; // feet on the ground
+    let rot = 0, alpha = 1;
+    if(d.dying){
+      const k = Math.min(1, d.dieT/d.dieDur);
+      rot = k * 1.4; // fall backward
+      sy += k * sh * 0.5; // sink
+      alpha = 1 - k*0.3;
+    }
     if(flash){
       g.save();
-      g.globalAlpha = fog;
-      g.drawImage(spr, sx0, 0, 64, 64, sx-sw/2, sy, sw, sh);
+      g.globalAlpha = fog*alpha;
+      g.translate(sx, sy+sh);
+      g.rotate(rot);
+      g.drawImage(spr, sx0, 0, 64, 64, -sw/2, -sh, sw, sh);
       g.restore();
       // white flash overlay
       g.save();
@@ -639,7 +648,12 @@ function drawDemon(d,sx,horizon,vh,depth,fog){
       g.fillRect(sx-sw/2, sy, sw, sh);
       g.restore();
     } else {
-      g.drawImage(spr, sx0, 0, 64, 64, sx-sw/2, sy, sw, sh);
+      g.save();
+      g.globalAlpha = fog*alpha;
+      g.translate(sx, sy+sh);
+      g.rotate(rot);
+      g.drawImage(spr, sx0, 0, 64, 64, -sw/2, -sh, sw, sh);
+      g.restore();
     }
   }
   if(d.hp<d.maxhp&&!flash){
@@ -824,7 +838,7 @@ function hurtDemon(d,dmg,kx,ky){
   SFX.hitFlesh();
   const p=activePlayer();
   if(d.hp<=0){
-    d.hp=0;d.dead=true;
+    d.hp=0;d.dying=true;d.dieT=0;d.dieDur=0.7;
     const big=d.type==='brute';
     spawnGib(d.x,d.y,big);SFX.demonDie(big);
     G.hitmarkT=0.3;G.hitmarkKill=true;SFX.hitmark();
@@ -917,6 +931,11 @@ function updateDemonAI(d,dt,target){
   const T=DEMON_TYPES[d.type],dm=DIFFS[G.difficulty];
   d.anim+=dt*6;
   if(d.hitT>0)d.hitT-=dt;
+  if(d.dying){
+    d.dieT+=dt;
+    if(d.dieT>=d.dieDur){d.dead=true;d.dying=false;}
+    return;
+  }
   if(d.spawnT>0){
     d.spawnT-=dt;
     if(Math.random()<dt*8)world.parts.push({x:d.x+(Math.random()-0.5)*0.5,y:d.y+(Math.random()-0.5)*0.5,
