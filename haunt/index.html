@@ -344,31 +344,31 @@ const ENEMY_COL={sentry:'#4dc9ff', reaver:'#ff4d5e', wisp:'#b78bff'};
 const FOE_SPR={
 sentry:mkSprite(11,11,(g)=>{
   const rows=[
+    ".ww.....ww.",
+    ".www...www.",
     "..wwwwwww..",
-    ".wwwwwwwww.",
+    "..wwwwwww..",
     "wwwwwwwwwww",
     "wwwwwwwwwww",
     ".wwwwwwwww.",
     ".wwwwwwwww.",
-    "..wwwwwww..",
     "..www.www..",
     "...w.w.w...",
-    "..w..w..w..",
-    "...w...w..."];
+    "..w..w..w.."];
   g.fillStyle='#fff';
   for(let y=0;y<11;y++)for(let x=0;x<11;x++) if(rows[y][x]==='w') g.fillRect(x,y,1,1);
 }),
 reaver:mkSprite(11,11,(g)=>{
   const rows=[
     ".....w.....",
-    "....www....",
-    "....www....",
+    "w...www...w",
+    ".w..www..w.",
+    "..wwwwwww..",
     "...wwwww...",
     "..wwwwwww..",
     "..wwwwwww..",
     "...wwwww...",
     "..www.www..",
-    "..w.w.w.w..",
     ".w..w.w..w.",
     "w...w.w...w"];
   g.fillStyle='#fff';
@@ -376,8 +376,9 @@ reaver:mkSprite(11,11,(g)=>{
 }),
 wisp:mkSprite(11,11,(g)=>{
   const rows=[
-    "...........",
+    ".....w.....",
     "....www....",
+    "...wwwww...",
     "..wwwwwww..",
     "..wwwwwww..",
     "..wwwwwww..",
@@ -385,11 +386,23 @@ wisp:mkSprite(11,11,(g)=>{
     "...w.w.w...",
     "....w.w....",
     ".....w.....",
-    "...........",
     "..........."];
   g.fillStyle='#fff';
   for(let y=0;y<11;y++)for(let x=0;x<11;x++) if(rows[y][x]==='w') g.fillRect(x,y,1,1);
 }),
+};
+// per-kind demonic eyes (facing-aware pupils, like EYES)
+function demonEyes(color,pupil){
+  const mk=(px1,px2,py)=>mkSprite(7,3,(g)=>{
+    g.fillStyle=color; g.fillRect(0,1,3,1); g.fillRect(4,1,3,1);
+    g.fillStyle=pupil; g.fillRect(px1,py,1,1); g.fillRect(px2,py,1,1);
+  });
+  return {up:mk(1,5,0), down:mk(1,5,2), left:mk(0,4,1), right:mk(2,6,1)};
+}
+const FOE_EYES={
+  sentry:demonEyes('#ff2d3f','#6d0a14'), // blood-red slits
+  reaver:demonEyes('#ffd24d','#6d4a0a'), // baleful yellow
+  wisp:demonEyes('#e8ecff','#7a8494'),   // pale hollow gaze
 };
 // soft color halo, pre-baked per kind
 const FOE_GLOW={};
@@ -1131,7 +1144,7 @@ function drawWraith(e){
   }
   spr(FOE_SPR[e.kind],cx-5.5,by-9,e.color);
   const f=dirToFace(e.dir)||'down';
-  const ey=EYES[f];
+  const ey=FOE_EYES[e.kind][f];
   bctx.drawImage(ey,cx-3.5,by-6,7,3);
   // sentry on alert: red rim
   if(e.kind==='sentry'&&(e.mode==='chase'||e.mode==='flee')){
