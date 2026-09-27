@@ -54,6 +54,7 @@ addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; if([' ','ar
 addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 let touchL=false, touchR=false, touchX=0;
 cv.addEventListener('touchstart', e => {
+  startGame();
   for(const t of e.changedTouches){
     const r = cv.getBoundingClientRect();
     const x = (t.clientX - r.left) / r.width;
@@ -83,6 +84,7 @@ const jumpHeld = () => keys[' ']||keys['arrowup']||keys['w']||touchR;
 function startGame(){ if(!started){ started = true; reset(); } }
 addEventListener('keydown', e => { if(e.key===' '||e.key==='Enter') startGame(); });
 cv.addEventListener('pointerdown', startGame);
+cv.addEventListener('click', startGame);
 
 // ===== ENDLESS LIMBO: procedural chunks =====
 const TS = 16, TH = 17;
