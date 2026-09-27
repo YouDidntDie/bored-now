@@ -327,9 +327,9 @@ let lastT = 0, gameT = 0;
 function drawTitle(t){
   // dark hell backdrop
   ctx.fillStyle = '#0a0005'; ctx.fillRect(0, 0, W, H);
-  if(bgFar.complete && bgFar.naturalWidth){
+  if(bgFarImg.complete && bgFarImg.naturalWidth){
     ctx.globalAlpha = 0.7;
-    ctx.drawImage(bgFar, 0, 0, W, H);
+    ctx.drawImage(bgFarImg, 0, 0, W, H);
     ctx.globalAlpha = 1;
   }
   ctx.textAlign = 'center';
