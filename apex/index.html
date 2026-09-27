@@ -194,7 +194,7 @@ let GDIR=[1,-1,1,-1,1,-1];
 const GX0=30, GX1=450, TILT=14;
 let GAPC=240; const GAPH=35;
 let LX=[390,90,390,90,90];
-const ladders=LX.map((x,i)=>({x,g0:i,g1:i+1}));
+let ladders=LX.map((x,i)=>({x,g0:i,g1:i+1}));
 function surfY(i,x){ return GY[i]+TILT*GDIR[i]*(x-240)/210; }
 function inGap(i,x){ return i>=1&&i<=4&&Math.abs(x-GAPC)<GAPH; }
 function onGirderX(i,x){ return x>=GX0&&x<=GX1&&!inGap(i,x); }
@@ -222,6 +222,7 @@ function genTower(){
     const x=Math.round(lo+(hi-lo)*(i+0.5)/n+(Math.random()*40-20));
     STACKX.push(Math.max(lo,Math.min(hi,x)));
   }
+  ladders=LX.map((x,i)=>({x,g0:i,g1:i+1})); // keep ladder objects in sync
 }
 /* ---------- pre-baked backdrop ---------- */
 const sky=mkSprite(W,H,(g)=>{
