@@ -214,6 +214,21 @@ function sfxCheer(){
   s.connect(f); f.connect(g); g.connect(master); s.start(t); s.stop(t+1.5);
 }
 function sfxUI(){ blip(660,0.05,'square',0.15); }
+/* diagnostic: loud immediate tone straight to destination, bypassing master+analyser */
+function testTone(){
+  unlockAudio();
+  if(!AC) return;
+  try{
+    const t=AC.currentTime+0.03, o=AC.createOscillator(), g=AC.createGain();
+    o.type='square'; o.frequency.value=880;
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(0.9,t+0.02);
+    g.gain.setValueAtTime(0.9,t+0.35);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+0.45);
+    o.connect(g); g.connect(AC.destination);
+    o.start(t); o.stop(t+0.5);
+  }catch(e){}
+}
 
 /* ---------------- game state ---------------- */
 const G = {
@@ -762,7 +777,8 @@ function drawMenu(t){
   ledText('TRACK '+(G.menuSong+1)+'/'+SONGS.length,win.bx+192,ty+16,3,'#5f6f66','left');
   waButton('WARMUP','warmup',W/2,480,{sub:'88 BPM PRACTICE',c:'blue'});
   waButton('VERSUS','versus',W/2,548,{sub:'2P BEST OF 3',c:'pink'});
-  ledText('TAP LANES OR D F J K * P PAUSE * M MUTE',W/2,622,2,'#3f5a3f','center');
+  waButton('TEST','testtone',W/2,606,{w:130,h:34,sc:2});
+  ledText('TAP LANES OR D F J K * P PAUSE * M MUTE',W/2,650,2,'#3f5a3f','center');
   drawBurst(462,58,26,'MP3',-0.2);
 }
 function playlistRow(y,label,sub,id,selected,dur){
@@ -960,6 +976,7 @@ function pressButton(id){
   else if(id==='retry'){ startSong(G.songIdx); }
   else if(id==='nextround'){ nextRound(); }
   else if(id==='rematch'){ const m=G.mode; startMode(m); G.state='songs'; if(m==='versus'){G.round=1;startSong(0);} }
+  else if(id==='testtone'){ testTone(); }
 }
 cv.addEventListener('pointerdown',e=>{ e.preventDefault(); unlockAudio(); const p=canvasPos(e); tapAt(p.x,p.y); });
 cv.addEventListener('touchstart',e=>{ unlockAudio(); },{passive:true});
