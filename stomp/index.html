@@ -209,12 +209,6 @@ function drawSoul(x, y, t){
   const w = 36, h = 36;
   ctx.save();
   ctx.translate(x, y);
-  // glow
-  const g = ctx.createRadialGradient(0, 0, 2, 0, 0, 22);
-  g.addColorStop(0, 'rgba(100,150,255,0.35)');
-  g.addColorStop(1, 'rgba(100,150,255,0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(-22, -22, 44, 44);
   if(soulSheet.complete && soulSheet.naturalWidth){
     ctx.scale(soul.face, 1);
     ctx.drawImage(soulSheet, frame*FRAME_W, 0, FRAME_W, FRAME_W, -w/2, -h/2, w, h);
