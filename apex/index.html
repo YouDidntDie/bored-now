@@ -1,1155 +1,942 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>APEX — a 1981 story. You are the ape.</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>APEX — beaver vs lumberjack</title>
 <style>
-  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
-  html, body { margin:0; padding:0; height:100%; background:#05070c; overflow:hidden;
-    font-family:'Courier New', ui-monospace, monospace;
-    padding-left:env(safe-area-inset-left); padding-right:env(safe-area-inset-right);
-    padding-top:env(safe-area-inset-top); padding-bottom:env(safe-area-inset-bottom); }
-  body { display:flex; align-items:center; justify-content:center; }
-  #wrap { position:relative; }
-  canvas { display:block; background:#05070c; touch-action:none; }
-  #touch { position:fixed; left:0; right:0; bottom:calc(env(safe-area-inset-bottom, 0px) + 10px);
-    display:none; justify-content:space-between; padding:0 16px; pointer-events:none; z-index:5; }
-  #touch.on { display:flex; }
-  #touch .grp { display:flex; gap:16px; }
-  #touch button { pointer-events:auto; width:76px; height:76px; border-radius:50%;
-    border:2px solid rgba(232,244,255,.45); background:rgba(20,28,40,.55); color:#e8f4ff;
-    font:bold 22px 'Courier New', monospace; touch-action:none; user-select:none; -webkit-user-select:none; }
-  #touch button:active { background:rgba(120,160,200,.55); }
-  #hint { position:absolute; left:0; right:0; bottom:-34px; text-align:center;
-    color:#3a3f45; font-size:11px; letter-spacing:.14em; pointer-events:none;
-    font-family:'Courier New', ui-monospace, monospace; }
+  html,body{margin:0;padding:0;height:100%;background:#05070c;overflow:hidden;
+    font-family:'Courier New',monospace;-webkit-user-select:none;user-select:none;}
+  #wrap{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;}
+  canvas{display:block;background:#05070c;touch-action:none;}
+  #touch{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);
+    display:none;justify-content:space-between;padding:0 16px;pointer-events:none;z-index:5;}
+  #touch.on{display:flex;}
+  #touch .grp{display:flex;gap:16px;}
+  #touch button{pointer-events:auto;width:76px;height:76px;border-radius:50%;
+    border:2px solid rgba(150,180,210,.5);background:rgba(70,90,120,.35);color:#cfe0f2;
+    font:bold 22px 'Courier New',monospace;touch-action:none;user-select:none;-webkit-user-select:none;}
+  #touch button:active{background:rgba(120,160,200,.55);}
+  #hint{position:fixed;left:0;right:0;bottom:calc(env(safe-area-inset-bottom,0px) + 2px);
+    text-align:center;color:#3a3f45;font-size:11px;letter-spacing:.14em;pointer-events:none;}
 </style>
 </head>
 <body>
-<div id="wrap">
-  <canvas id="c"></canvas>
-  <div id="hint">1981 &mdash; YOU ARE THE APE</div>
-</div>
+<div id="wrap"><canvas id="c"></canvas></div>
 <div id="touch">
-  <div class="grp"><button id="tL" aria-label="move left">&#9664;</button><button id="tR" aria-label="move right">&#9654;</button></div>
-  <div class="grp"><button id="tJ" aria-label="jump">JMP</button></div>
+  <div class="grp"><button id="tL">&#9664;</button><button id="tR">&#9654;</button></div>
+  <div class="grp"><button id="tJ">JMP</button></div>
 </div>
+<div id="hint">v4.0</div>
 <script>
-'use strict';
-/* ================= APEX =================
-   A 1981 story. Tower-climb, inverted: you are the ape hurling cable spools,
-   or the climber racing the tower, or both at once on one screen.
-   Everything here is original: no borrowed characters, names, art, or levels.
-*/
-
-/* ---------- canvas ---------- */
-const W = 480, H = 720;
-const canvas = document.getElementById('c');
-const ctx = canvas.getContext('2d');
-function fit() {
-  const vv = window.visualViewport;
-  const aw = Math.max(1, (vv ? vv.width : window.innerWidth) - 8);
-  const ah = Math.max(1, (vv ? vv.height : window.innerHeight) - 44); // room for the hint line
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const s = Math.min(aw / W, ah / H); // contain: never overflows the viewport
-  const cw = Math.max(1, Math.floor(W * s)), ch = Math.max(1, Math.floor(H * s));
-  canvas.width = Math.round(cw * dpr); canvas.height = Math.round(ch * dpr);
-  canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
-  ctx.setTransform(dpr * cw / W, 0, 0, dpr * ch / H, 0, 0);
+/* ================= APEX v4 =================
+   1981, inverted: YOU ARE THE BEAVER. Gnaw trees, drop logs on the lumberjack.
+   Or climb as the lumberjack. Or both, same screen.
+   Pixel-native. Mobile-first. Everything original. */
+/* ---------- pixel infra ---------- */
+const W=480, H=720, PX=2;
+const cv=document.getElementById('c'), ctx=cv.getContext('2d');
+const buf=document.createElement('canvas'), bctx=buf.getContext('2d');
+function sizeBuf(){ buf.width=W*PX; buf.height=H*PX; }
+sizeBuf();
+function fit(){
+  const vv=window.visualViewport;
+  const aw=Math.max(1,(vv?vv.width:window.innerWidth)-8);
+  const ah=Math.max(1,(vv?vv.height:window.innerHeight)-44);
+  const dpr=Math.min(window.devicePixelRatio||1,2);
+  const s=Math.min(aw/W,ah/H);
+  const cw=Math.max(1,Math.floor(W*s)), ch=Math.max(1,Math.floor(H*s));
+  cv.width=Math.round(cw*dpr); cv.height=Math.round(ch*dpr);
+  cv.style.width=cw+'px'; cv.style.height=ch+'px';
+  ctx.setTransform(dpr*cw/W,0,0,dpr*ch/H,0,0);
+  sizeBuf();
 }
-window.addEventListener('resize', fit);
-window.addEventListener('orientationchange', () => setTimeout(fit, 80));
-if (window.visualViewport) window.visualViewport.addEventListener('resize', fit);
+window.addEventListener('resize',fit);
+window.addEventListener('orientationchange',()=>setTimeout(fit,80));
+if(window.visualViewport) window.visualViewport.addEventListener('resize',fit);
 fit();
-
-/* ---------- audio (tiny synth, no assets) ---------- */
-let AC = null;
-function audio() {
-  if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
-  if (AC && AC.state === 'suspended') AC.resume();
+function mkSprite(w,h,fn){
+  const c=document.createElement('canvas'); c.width=w*PX; c.height=h*PX;
+  const g=c.getContext('2d'); g.scale(PX,PX); g.imageSmoothingEnabled=false;
+  fn(g); return c;
 }
-function beep(f0, f1, dur, type, vol) {
-  if (!AC || muted) return;
-  const t = AC.currentTime, o = AC.createOscillator(), g = AC.createGain();
-  o.type = type || 'square'; o.frequency.setValueAtTime(f0, t);
-  o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
-  g.gain.setValueAtTime(vol || 0.08, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t + dur);
+function spr(img,x,y,tint){
+  if(!tint){ bctx.drawImage(img,Math.round(x),Math.round(y),img.width/PX,img.height/PX); return; }
+  const t=document.createElement('canvas'); t.width=img.width; t.height=img.height;
+  const tg=t.getContext('2d'); tg.drawImage(img,0,0);
+  tg.globalCompositeOperation='source-in'; tg.fillStyle=tint; tg.fillRect(0,0,t.width,t.height);
+  bctx.drawImage(t,Math.round(x),Math.round(y),img.width/PX,img.height/PX);
 }
-function noiseBurst(dur, vol, lp) {
-  if (!AC || muted) return;
-  const t = AC.currentTime, n = Math.floor(AC.sampleRate * dur);
-  const buf = AC.createBuffer(1, n, AC.sampleRate), d = buf.getChannelData(0);
-  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
-  const src = AC.createBufferSource(); src.buffer = buf;
-  const f = AC.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lp || 1200;
-  const g = AC.createGain(); g.gain.setValueAtTime(vol || 0.15, t);
-  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  src.connect(f); f.connect(g); g.connect(AC.destination); src.start(t);
+/* ---------- tiny pixel font ---------- */
+const FONT5X7={
+'A':["01110","10001","10001","11111","10001","10001","10001"],
+'B':["11110","10001","10001","11110","10001","10001","11110"],
+'C':["01110","10001","10000","10000","10000","10001","01110"],
+'D':["11110","10001","10001","10001","10001","10001","11110"],
+'E':["11111","10000","10000","11110","10000","10000","11111"],
+'F':["11111","10000","10000","11110","10000","10000","10000"],
+'G':["01110","10001","10000","10111","10001","10001","01111"],
+'H':["10001","10001","10001","11111","10001","10001","10001"],
+'I':["01110","00100","00100","00100","00100","00100","01110"],
+'J':["00111","00010","00010","00010","00010","10010","01100"],
+'K':["10001","10010","10100","11000","10100","10010","10001"],
+'L':["10000","10000","10000","10000","10000","10000","11111"],
+'M':["10001","11011","10101","10101","10001","10001","10001"],
+'N':["10001","11001","10101","10011","10001","10001","10001"],
+'O':["01110","10001","10001","10001","10001","10001","01110"],
+'P':["11110","10001","10001","11110","10000","10000","10000"],
+'Q':["01110","10001","10001","10001","10101","10010","01101"],
+'R':["11110","10001","10001","11110","10100","10010","01101"],
+'S':["01111","10000","10000","01110","00001","00001","11110"],
+'T':["11111","00100","00100","00100","00100","00100","00100"],
+'U':["10001","10001","10001","10001","10001","10001","01110"],
+'V':["10001","10001","10001","10001","01010","00100","00000"],
+'W':["10001","10001","10001","10101","10101","11011","10001"],
+'X':["10001","10001","01010","00100","01010","10001","10001"],
+'Y':["10001","10001","01010","00100","00100","00100","00100"],
+'Z':["11111","00001","00010","00100","01000","10000","11111"],
+'0':["01110","10001","10011","10101","11001","10001","01110"],
+'1':["00100","01100","00100","00100","00100","00100","01110"],
+'2':["01110","10001","00001","00110","01000","10000","11111"],
+'3':["11111","00010","00100","00010","00001","10001","01110"],
+'4':["00010","00110","01010","10010","11111","00010","00010"],
+'5':["11111","10000","11110","00001","00001","10001","01110"],
+'6':["00110","01000","10000","11110","10001","10001","01110"],
+'7':["11111","00001","00010","00100","01000","01000","01000"],
+'8':["01110","10001","10001","01110","10001","10001","01110"],
+'9':["01110","10001","10001","01111","00001","00010","01100"],
+"'":["00100","00100","00100","00000","00000","00000","00000"],
+'.':["00000","00000","00000","00000","00000","00110","00110"],
+'!':["00100","00100","00100","00100","00100","00000","00100"],
+'?':["01110","10001","00001","00010","00100","00000","00100"],
+':':["00000","00110","00110","00000","00110","00110","00000"],
+'/':["00001","00010","00010","00100","01000","01000","10000"],
+'(':["01000","00100","00010","00010","00010","00100","01000"],
+')':["01000","00100","00010","00010","00010","00100","01000"],
+'-':["00000","00000","00000","11111","00000","00000","00000"],
+'+':["00000","00100","00100","11111","00100","00100","00000"],
+'<':["00010","00100","01000","10000","01000","00100","00010"],
+'>':["01000","00100","00010","00001","00010","00100","01000"],
+'=':["00000","00000","11111","00000","11111","00000","00000"],
+',':["00000","00000","00000","00000","00110","00100","01000"],
+};
+function drawPixText(str,dx,y0,u){
+  let cx=dx;
+  for(const ch of str){
+    const gl=ch===' '?null:(FONT5X7[ch]||FONT5X7['?']);
+    if(gl)for(let r=0;r<gl.length;r++){const row=gl[r];
+      for(let c=0;c<5;c++)if(row[c]==='1')bctx.fillRect(cx+c*u,y0+r*u,u,u);}
+    cx+=ch===' '?4*u:6*u;
+  }
 }
-const sUI    = () => beep(520, 780, 0.07, 'square', 0.06);
-const sJump  = () => beep(280, 640, 0.12, 'square', 0.05);
-const sTick  = () => beep(95, 70, 0.05, 'triangle', 0.035);
-const sBounce= () => noiseBurst(0.08, 0.10, 500);
-const sThrow = () => beep(180, 90, 0.12, 'sawtooth', 0.07);
-const sScore = () => beep(880, 1320, 0.09, 'square', 0.05);
-const sHit   = () => { noiseBurst(0.25, 0.2, 800); beep(160, 60, 0.2, 'sawtooth', 0.1); };
-const sDeath = () => { noiseBurst(0.5, 0.28, 600); beep(220, 40, 0.5, 'sawtooth', 0.12); };
-const sClear = () => { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => beep(f, f, 0.16, 'square', 0.07), i * 130)); };
-const sWin   = () => { beep(440, 880, 0.18, 'square', 0.08); setTimeout(() => beep(660, 1320, 0.22, 'square', 0.08), 160); };
-const sAlarm = () => { beep(660, 660, 0.12, 'square', 0.09); setTimeout(() => beep(520, 520, 0.16, 'square', 0.09), 150); };
-let muted = false;
-/* ---------- music: a tiny 8-step loop, very quiet ---------- */
-let musStep = 0, musT = 0;
-const BASSLINE = [110, 0, 110, 130.81, 0, 98, 0, 123.47];
-function musicTick() {
-  if (!AC || muted) return;
-  const f = BASSLINE[musStep % BASSLINE.length];
-  if (f) beep(f, f, 0.16, 'triangle', 0.032);
-  if (musStep % 2 === 0) noiseBurst(0.03, 0.018, 6000);
-  musStep++;
+function text(str,x,y,font,color,align){
+  str=String(str).toUpperCase();
+  const m=/(\d+)/.exec(font||''); const size=m?+m[1]:16;
+  const u=Math.max(PX,Math.round(size/7/PX)*PX);
+  let w=0; for(const ch of str) w+=ch===' '?4*u:6*u;
+  let dx=align==='right'?x-w:align==='center'?x-w/2:x;
+  dx=Math.round(dx); const y0=Math.round(y-3.5*u);
+  bctx.fillStyle=color; drawPixText(str,dx,y0,u);
 }
-
+function pixW(str,font){
+  const m=/(\d+)/.exec(font||''); const size=m?+m[1]:16;
+  const u=Math.max(PX,Math.round(size/7/PX)*PX);
+  let w=0; for(const ch of String(str).toUpperCase()) w+=ch===' '?4*u:6*u;
+  return w;
+}
+/* ---------- audio: tiny synth ---------- */
+let AC=null, muted=false;
+function audio(){
+  if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+  if(AC&&AC.state==='suspended') AC.resume();
+}
+function beep(f0,f1,dur,type,vol){
+  if(!AC||muted) return;
+  try{
+    const o=AC.createOscillator(), g=AC.createGain();
+    o.type=type||'square'; o.frequency.setValueAtTime(f0,AC.currentTime);
+    o.frequency.exponentialRampToValueAtTime(Math.max(1,f1),AC.currentTime+dur);
+    g.gain.setValueAtTime(vol||0.05,AC.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001,AC.currentTime+dur);
+    o.connect(g); g.connect(AC.destination); o.start(); o.stop(AC.currentTime+dur);
+  }catch(e){}
+}
+function noiseBurst(dur,vol,lp){
+  if(!AC||muted) return;
+  try{
+    const n=Math.floor(AC.sampleRate*dur), b=AC.createBuffer(1,n,AC.sampleRate), d=b.getChannelData(0);
+    for(let i=0;i<n;i++) d[i]=(Math.random()*2-1)*(1-i/n);
+    const s=AC.createBufferSource(); s.buffer=b;
+    const f=AC.createBiquadFilter(); f.type='lowpass'; f.frequency.value=lp||3000;
+    const g=AC.createGain(); g.gain.value=vol||0.05;
+    s.connect(f); f.connect(g); g.connect(AC.destination); s.start();
+  }catch(e){}
+}
+const sJump=()=>beep(300,520,0.12,'square',0.04);
+const sScore=()=>beep(880,1320,0.08,'square',0.035);
+const sHit=()=>{beep(160,60,0.25,'sawtooth',0.07);noiseBurst(0.15,0.06,1200);};
+const sDeath=()=>beep(220,40,0.5,'sawtooth',0.07);
+const sClear=()=>{beep(523,523,0.1,'square',0.05);setTimeout(()=>beep(659,659,0.1,'square',0.05),110);setTimeout(()=>beep(784,784,0.16,'square',0.05),220);};
+const sWin=()=>sClear();
+const sAlarm=()=>{for(let i=0;i<3;i++)setTimeout(()=>beep(660,660,0.12,'square',0.06),i*160);};
+const sUI=()=>beep(440,440,0.05,'square',0.03);
+const sTick=()=>noiseBurst(0.03,0.012,5000);
+const sBounce=()=>beep(180,120,0.07,'triangle',0.03);
+const sCrack=()=>{noiseBurst(0.2,0.09,900);beep(90,40,0.25,'triangle',0.08);};
+let gnawSndT=0;
+const sGnaw=()=>{ if(time-gnawSndT>0.09){ gnawSndT=time; noiseBurst(0.05,0.05,700);} };
 /* ---------- helpers ---------- */
-const TAU = Math.PI * 2;
-const rnd = (a, b) => a + Math.random() * (b - a);
-const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
-
-/* ---------- tower geometry ----------
-   6 girders, index 0 (bottom) .. 5 (top). Slopes alternate; spools roll downhill.
-   Middle gap on girders 1..4. Ladders alternate sides, clear of the gaps. */
-const GY   = [630, 540, 450, 360, 270, 180];
-const GDIR = [1, -1, 1, -1, 1, -1];       // spool roll direction per girder
-const GX0 = 30, GX1 = 450, TILT = 14;
-const GAPC = 240, GAPH = 35;              // middle gap, girders 1..4
-const LX = [390, 90, 390, 90, 390];       // ladder x per ladder i (g0=i -> g1=i+1)
-const ladders = LX.map((x, i) => ({ x, g0: i, g1: i + 1 }));
-
-function surfY(i, x) { return GY[i] + TILT * GDIR[i] * (x - 240) / 210; }
-function inGap(i, x) { return i >= 1 && i <= 4 && Math.abs(x - GAPC) < GAPH; }
-function onGirderX(i, x) { return x >= GX0 && x <= GX1 && !inGap(i, x); }
-
-/* physics tuning */
-const GRAV = 1500, RUN = 172, JUMPV = 520, CLIMBV = 135;
-const ROLL_BASE = 132;
-
-/* ---------- state ---------- */
-let state = 'menu';       // menu | serve | play | stageClear | roundEnd | matchEnd | gameOver | win
-let stateT = 0, mode = 'apex';
-let paused = false, time = 0;
-let climber = null, barrels = [], parts = [], floats = [];
-let ape = { x: 240, throwT: 0 };
-let score = 0, dodges = 0, best = +(localStorage.getItem('apex_best') || 0);
-
-let lives = 3, stage = 1, hits = 0, matchT = 0;
-let round = 1, wins = { p1: 0, p2: 0 }, roundT = 0, roundWinner = null;
-let alarms = 0, stageT = 0, apexBest = 0;
-try { apexBest = +(localStorage.getItem('apex_bestscore') || 0); } catch (_) {}
-const APEX_STAGES = 8, CLIMB_STAGES = 8;
-// apex campaign escalation: the climber gets faster and wilier every stage
-const aiSpeed = () => 150 + stage * 9;
-const aiWhiff = () => Math.max(0.03, 0.16 - stage * 0.016);
-const aiClimbV = () => CLIMBV * (1 + stage * 0.05);
-function saveApexBest() {
-  if (score > apexBest) { apexBest = score; try { localStorage.setItem('apex_bestscore', apexBest); } catch (_) {} }
-}
-let banner = '', bannerT = 0, shake = 0, bellT = 0;
-let throwCd = 0, aiThrowT = 2, tickT = 0, aiSide = 1;
-let lastInputT = 0, idleWarned = false;
-let aimG = 1, aimEdge = 1; // keyboard aim reticle for the human ape
-let pauseBtn = null, muteBtn = null;
-let stars = [];
-for (let i = 0; i < 70; i++) stars.push([rnd(0, W), rnd(0, H), rnd(0.4, 1.4)]);
-/* night-city backdrop, generated once */
-const skylineFar = [], skylineNear = [];
-(function genSkyline() {
-  let x = -30;
-  while (x < W + 60) {
-    const w = rnd(36, 72), h = rnd(100, 230), wins = [];
-    for (let wy = H - h + 14; wy < H - 12; wy += 16)
-      for (let wx = x + 6; wx < x + w - 6; wx += 12)
-        if (Math.random() < 0.26) wins.push([wx, wy]);
-    skylineFar.push({ x, w, h, wins });
-    x += w + rnd(6, 20);
-  }
-  x = -40;
-  while (x < W + 70) {
-    const w = rnd(50, 96), h = rnd(50, 150), wins = [];
-    for (let wy = H - h + 16; wy < H - 14; wy += 20)
-      for (let wx = x + 8; wx < x + w - 8; wx += 16)
-        if (Math.random() < 0.18) wins.push([wx, wy]);
-    skylineNear.push({ x, w, h, wins });
-    x += w + rnd(10, 30);
-  }
-})();
-function drawSkyline() {
-  const mg = ctx.createRadialGradient(398, 84, 8, 398, 84, 72);
-  mg.addColorStop(0, 'rgba(232,240,255,0.45)');
-  mg.addColorStop(1, 'rgba(232,240,255,0)');
-  ctx.fillStyle = mg; ctx.fillRect(318, 4, 160, 160);
-  ctx.fillStyle = '#dfe8f5';
-  ctx.beginPath(); ctx.arc(398, 84, 22, 0, TAU); ctx.fill();
-  ctx.fillStyle = '#c2cde0';
-  ctx.beginPath(); ctx.arc(390, 78, 5, 0, TAU); ctx.fill();
-  ctx.beginPath(); ctx.arc(406, 92, 3.5, 0, TAU); ctx.fill();
-  for (const b of skylineFar) {
-    ctx.fillStyle = '#0a1322';
-    ctx.fillRect(b.x, H - b.h, b.w, b.h);
-    ctx.fillStyle = 'rgba(255,205,110,0.5)';
-    for (const q of b.wins) ctx.fillRect(q[0], q[1], 3, 5);
-  }
-  for (const b of skylineNear) {
-    ctx.fillStyle = '#0e1828';
-    ctx.fillRect(b.x, H - b.h, b.w, b.h);
-    ctx.fillStyle = 'rgba(255,205,110,0.32)';
-    for (const q of b.wins) ctx.fillRect(q[0], q[1], 4, 6);
-  }
-}
-function drawVignette() {
-  const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.30, W / 2, H / 2, H * 0.72);
-  vg.addColorStop(0, 'rgba(0,0,0,0)');
-  vg.addColorStop(1, 'rgba(0,0,0,0.42)');
-  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
-}
-function confetti(n) {
-  const colors = ['#ffd75a', '#7dff9a', '#7fb2dd', '#ff5a5a', '#e8f4ff'];
-  for (let i = 0; i < n; i++) burst(rnd(60, W - 60), rnd(120, 320), 3, colors[i % colors.length]);
-}
-
-const humanClimber = () => mode === 'climb' || mode === 'versus';
-const humanApe     = () => mode === 'apex' || mode === 'versus';
-
-/* ---------- entities ---------- */
-function resetClimber() {
-  climber = { x: 60, y: surfY(0, 60), vx: 0, vy: 0, w: 18, h: 32,
-    onGround: true, girder: 0, climbing: false, ladder: -1,
-    face: 1, inv: 2, stun: 0, jumpPrev: false };
-}
-function resetStage() {
-  barrels = []; parts = []; floats = [];
-  ape = { x: 240, throwT: 0 };
-  throwCd = 0; aiThrowT = 1.6; tickT = 0;
-  hits = 0; alarms = 0; stageT = 0;
-  lastInputT = time; idleWarned = false;
-  resetClimber();
-}
-function throwDrum(gi, edge, speedMul) {
-  if (barrels.length >= 24) return;
-  const x = edge < 0 ? GX0 + 14 : GX1 - 14;
-  const sp = (ROLL_BASE + (mode === 'climb' ? Math.min(stage * 9, 60) : 0)) * (speedMul || 1);
-  barrels.push({ x, y: surfY(gi, x) - 11, vx: -edge * sp, vy: 0,
-    r: 11, girder: gi, state: 'roll', rot: 0, jumped: false });
-  ape.throwT = 0.35;
-  sThrow();
-}
-function burst(x, y, n, color) {
-  for (let i = 0; i < n; i++) {
-    const a = rnd(0, TAU), sp = rnd(40, 260);
-    parts.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
-      t: 0, life: rnd(0.3, 0.8), color, r: rnd(1.5, 3) });
-  }
-}
-function floatText(x, y, txt, color) {
-  floats.push({ x, y, txt, color: color || '#ffd75a', t: 0 });
-}
-
-/* ---------- input ---------- */
-const keys = {};
-window.addEventListener('keydown', e => {
-  if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(e.code)) e.preventDefault();
-  keys[e.code] = true; audio();
-  if (e.code === 'KeyM') { muted = !muted; return; }
-  if (e.code === 'KeyP' && state === 'play') { paused = !paused; return; }
-  if (state !== 'play' || paused) return;
-  if (mode === 'apex') {
-    if (e.code === 'ArrowUp') aimG = Math.min(5, aimG + 1);
-    else if (e.code === 'ArrowDown') aimG = Math.max(0, aimG - 1);
-    else if (e.code === 'ArrowLeft') aimEdge = -1;
-    else if (e.code === 'ArrowRight') aimEdge = 1;
-    else if (e.code === 'Space') aimThrow();
-  } else if (mode === 'versus') {
-    // P2 ape aims with W/S/A/D and throws with F (P1 climber owns the arrows)
-    if (e.code === 'KeyW') aimG = Math.min(5, aimG + 1);
-    else if (e.code === 'KeyS') aimG = Math.max(3, aimG - 1);
-    else if (e.code === 'KeyA') aimEdge = -1;
-    else if (e.code === 'KeyD') aimEdge = 1;
-    else if (e.code === 'KeyF') aimThrow();
-  }
+const TAU=Math.PI*2;
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+/* ---------- tower geometry (tuned, ported) ---------- */
+const GY=[630,540,450,360,270,180];
+const GDIR=[1,-1,1,-1,1,-1];
+const GX0=30, GX1=450, TILT=14;
+const GAPC=240, GAPH=35;
+const LX=[390,90,390,90,90];
+const ladders=LX.map((x,i)=>({x,g0:i,g1:i+1}));
+function surfY(i,x){ return GY[i]+TILT*GDIR[i]*(x-240)/210; }
+function inGap(i,x){ return i>=1&&i<=4&&Math.abs(x-GAPC)<GAPH; }
+function onGirderX(i,x){ return x>=GX0&&x<=GX1&&!inGap(i,x); }
+const GRAV=1500, RUN=172, JUMPV=520, CLIMBV=135, ROLL_BASE=132;
+/* trees live on the top girder — the beaver's turf */
+const TREEX=[110,220,320,420];
+const GNAW_T=1.15, REGROW_T=3.2;
+/* ---------- pre-baked backdrop ---------- */
+const sky=mkSprite(W,H,(g)=>{
+  g.fillStyle='#070b16'; g.fillRect(0,0,W,H);
+  g.fillStyle='#0a1022'; g.fillRect(0,H*0.35,W,H*0.65);
+  g.fillStyle='#0d1526'; g.fillRect(0,H*0.6,W,H*0.4);
+  // stars
+  g.fillStyle='#cfe0ff';
+  for(let i=0;i<70;i++){ const x=(i*67)%W, y=(i*41)%Math.floor(H*0.5); if((i*13)%3) g.fillRect(x,y,2,2); }
+  // moon
+  g.fillStyle='#e8ecff'; g.fillRect(392,46,26,26);
+  // far pines
+  g.fillStyle='#0e1a24';
+  for(let x=-10;x<W+20;x+=34){ const h=52+((x*7)%30);
+    for(let r=0;r<3;r++){ const w=26-r*7; g.fillRect(x-w/2,H*0.62-h+r*14,w,14); } }
+  // near pines
+  g.fillStyle='#12241e';
+  for(let x=6;x<W+20;x+=52){ const h=70+((x*11)%36);
+    for(let r=0;r<4;r++){ const w=34-r*8; g.fillRect(x-w/2,H*0.78-h+r*15,w,15); }
+    g.fillRect(x-3,H*0.78-h,6,h); }
 });
-window.addEventListener('keyup', e => { keys[e.code] = false; });
-function toGame(e) {
-  const r = canvas.getBoundingClientRect();
-  return { x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H };
-}
-/* DOM touch controls: fixed physical size (>=44px) in any orientation */
-const touchHeld = { left: false, right: false, jump: false };
-const coarsePointer = () => (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) || 'ontouchstart' in window;
-function syncTouch() {
-  const el = document.getElementById('touch');
-  const want = coarsePointer() && (mode === 'climb' || mode === 'versus') &&
-               (state === 'play' || state === 'serve') && !paused;
-  if (want !== el.classList.contains('on')) el.classList.toggle('on', want);
-  if (!want) { touchHeld.left = touchHeld.right = touchHeld.jump = false; }
-}
-[['tL', 'left'], ['tR', 'right'], ['tJ', 'jump']].forEach(([id, name]) => {
-  const el = document.getElementById(id);
-  el.addEventListener('pointerdown', e => { e.preventDefault(); audio(); touchHeld[name] = true; try { el.setPointerCapture(e.pointerId); } catch (_) {} });
-  const off = e => { e.preventDefault(); touchHeld[name] = false; };
-  el.addEventListener('pointerup', off);
-  el.addEventListener('pointercancel', off);
-  el.addEventListener('lostpointercapture', off);
-  el.addEventListener('contextmenu', e => e.preventDefault());
+const vig=mkSprite(W,H,(g)=>{
+  const gr=g.createRadialGradient(W/2,H/2,H*0.30,W/2,H/2,H*0.75);
+  gr.addColorStop(0,'rgba(0,0,0,0)'); gr.addColorStop(1,'rgba(0,0,0,0.40)');
+  g.fillStyle=gr; g.fillRect(0,0,W,H);
 });
-canvas.addEventListener('pointerdown', e => {
-  e.preventDefault(); audio();
-  const p = toGame(e);
-  handleTap(p.x, p.y);
-  try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
-});
-window.addEventListener('blur', () => {
-  for (const k in keys) keys[k] = false;
-  touchHeld.left = touchHeld.right = touchHeld.jump = false;
-});
-
-/* ---------- mode setup ---------- */
-function startMode(m) {
-  mode = m; score = 0; dodges = 0; lives = 3; stage = 1; hits = 0; matchT = 0;
-  round = 1; wins = { p1: 0, p2: 0 }; roundWinner = null;
-  resetStage(); paused = false;
-  if (m === 'apex') {
-    banner = 'YOU ARE THE APE — HOLD THE TOWER'; bannerT = 2.2;
-    aimG = 1; aimEdge = 1;
-  } else if (m === 'climb') {
-    banner = 'CLIMB — REACH THE TOP'; bannerT = 2.0;
-  } else {
-    aimG = 5; aimEdge = 1;
-    banner = 'VERSUS — CLIMBER VS APE'; bannerT = 2.0;
-    startRound();
-    return;
-  }
-  state = 'serve'; stateT = 0;
-  sUI();
-}
-function startRound() {
-  resetStage();
-  roundT = 60; roundWinner = null;
-  banner = 'ROUND ' + round; bannerT = 1.4;
-  state = 'serve'; stateT = 0;
-}
-function nextRound(winner) {
-  wins[winner]++;
-  if (wins[winner] >= 2) {
-    state = 'matchEnd'; stateT = 0;
-    if (winner === 'p1') sWin(); else sHit();
-  } else {
-    round++;
-    banner = winner === 'p1' ? 'CLIMBER TAKES THE ROUND' : 'APE TAKES THE ROUND';
-    bannerT = 1.6; startRound();
-  }
-}
-function toMenu() { state = 'menu'; paused = false; sUI(); }
-
-/* ---------- tap handling ---------- */
-const menuBtns = [
-  { id: 'apex',   y: 380, label: 'APEX',   sub: '1P — you are the ape vs the AI climber' },
-  { id: 'climb',  y: 458, label: 'CLIMB',  sub: '1P — climb the tower vs the AI ape' },
-  { id: 'versus', y: 536, label: 'VERSUS', sub: '2P — climber vs ape, same screen' },
-  { id: 'howto',  y: 614, label: 'HOW TO', sub: 'learn the tower' },
-];
-function nearestGirder(y, maxD, topOnly) {
-  let bi = -1, bd = maxD;
-  for (let i = 0; i < 6; i++) {
-    if (topOnly && GY[i] > 400) continue;
-    const d = Math.abs(GY[i] - y);
-    if (d < bd) { bd = d; bi = i; }
-  }
-  return bi;
-}
-/* player-ape spool throw: tap sets the reticle, keyboard aims it, both throw through aimThrow */
-function aimThrow() {
-  if (!humanApe() || throwCd > 0 || state !== 'play' || paused) return;
-  throwDrum(aimG, aimEdge, 1);
-  throwCd = mode === 'versus' ? 0.8 : 0.65;
-}
-function apeTap(x, y) {
-  if (!humanApe() || throwCd > 0) return;
-  const topOnly = mode === 'versus';
-  if (topOnly && y > 380) return;              // P2 is restricted to the top half
-  const gi = nearestGirder(y, 60, topOnly);
-  if (gi < 0) return;
-  const edge = x < W * 0.35 ? -1 : x > W * 0.65 ? 1 : (x < W / 2 ? -1 : 1);
-  aimG = gi; aimEdge = edge;
-  aimThrow();
-}
-function handleTap(x, y) {
-  if (state === 'menu') {
-    for (const b of menuBtns) {
-      if (Math.abs(y - b.y) < 34 && x > 90 && x < W - 90) {
-        if (b.id === 'howto') { state = 'howto'; stateT = 0; }
-        else startMode(b.id);
-        sUI(); return;
+/* ---------- sprites (code-drawn, pixel) ---------- */
+function drawGirders(){
+  for(let i=0;i<6;i++){
+    const segs=[];
+    if(i>=1&&i<=4) segs.push([GX0,GAPC-GAPH],[GAPC+GAPH,GX1]);
+    else segs.push([GX0,GX1]);
+    for(const s of segs){ const x0=s[0], x1=s[1];
+      for(let x=x0;x<x1;x+=4){
+        const y=Math.round(surfY(i,x));
+        bctx.fillStyle='#5e3a10'; bctx.fillRect(x,y-3,4,10);
+        bctx.fillStyle='#8a5a20'; bctx.fillRect(x,y-3,4,3);
+      }
+      bctx.fillStyle='#4a2c10';
+      for(let x=x0+44;x<x1-6;x+=92){
+        const y=Math.round(surfY(i,x));
+        bctx.fillRect(x,y+7,5,24);
       }
     }
+  }
+}
+function drawLadders(){
+  bctx.fillStyle='#7a5a30';
+  for(const L of ladders){
+    const yB=Math.round(surfY(L.g0,L.x)), yT=Math.round(surfY(L.g1,L.x));
+    bctx.fillRect(L.x-8,yT,4,yB-yT);
+    bctx.fillRect(L.x+4,yT,4,yB-yT);
+    for(let y=yT+6;y<yB-4;y+=12) bctx.fillRect(L.x-8,y,16,4);
+  }
+}
+function drawTree(t){
+  const x=Math.round(t.x), gy=t.gy!==undefined?Math.round(t.gy):Math.round(surfY(5,x));
+  if(t.stage===0){ // stump
+    bctx.fillStyle='#5e3a10'; bctx.fillRect(x-7,gy-8,14,8);
+    bctx.fillStyle='#8a5a20'; bctx.fillRect(x-7,gy-8,14,3);
+    bctx.fillStyle='#c89840'; bctx.fillRect(x-4,gy-8,8,2);
     return;
   }
-  if (state === 'howto') { toMenu(); return; }
-  if (state === 'matchEnd' || state === 'gameOver' || state === 'campWin') { toMenu(); return; }
-  // pause / mute glyphs always tappable outside menu
-  if (pauseBtn && Math.hypot(x - pauseBtn.x, y - pauseBtn.y) < 24) {
-    if (state === 'play') { paused = !paused; sUI(); } return;
+  const shake=t.gnaw>0?Math.sin(time*44)*t.gnaw*3:0;
+  if(t.stage===1){ // sapling
+    const sx=x+Math.round(shake*0.5);
+    bctx.fillStyle='#5e3a10'; bctx.fillRect(sx-2,gy-22,4,22);
+    bctx.fillStyle='#2a7a2a'; bctx.fillRect(sx-8,gy-32,16,12);
+    bctx.fillStyle='#3a9a3a'; bctx.fillRect(sx-8,gy-32,16,4);
+    return;
   }
-  if (muteBtn && Math.hypot(x - muteBtn.x, y - muteBtn.y) < 24) { muted = !muted; sUI(); return; }
-  if (state !== 'play' || paused) return;
-  if (mode === 'apex') { apeTap(x, y); return; }
-  if (mode === 'versus' && y < 380) { apeTap(x, y); return; }
-  // climber tap = jump (mobile)
-  if (humanClimber() && climber && !climber.climbing) {
-    climber.tapJump = true;
+  let shear=0;
+  if(t.falling>0){ const f=1-t.falling/0.45; shear=f*f*30*GDIR[5]; }
+  const sx=x+Math.round(shake);
+  bctx.fillStyle='#5e3a10';
+  for(let r=0;r<17;r++){ const off=Math.round(shear*r/17); bctx.fillRect(sx-4+off,gy-34+r*2,8,2); }
+  bctx.fillStyle='#4a2c10'; bctx.fillRect(sx-7,gy-4,14,4);
+  const fx=sx+Math.round(shear);
+  bctx.fillStyle='#1e5a1e';
+  bctx.fillRect(fx-17,gy-64,34,16); bctx.fillRect(fx-13,gy-74,26,12); bctx.fillRect(fx-8,gy-82,16,10);
+  bctx.fillStyle='#2a7a2a';
+  bctx.fillRect(fx-17,gy-64,34,5); bctx.fillRect(fx-13,gy-74,26,4);
+  if(t.gnaw>0.04){ // the notch grows as you chew
+    bctx.fillStyle='#c89840';
+    bctx.fillRect(sx-4,gy-10,Math.round(2+t.gnaw*6),6);
+  }
+  if(t.highlight){ // targeted tree pulses
+    const p=2+Math.floor(time*6)%2;
+    bctx.fillStyle='#ffd75a';
+    bctx.fillRect(sx-20,gy-70,40,p); bctx.fillRect(sx-20,gy-8,40,p);
   }
 }
-
-/* ---------- player control assembly ---------- */
-function playerControl() {
-  const p2 = mode === 'versus'; // P1 climber: arrows only; WASD+F drive the P2 ape
-  const left  = !!(keys.ArrowLeft || (!p2 && keys.KeyA) || touchHeld.left);
-  const right = !!(keys.ArrowRight || (!p2 && keys.KeyD) || touchHeld.right);
-  const up    = !!(keys.ArrowUp || (!p2 && keys.KeyW));
-  const down  = !!(keys.ArrowDown || (!p2 && keys.KeyS));
-  const jump  = !!(keys.Space || touchHeld.jump || (climber && climber.tapJump));
-  if (left || right || up || down || jump) lastInputT = time;
-  if (climber) climber.tapJump = false;
-  return { left, right, up, down, jump };
+function drawLog(b){
+  const fr=Math.abs(Math.floor(b.rot*1.6))%3;
+  bctx.save(); bctx.translate(Math.round(b.x),Math.round(b.y));
+  bctx.fillStyle='#6e4a1a'; bctx.fillRect(-12,-5,24,10);
+  bctx.fillStyle='#8a5a20'; bctx.fillRect(-12,-5,24,3);
+  bctx.fillStyle='#4a2c10'; bctx.fillRect(-12,-5,3,10); bctx.fillRect(9,-5,3,10);
+  bctx.fillStyle='#c89840'; bctx.fillRect(-11,-3,1,6); bctx.fillRect(10,-3,1,6);
+  bctx.fillStyle='#4a2c10';
+  for(let k=0;k<3;k++) bctx.fillRect(-6+k*6+fr*2-2,-5,2,10);
+  bctx.restore();
+}
+function drawBeaver(b){
+  const gnaw=b.gnawMode;
+  bctx.save(); bctx.translate(Math.round(b.x),Math.round(b.y)); bctx.scale(b.face,1);
+  const B='#7a4e1e', BD='#4a2c10', BL='#9a6a30';
+  bctx.fillStyle=BD; // paddle tail
+  bctx.fillRect(-18,-7,10,6); bctx.fillRect(-20,-6,3,4);
+  bctx.fillStyle=BD; // feet
+  if(!gnaw&&Math.abs(b.vx)>20){ const ph=Math.floor(time*10)%2;
+    if(ph){ bctx.fillRect(-8,-3,6,3); bctx.fillRect(4,-5,6,3); }
+    else { bctx.fillRect(-8,-5,6,3); bctx.fillRect(4,-3,6,3); }
+  } else { bctx.fillRect(-8,-3,6,3); bctx.fillRect(4,-3,6,3); }
+  if(gnaw){
+    bctx.fillStyle=B; bctx.fillRect(-9,-13,17,11);
+    bctx.fillStyle=BL; bctx.fillRect(5,-12,9,9);
+    const bob=Math.floor(time*18)%2;
+    bctx.fillStyle='#fff'; bctx.fillRect(12,-6+bob,3,4); bctx.fillRect(15,-6+bob,2,4);
+    bctx.fillStyle='#1a1a1a'; bctx.fillRect(8,-10,2,2);
+  } else {
+    bctx.fillStyle=B; bctx.fillRect(-9,-14,19,12);
+    bctx.fillStyle=BL; bctx.fillRect(6,-17,10,10);
+    bctx.fillStyle='#fff'; bctx.fillRect(14,-10,2,4); bctx.fillRect(16,-10,2,4);
+    bctx.fillStyle='#1a1a1a'; bctx.fillRect(10,-14,2,2);
+    bctx.fillStyle=B; bctx.fillRect(4,-19,4,3);
+  }
+  bctx.restore();
+}
+function drawJack(c){
+  if(!c) return;
+  if(c.inv>0&&Math.floor(time*12)%2===0) return;
+  const flash=c.stun>0&&Math.floor(time*16)%2===0;
+  bctx.save(); bctx.translate(Math.round(c.x),Math.round(c.y)); bctx.scale(c.face,1);
+  const P=flash?'#ff5a5a':'#2a4a7a', T=flash?'#ff5a5a':'#b03030', TD=flash?'#ff5a5a':'#701818';
+  bctx.fillStyle=P;
+  if(c.climbing){ bctx.fillRect(-5,-12,4,12); bctx.fillRect(1,-12,4,12); }
+  else if(c.onGround&&Math.abs(c.vx)>10){ const ph=Math.floor(time*10)%2;
+    if(ph){ bctx.fillRect(-6,-9,5,9); bctx.fillRect(2,-12,5,12); }
+    else { bctx.fillRect(-6,-12,5,12); bctx.fillRect(2,-9,5,9); }
+  } else if(!c.onGround&&!c.climbing){ bctx.fillRect(-7,-8,5,8); bctx.fillRect(2,-8,5,8); }
+  else { bctx.fillRect(-5,-12,4,12); bctx.fillRect(1,-12,4,12); }
+  bctx.fillStyle=T; bctx.fillRect(-7,-26,14,15);
+  bctx.fillStyle=TD; bctx.fillRect(-7,-20,14,2); bctx.fillRect(-1,-26,2,15);
+  bctx.fillStyle=T;
+  if(c.climbing){ bctx.fillRect(-10,-40,4,15); bctx.fillRect(6,-40,4,15); }
+  else { bctx.fillRect(5,-25,4,11); bctx.fillRect(-9,-25,4,8); }
+  bctx.fillStyle='#e8b88a'; bctx.fillRect(-4,-34,9,8);
+  bctx.fillStyle='#6a4a20'; bctx.fillRect(-4,-30,9,5);
+  bctx.fillStyle='#1a1a1a'; bctx.fillRect(1,-33,2,2);
+  bctx.fillStyle='#c02020'; bctx.fillRect(-5,-39,11,5);
+  bctx.fillStyle='#fff'; bctx.fillRect(4,-41,3,3);
+  bctx.restore();
 }
 
-/* ---------- climber physics (shared by player + AI) ---------- */
-function startClimb(c, li, down) {
-  c.climbing = true; c.ladder = li;
-  c.x = ladders[li].x; c.vx = 0; c.vy = 0;
+/* ---------- state ---------- */
+let state='menu', stateT=0, mode='apex', paused=false, time=0;
+let jack=null, logs=[], parts=[], floats=[];
+let beaver={x:240,y:0,vx:0,face:1,gnawMode:false};
+let trees=[];
+let score=0, dodges=0, lives=3, stage=1, hits=0, alarms=0, stageT=0, matchT=0;
+let round=1, wins={p1:0,p2:0}, roundT=0, roundWinner=null;
+let banner='', bannerT=0, shake=0;
+let best=0, apexBest=0;
+try{ best=+(localStorage.getItem('apex_best')||0); apexBest=+(localStorage.getItem('apex_bestscore')||0); }catch(_){}
+const APEX_STAGES=8, CLIMB_STAGES=8;
+const aiSpeed=()=>150+stage*9;
+const aiWhiff=()=>Math.max(0.03,0.16-stage*0.016);
+const aiClimbV=()=>CLIMBV*(1+stage*0.05);
+const aiBeavSpd=()=>150+stage*9;
+const gnawTime=()=>mode==='climb'?Math.max(0.75,1.15-stage*0.05):1.15;
+const BEAV_SPD=210;
+function saveApexBest(){ if(score>apexBest){ apexBest=score; try{localStorage.setItem('apex_bestscore',apexBest);}catch(_){} } }
+function resetJack(){
+  jack={x:60,y:surfY(0,60),vx:0,vy:0,w:18,h:32,onGround:true,girder:0,
+    climbing:false,ladder:-1,face:1,inv:2,stun:0,jumpPrev:false,tapJump:false};
 }
-function stepClimber(c, ctl, dt, isAI) {
-  if (c.stun > 0) c.stun -= dt;
-  if (c.inv > 0) c.inv -= dt;
-
-  if (c.climbing) {
-    const L = ladders[c.ladder];
-    const mv = (ctl.down ? 1 : 0) - (ctl.up ? 1 : 0);
-    if (c.stun <= 0) c.y += mv * (isAI ? aiClimbV() : CLIMBV) * dt;
-    c.x = L.x;
-    if (mv < 0 && c.y <= surfY(L.g1, L.x) + 4) {          // reached top
-      c.y = surfY(L.g1, L.x); c.girder = L.g1;
-      c.climbing = false; c.ladder = -1; c.onGround = true; c.vy = 0;
-    } else if (mv > 0 && c.y >= surfY(L.g0, L.x) - 2) {   // reached bottom
-      c.y = surfY(L.g0, L.x); c.girder = L.g0;
-      c.climbing = false; c.ladder = -1; c.onGround = true; c.vy = 0;
+function resetStage(){
+  logs=[]; parts=[]; floats=[];
+  beaver={x:240,y:surfY(5,240),vx:0,face:1,gnawMode:false};
+  trees=TREEX.map(x=>({x,stage:2,growT:99,gnaw:0,falling:0,highlight:false}));
+  hits=0; alarms=0; stageT=0; aiGnawT=1.2; aiTree=null; holdPtr=null; holdKeyT=null;
+  lastInputT=time; idleWarned=false;
+  resetJack();
+}
+function burst(x,y,n,color){
+  if(parts.length>160) return;
+  for(let i=0;i<n;i++){ const a=rnd(0,TAU), sp=rnd(40,260);
+    parts.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,t:0,life:rnd(0.3,0.8),color,r:rnd(2,4)}); }
+}
+function sawdust(x,y){
+  if(parts.length>160) return;
+  parts.push({x:x+rnd(-4,4),y,vx:rnd(-40,40),vy:rnd(-90,-20),t:0,life:rnd(0.3,0.6),color:'#c89840',r:rnd(1,3)});
+}
+function floatText(x,y,txt,color){ floats.push({x,y,txt,color:color||'#ffd75a',t:0}); }
+function confetti(n){ for(let i=0;i<n;i++) burst(rnd(60,W-60),rnd(60,300),1,['#ffd75a','#7dff9a','#ff5a5a','#7fb2dd'][i%4]); }
+/* ---------- beaver + gnaw ---------- */
+let holdPtr=null;   // {id, tree} — pointer currently gnawing
+let holdKeyT=null;  // tree targeted by keyboard gnaw key
+let aiTree=null, aiGnawT=0, aiThinkT=0;
+let lastInputT=0, idleWarned=false;
+const aiPlan={left:false,right:false,up:false,down:false,jump:false};
+function nearestTree(x,maxD){
+  let bt=null, bd=maxD;
+  for(const t of trees){ if(t.stage!==2||t.falling>0) continue;
+    const d=Math.abs(t.x-x); if(d<bd){bd=d;bt=t;} }
+  return bt;
+}
+function fellTree(t){
+  t.falling=0.45; t.gnaw=0; t.highlight=false;
+  if(holdPtr&&holdPtr.tree===t) holdPtr=null;
+  if(holdKeyT===t) holdKeyT=null;
+  if(mode==='climb'){
+    const impatient=time-lastInputT>25;
+    aiGnawT=Math.max(impatient?0.5:0.85,2.4-0.3*stage);
+    if(impatient&&!idleWarned){ idleWarned=true; banner='THE BEAVER GROWS IMPATIENT'; bannerT=1.6; }
+    aiTree=null;
+  }
+}
+function spawnLog(t){
+  if(logs.length>=24) return;
+  const sp=ROLL_BASE+(mode==='climb'?Math.min(stage*9,60):0);
+  logs.push({x:t.x,y:surfY(5,t.x)-6,vx:GDIR[5]*sp,vy:0,r:10,girder:5,state:'roll',rot:0,jumped:false});
+  sCrack(); shake=Math.max(shake,0.6);
+  burst(t.x,surfY(5,t.x)-10,10,'#8a5a20');
+  floatText(t.x,surfY(5,t.x)-70,'TIMBER!','#ffd75a');
+}
+function updateBeaver(dt){
+  const b=beaver, ai=(mode==='climb');
+  const spd=ai?aiBeavSpd():BEAV_SPD;
+  b.gnawMode=false;
+  let T=null;
+  if(ai) T=aiTree;
+  else{
+    if(holdPtr&&holdPtr.tree.stage===2&&holdPtr.tree.falling<=0) T=holdPtr.tree;
+    else if(keyGnaw) T=nearestTree(b.x,70);
+  }
+  for(const t of trees) t.highlight=false;
+  if(T) T.highlight=true;
+  let mv=0;
+  if(T){
+    const dx=T.x-b.x;
+    if(Math.abs(dx)>22) mv=Math.sign(dx);
+    b.face=dx>=0?1:-1;
+  }else if(!ai){
+    if(ctlL)mv-=1; if(ctlR)mv+=1;
+  }
+  b.vx=mv*spd;
+  b.x=clamp(b.x+b.vx*dt,GX0+24,GX1-24);
+  if(mv!==0)b.face=mv;
+  b.y=surfY(5,b.x);
+  if(T&&Math.abs(T.x-b.x)<=26){
+    b.gnawMode=true; b.face=T.x>=b.x?1:-1;
+    T.gnaw+=dt/gnawTime(); sGnaw();
+    if(Math.random()<10*dt) sawdust(T.x+b.face*8,surfY(5,T.x)-8);
+    if(T.gnaw>=1) fellTree(T);
+  }else{
+    for(const t of trees) t.gnaw=Math.max(0,t.gnaw-dt*(t===T?0.5:2)/gnawTime());
+  }
+  for(const t of trees){
+    if(t.falling>0){
+      t.falling-=dt;
+      if(t.falling<=0){ spawnLog(t); t.stage=0; t.growT=0; t.gnaw=0; }
+    }else if(t.stage<2){
+      t.growT+=dt;
+      t.stage=t.growT>REGROW_T?2:t.growT>REGROW_T*0.4?1:0;
     }
+  }
+}
+/* ---------- AI beaver (lumberjack mode) ---------- */
+function pickTree(){
+  let b=null,bd=1e9;
+  for(const t of trees){ if(t.stage!==2||t.falling>0)continue;
+    const d=Math.abs(t.x-jack.x)+rnd(0,90);
+    if(d<bd){bd=d;b=t;} }
+  return b;
+}
+function aiBeaver(dt){
+  if(aiGnawT>0){ aiGnawT-=dt; aiTree=null; return; }
+  if(!aiTree||aiTree.stage!==2||aiTree.falling>0) aiTree=pickTree();
+}
+/* ---------- logs (ported barrel physics) ---------- */
+function updateLogs(dt){
+  let anyRoll=false;
+  for(let i=logs.length-1;i>=0;i--){
+    const b=logs[i];
+    if(b.state==='roll'){
+      anyRoll=true;
+      b.x+=b.vx*dt; b.rot+=b.vx*dt/b.r;
+      // ladder shafts: on the top girder the shaft is ladder 4 (x=90) — logs always drop;
+      // lower girders keep the classic gamble
+      const shaftX=b.girder>=5?LX[4]:LX[b.girder];
+      const atShaft=Math.abs(b.x-shaftX)<10;
+      if(atShaft&&(b.girder>=5||Math.random()<1.1*dt)){ b.state='fall'; b.vy=60; b.y+=3; }
+      else if(!onGirderX(b.girder,b.x)){ b.state='fall'; b.vy=0; }
+      else b.y=surfY(b.girder,b.x)-b.r;
+    }else{
+      b.vy+=GRAV*dt;
+      const py=b.y;
+      b.x+=b.vx*0.25*dt; b.y+=b.vy*dt; b.rot+=b.vx*dt/b.r;
+      for(let j=5;j>=0;j--){
+        if(!onGirderX(j,b.x))continue;
+        const s=surfY(j,b.x)-b.r;
+        if(py<=s&&b.y>=s&&b.vy>0){
+          if(b.vy>320){ b.y=s; b.vy=-b.vy*0.35; sBounce(); }
+          else{ b.y=s; b.vy=0; b.state='roll'; b.girder=j; b.vx=Math.abs(b.vx)*GDIR[j]||ROLL_BASE*GDIR[j]; sBounce(); }
+          break;
+        }
+      }
+    }
+    if(b.y>H+40||b.x<-40||b.x>W+40) logs.splice(i,1);
+  }
+  tickT-=dt;
+  if(anyRoll&&tickT<=0){ sTick(); tickT=0.15; }
+}
+let tickT=0;
+function logHitsJack(b,c){ return Math.abs(b.x-c.x)<19&&Math.abs(b.y-(c.y-15))<25; }
+/* ---------- lumberjack physics (ported) ---------- */
+function startClimb(c,li,down){ c.climbing=true; c.ladder=li; c.x=ladders[li].x; c.vx=0; c.vy=0; }
+function stepJack(c,ctl,dt,isAI){
+  if(c.stun>0)c.stun-=dt;
+  if(c.inv>0)c.inv-=dt;
+  if(c.climbing){
+    const L=ladders[c.ladder];
+    const mv=(ctl.down?1:0)-(ctl.up?1:0);
+    if(c.stun<=0)c.y+=mv*(isAI?aiClimbV():CLIMBV)*dt;
+    c.x=L.x;
+    if(mv<0&&c.y<=surfY(L.g1,L.x)+4){ c.y=surfY(L.g1,L.x); c.girder=L.g1; c.climbing=false; c.ladder=-1; c.onGround=true; c.vy=0; }
+    else if(mv>0&&c.y>=surfY(L.g0,L.x)-2){ c.y=surfY(L.g0,L.x); c.girder=L.g0; c.climbing=false; c.ladder=-1; c.onGround=true; c.vy=0; }
     return;
   }
-
-  const sp = isAI ? aiSpeed() : RUN;
-  c.vx = ((ctl.right ? 1 : 0) - (ctl.left ? 1 : 0)) * (c.stun > 0 ? 0 : sp);
-  if (c.vx !== 0) c.face = c.vx > 0 ? 1 : -1;
-
-  const jEdge = ctl.jump && !c.jumpPrev;
-  c.jumpPrev = !!ctl.jump;
-  if (jEdge && c.onGround && c.stun <= 0) {
-    c.vy = -JUMPV; c.onGround = false;
-    if (!isAI || Math.random() < 0.5) sJump();
-  }
-
-  c.vy += GRAV * dt;
-  const py = c.y;
-  c.x = clamp(c.x + c.vx * dt, 18, W - 18);
-  c.y += c.vy * dt;
-
-  if (c.vy >= 0) {
-    for (let j = 5; j >= 0; j--) {
-      if (!onGirderX(j, c.x)) continue;
-      const s = surfY(j, c.x);
-      if (py <= s + 1 && c.y >= s) {
-        if (c.vy > 380) burst(c.x, s, 7, '#7d8aa0');
-        c.y = s; c.vy = 0; c.onGround = true; c.girder = j;
+  const sp=isAI?aiSpeed():RUN;
+  c.vx=((ctl.right?1:0)-(ctl.left?1:0))*(c.stun>0?0:sp);
+  if(c.vx!==0)c.face=c.vx>0?1:-1;
+  const jEdge=ctl.jump&&!c.jumpPrev;
+  c.jumpPrev=!!ctl.jump;
+  if(jEdge&&c.onGround&&c.stun<=0){ c.vy=-JUMPV; c.onGround=false; if(!isAI||Math.random()<0.5)sJump(); }
+  c.vy+=GRAV*dt;
+  const py=c.y;
+  c.x=clamp(c.x+c.vx*dt,18,W-18);
+  c.y+=c.vy*dt;
+  if(c.vy>=0){
+    for(let j=5;j>=0;j--){
+      if(!onGirderX(j,c.x))continue;
+      const s=surfY(j,c.x);
+      if(py<=s+1&&c.y>=s){
+        if(c.vy>380)burst(c.x,s,7,'#7d8aa0');
+        c.y=s; c.vy=0; c.onGround=true; c.girder=j;
         break;
       }
     }
   }
-  if (c.onGround && !onGirderX(c.girder, c.x)) c.onGround = false; // walked off / over gap
-
-  // ladder grabs
-  if (c.stun <= 0 && c.onGround) {
-    if (ctl.up && c.girder < 5 && Math.abs(c.x - LX[c.girder]) < 15) {
-      startClimb(c, c.girder, false);
-    } else if (ctl.down && c.girder > 0 && Math.abs(c.x - LX[c.girder - 1]) < 15) {
-      startClimb(c, c.girder - 1, true);
-    }
+  if(c.onGround&&!onGirderX(c.girder,c.x))c.onGround=false;
+  if(c.stun<=0&&c.onGround){
+    if(ctl.up&&c.girder<5&&Math.abs(c.x-LX[c.girder])<15)startClimb(c,c.girder,false);
+    else if(ctl.down&&c.girder>0&&Math.abs(c.x-LX[c.girder-1])<15)startClimb(c,c.girder-1,true);
   }
 }
-
-/* ---------- AI climber (APEX mode opponent) ---------- */
-let aiThinkT = 0;
-const aiPlan = { left: false, right: false, up: false, down: false, jump: false };
-function aiControl(c, dt) {
-  aiThinkT -= dt;
-  if (aiThinkT <= 0) {
-    aiThinkT = 0.12;
-    aiPlan.left = aiPlan.right = aiPlan.up = aiPlan.down = aiPlan.jump = false;
-    if (c.stun > 0) return aiPlan;
-    if (c.climbing) { aiPlan.up = true; return aiPlan; }
-    if (c.girder < 5) {
-      const tx = LX[c.girder], dx = tx - c.x;
-      if (dx < -7) aiPlan.left = true; else if (dx > 7) aiPlan.right = true;
-      else if (c.onGround) aiPlan.up = true; // at the ladder — climb!
-      const dirS = aiPlan.right ? 1 : aiPlan.left ? -1 : 0;
-      if (dirS !== 0 && c.onGround && !onGirderX(c.girder, c.x + dirS * 30)) {
-        aiPlan.jump = true; // hop the middle gap
-      }
+/* ---------- AI lumberjack (ported) ---------- */
+function aiControl(c,dt){
+  aiThinkT-=dt;
+  if(aiThinkT<=0){
+    aiThinkT=0.12;
+    aiPlan.left=aiPlan.right=aiPlan.up=aiPlan.down=aiPlan.jump=false;
+    if(c.stun>0)return aiPlan;
+    if(c.climbing){ aiPlan.up=true; return aiPlan; }
+    if(c.girder<5){
+      const tx=LX[c.girder], dx=tx-c.x;
+      if(dx<-7)aiPlan.left=true; else if(dx>7)aiPlan.right=true;
+      else if(c.onGround)aiPlan.up=true;
+      const dirS=aiPlan.right?1:aiPlan.left?-1:0;
+      if(dirS!==0&&c.onGround&&!onGirderX(c.girder,c.x+dirS*30))aiPlan.jump=true;
     }
-    // dodge barrels on the same girder (holds the top girder too)
-    for (const b of barrels) {
-      if (b.girder !== c.girder || b.state !== 'roll') continue;
-      const approaching = (b.vx > 0 && b.x < c.x) || (b.vx < 0 && b.x > c.x);
-      const d = Math.abs(b.x - c.x);
-      if (approaching && d < 120 && c.onGround) {
-        if (d < 52 + Math.random() * 42 && Math.random() > aiWhiff()) aiPlan.jump = true; // stage-scaled whiff
+    for(const b of logs){
+      if(b.girder!==c.girder||b.state!=='roll')continue;
+      const approaching=(b.vx>0&&b.x<c.x)||(b.vx<0&&b.x>c.x);
+      const d=Math.abs(b.x-c.x);
+      if(approaching&&d<120&&c.onGround){
+        if(d<52+Math.random()*42&&Math.random()>aiWhiff())aiPlan.jump=true;
       }
     }
   }
   return aiPlan;
 }
 
-/* ---------- AI ape (CLIMB mode opponent) ---------- */
-function aiApe(dt) {
-  aiThrowT -= dt;
-  if (aiThrowT <= 0) {
-    const impatient = time - lastInputT > 25;
-    if (impatient && !idleWarned) {
-      idleWarned = true;
-      banner = 'THE APE GROWS IMPATIENT'; bannerT = 1.6;
-    }
-    aiThrowT = Math.max(impatient ? 0.5 : 0.85, 2.4 - 0.3 * stage);
-    aiSide = -aiSide;
-    throwDrum(5, aiSide, 1);
-    const dbl = stage >= 5 ? 0.45 : stage >= 3 ? 0.3 : 0;
-    if (dbl && Math.random() < dbl) {
-      setTimeout(() => { if (state === 'play' && mode === 'climb') throwDrum(5, -aiSide, 0.9); }, 350);
-    }
-  }
+/* ---------- input ---------- */
+const keys={};
+let ctlL=false, ctlR=false, keyGnaw=false;
+window.addEventListener('keydown',e=>{
+  if(['ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Space'].includes(e.code))e.preventDefault();
+  keys[e.code]=true; audio();
+  if(e.code==='KeyM'){ muted=!muted; return; }
+  if(e.code==='KeyP'&&(state==='play'||state==='serve')){ paused=!paused; sUI(); return; }
+});
+window.addEventListener('keyup',e=>{ keys[e.code]=false; });
+window.addEventListener('blur',()=>{ for(const k in keys)keys[k]=false; touchHeld.left=touchHeld.right=touchHeld.jump=false; holdPtr=null; });
+function toGame(e){ const r=cv.getBoundingClientRect(); return {x:(e.clientX-r.left)/r.width*W, y:(e.clientY-r.top)/r.height*H}; }
+function beaverControl(){
+  const p2=(mode==='versus');
+  return {
+    left:p2?!!keys.KeyA:!!keys.ArrowLeft,
+    right:p2?!!keys.KeyD:!!keys.ArrowRight,
+    gnaw:p2?!!keys.KeyF:!!keys.Space,
+  };
 }
-
-/* ---------- barrels ---------- */
-function updateBarrels(dt) {
-  let anyRoll = false;
-  for (let i = barrels.length - 1; i >= 0; i--) {
-    const b = barrels[i];
-    if (b.state === 'roll') {
-      anyRoll = true;
-      b.x += b.vx * dt;
-      b.rot += b.vx * dt / b.r;
-      // chance to drop down a ladder shaft
-      if (b.girder < 5 && Math.abs(b.x - LX[b.girder]) < 8 && Math.random() < 1.1 * dt) {
-        b.state = 'fall'; b.vy = 0;
-      } else if (!onGirderX(b.girder, b.x)) {
-        b.state = 'fall'; b.vy = 0; // gap or girder end
-      } else {
-        b.y = surfY(b.girder, b.x) - b.r;
-      }
-    } else {
-      b.vy += GRAV * dt;
-      const py = b.y;
-      b.x += b.vx * 0.25 * dt;
-      b.y += b.vy * dt;
-      b.rot += b.vx * dt / b.r;
-      // land on a girder from above (highest one crossed)
-      for (let j = 5; j >= 0; j--) {
-        if (!onGirderX(j, b.x)) continue;
-        const s = surfY(j, b.x) - b.r;
-        if (py <= s && b.y >= s && b.vy > 0) {
-          if (b.vy > 320) { b.y = s; b.vy = -b.vy * 0.35; sBounce(); } // bounce
-          else { b.y = s; b.vy = 0; b.state = 'roll'; b.girder = j; b.vx = Math.abs(b.vx) * GDIR[j] || ROLL_BASE * GDIR[j]; sBounce(); }
-          break;
-        }
-      }
-    }
-    if (b.y > H + 40 || b.x < -40 || b.x > W + 40) barrels.splice(i, 1);
-  }
-  tickT -= dt;
-  if (anyRoll && tickT <= 0) { sTick(); tickT = 0.15; }
+const touchHeld={left:false,right:false,jump:false};
+const coarsePointer=()=>(window.matchMedia&&window.matchMedia('(pointer:coarse)').matches)||'ontouchstart' in window;
+function syncTouch(){
+  const el=document.getElementById('touch');
+  const want=coarsePointer()&&(mode==='climb'||mode==='versus')&&(state==='play'||state==='serve')&&!paused;
+  if(want!==el.classList.contains('on'))el.classList.toggle('on',want);
+  if(!want){ touchHeld.left=touchHeld.right=touchHeld.jump=false; }
 }
-function barrelHitsClimber(b, c) {
-  return Math.abs(b.x - c.x) < 19 && Math.abs(b.y - (c.y - 15)) < 25;
+[['tL','left'],['tR','right'],['tJ','jump']].forEach(([id,name])=>{
+  const el=document.getElementById(id);
+  el.addEventListener('pointerdown',e=>{ e.preventDefault(); audio(); touchHeld[name]=true; try{el.setPointerCapture(e.pointerId);}catch(_){} });
+  const off=e=>{ e.preventDefault(); touchHeld[name]=false; };
+  el.addEventListener('pointerup',off); el.addEventListener('pointercancel',off);
+  el.addEventListener('lostpointercapture',off); el.addEventListener('contextmenu',e=>e.preventDefault());
+});
+function jackControl(){
+  const p2=(mode==='versus');
+  const left=!!(keys.ArrowLeft||(!p2&&keys.KeyA)||touchHeld.left);
+  const right=!!(keys.ArrowRight||(!p2&&keys.KeyD)||touchHeld.right);
+  const up=!!(keys.ArrowUp||(!p2&&keys.KeyW));
+  const down=!!(keys.ArrowDown||(!p2&&keys.KeyS));
+  const jump=!!(keys.Space||touchHeld.jump||(jack&&jack.tapJump));
+  if(left||right||up||down||jump)lastInputT=time;
+  if(jack)jack.tapJump=false;
+  return {left,right,up,down,jump};
 }
-
-/* ---------- outcomes ---------- */
-function addScore(n, x, y) {
-  score += n;
-  if (x !== undefined) floatText(x, y, '+' + n);
-  sScore();
+function tryHoldTree(x,y,pid){
+  let bt=null, bd=52;
+  for(const t of trees){ if(t.stage!==2||t.falling>0)continue;
+    const d=Math.hypot(t.x-x,surfY(5,t.x)-34-y);
+    if(d<bd){bd=d;bt=t;} }
+  if(bt){ holdPtr={id:pid,tree:bt}; lastInputT=time; }
 }
-function hitClimber() {
-  const c = climber;
-  burst(c.x, c.y - 16, 22, '#ff5a5a'); burst(c.x, c.y - 16, 10, '#ffffff');
-  shake = 1;
-  if (mode === 'climb') {
-    lives--; sDeath();
-    if (lives <= 0) {
-      if (score > best) { best = score; localStorage.setItem('apex_best', best); }
-      state = 'gameOver'; stateT = 0;
-    } else {
-      state = 'serve'; stateT = 0; banner = 'OUCH — ' + lives + (lives === 1 ? ' LIFE' : ' LIVES') + ' LEFT'; bannerT = 1.4;
-      setTimeout(() => { if ((state === 'serve' || state === 'play') && mode === 'climb') resetClimber(); }, 900);
-    }
-  } else if (mode === 'apex') {
-    hits++; sHit();
-    addScore(500, c.x, c.y - 44);
-    c.stun = 0.9; c.inv = 1.8;
-    if (hits >= 3) {
-      const bonus = Math.max(0, Math.round((75 - stageT) * 10));
-      if (bonus > 0) addScore(bonus, c.x, c.y - 72);
-      banner = 'STAGE ' + stage + ' CLEAR  +' + bonus; bannerT = 1.8;
-      state = 'stageClear'; stateT = 0; sClear(); confetti(26);
-    } else {
-      banner = 'HIT ' + hits + ' / 3'; bannerT = 1.2;
-    }
-  } else {
-    sDeath();
-    roundWinner = 'p2'; state = 'roundEnd'; stateT = 0;
-  }
-}
-function climberFell() {
-  if (mode === 'climb') {
-    lives--; sDeath();
-    if (lives <= 0) {
-      if (score > best) { best = score; localStorage.setItem('apex_best', best); }
-      state = 'gameOver'; stateT = 0;
-    } else {
-      resetClimber();
-      banner = 'DON\'T FALL — ' + lives + ' LEFT'; bannerT = 1.4;
-    }
-  } else if (mode === 'apex') {
-    resetClimber(); // the dummy climbs again; your timer keeps running
-  } else {
-    roundWinner = 'p2'; state = 'roundEnd'; stateT = 0; sDeath();
-  }
-}
-function climberReachedTop() {
-  if (mode === 'climb') {
-    const bonus = 500;
-    score += bonus; sClear();
-    if (score > best) { best = score; localStorage.setItem('apex_best', best); }
-    state = 'stageClear'; stateT = 0;
-    banner = 'STAGE ' + stage + ' CLEAR  +' + bonus; bannerT = 1.8;
-    confetti(26);
-  } else if (mode === 'versus') {
-    roundWinner = 'p1'; state = 'roundEnd'; stateT = 0; sWin();
-  } else {
-    // APEX mode: the climber reached the bell — sound the alarm
-    alarms++; sAlarm(); shake = 1; bellT = 1.4;
-    burst(climber.x, 150, 16, '#ffd75a');
-    if (alarms >= 3) {
-      saveApexBest();
-      banner = '3 ALARMS — THE TOWER FALLS'; bannerT = 2.0;
-      state = 'gameOver'; stateT = 0; sDeath();
-    } else {
-      banner = 'ALARM ' + alarms + ' / 3'; bannerT = 1.5;
-      resetClimber();
-    }
-  }
-}
-
-/* ---------- per-frame update ---------- */
-const DT = 1 / 60;
-function update(dt) {
-  time += dt;
-  if (ape.throwT > 0) ape.throwT -= dt;
-  if (throwCd > 0) throwCd -= dt;
-  if (bannerT > 0) bannerT -= dt;
-  if (shake > 0) shake -= dt * 3;
-  if (bellT > 0) bellT -= dt;
-  updateParticles(dt);
-
-  if (state === 'menu' || state === 'howto' || state === 'matchEnd' || state === 'gameOver' || state === 'campWin') { stateT += dt; return; }
-  stateT += dt;
-  if (state === 'serve') { if (stateT > 1.6) state = 'play'; return; }
-  if (state === 'stageClear') {
-    if (stateT > 2.0) {
-      const last = (mode === 'apex' && stage >= APEX_STAGES) || (mode === 'climb' && stage >= CLIMB_STAGES);
-      if (last) {
-        if (mode === 'apex') saveApexBest();
-        else if (score > best) { best = score; try { localStorage.setItem('apex_best', best); } catch (_) {} }
-        state = 'campWin'; stateT = 0; sWin(); confetti(60);
-      } else {
-        stage++; resetStage(); banner = 'STAGE ' + stage; bannerT = 1.6; state = 'serve'; stateT = 0;
+const menuBtns=[
+  {id:'apex',y:372,label:'BEAVER',sub:'1P - you are the beaver'},
+  {id:'climb',y:452,label:'LUMBERJACK',sub:'1P - climb vs the AI beaver'},
+  {id:'versus',y:532,label:'VERSUS',sub:'2P - jack vs beaver, same screen'},
+  {id:'howto',y:612,label:'HOW TO',sub:'learn the tower'},
+];
+let pauseBtn={x:W-30,y:76}, muteBtn={x:W-62,y:76};
+function handleTap(x,y,pid){
+  if(state==='menu'){
+    for(const b of menuBtns){
+      if(Math.abs(y-b.y)<34&&x>90&&x<W-90){
+        if(b.id==='howto'){ state='howto'; stateT=0; }
+        else startMode(b.id);
+        sUI(); return;
       }
     }
     return;
   }
-  if (state === 'roundEnd') { if (stateT > 1.8) nextRound(roundWinner); return; }
-  if (paused || state !== 'play') return;
-
-  if (mode === 'apex') { matchT += dt; stageT += dt; }
-  if (mode === 'versus') {
-    roundT -= dt;
-    if (roundT <= 0) { roundWinner = 'p1'; state = 'roundEnd'; stateT = 0; sWin(); return; }
+  if(state==='howto'){ toMenu(); return; }
+  if(state==='matchEnd'||state==='gameOver'||state==='campWin'){ toMenu(); return; }
+  if(Math.hypot(x-pauseBtn.x,y-pauseBtn.y)<26){ if(state==='play'||state==='serve'){paused=!paused;sUI();} return; }
+  if(Math.hypot(x-muteBtn.x,y-muteBtn.y)<26){ muted=!muted; sUI(); return; }
+  if(state!=='play'||paused)return;
+  if(mode==='apex'){ tryHoldTree(x,y,pid); return; }
+  if(mode==='versus'){ tryHoldTree(x,y,pid); return; }
+  if(jack&&!jack.climbing) jack.tapJump=true;
+}
+cv.addEventListener('pointerdown',e=>{
+  e.preventDefault(); audio();
+  const p=toGame(e);
+  handleTap(p.x,p.y,e.pointerId);
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}
+});
+const clearHold=e=>{ if(holdPtr&&holdPtr.id===e.pointerId)holdPtr=null; };
+cv.addEventListener('pointerup',clearHold);
+cv.addEventListener('pointercancel',clearHold);
+/* ---------- mode flow ---------- */
+function startMode(m){
+  mode=m; score=0; dodges=0; lives=3; stage=1; hits=0; matchT=0;
+  round=1; wins={p1:0,p2:0}; roundWinner=null;
+  resetStage(); paused=false;
+  if(m==='apex')banner='YOU ARE THE BEAVER - HOLD THE TOWER';
+  else if(m==='climb')banner='CLIMB - REACH THE TOP';
+  else{ banner='VERSUS - LUMBERJACK VS BEAVER'; bannerT=2.0; startRound(); return; }
+  bannerT=2.2; state='serve'; stateT=0; sUI();
+}
+function startRound(){ resetStage(); roundT=60; roundWinner=null; banner='ROUND '+round; bannerT=1.4; state='serve'; stateT=0; }
+function nextRound(winner){
+  wins[winner]++;
+  if(wins[winner]>=2){ state='matchEnd'; stateT=0; if(winner==='p1')sWin(); else sHit(); }
+  else{ round++; banner=winner==='p1'?'LUMBERJACK TAKES IT':'BEAVER TAKES IT'; bannerT=1.6; startRound(); }
+}
+function toMenu(){ state='menu'; paused=false; sUI(); }
+/* ---------- outcomes ---------- */
+function addScore(n,x,y){ score+=n; if(x!==undefined)floatText(x,y,'+'+n); sScore(); }
+function hitJack(){
+  const c=jack;
+  burst(c.x,c.y-16,22,'#ff5a5a'); burst(c.x,c.y-16,10,'#ffffff');
+  shake=1;
+  if(mode==='climb'){
+    lives--; sDeath();
+    if(lives<=0){ if(score>best){best=score;try{localStorage.setItem('apex_best',best);}catch(_){}} state='gameOver'; stateT=0; }
+    else{ state='serve'; stateT=0; banner='OUCH - '+lives+(lives===1?' LIFE':' LIVES')+' LEFT'; bannerT=1.4;
+      setTimeout(()=>{ if((state==='serve'||state==='play')&&mode==='climb')resetJack(); },900); }
+  }else if(mode==='apex'){
+    hits++; sHit(); addScore(500,c.x,c.y-44);
+    c.stun=0.9; c.inv=1.8;
+    if(hits>=3){
+      const bonus=Math.max(0,Math.round((75-stageT)*10));
+      if(bonus>0)addScore(bonus,c.x,c.y-72);
+      banner='STAGE '+stage+' CLEAR +'+bonus; bannerT=1.8;
+      state='stageClear'; stateT=0; sClear(); confetti(26);
+    }else banner='HIT '+hits+' / 3', bannerT=1.2;
+  }else{ sDeath(); roundWinner='p2'; state='roundEnd'; stateT=0; }
+}
+function jackFell(){
+  if(mode==='climb'){ lives--; sDeath();
+    if(lives<=0){ if(score>best){best=score;try{localStorage.setItem('apex_best',best);}catch(_){}} state='gameOver'; stateT=0; }
+    else{ resetJack(); banner="DON'T FALL - "+lives+' LEFT'; bannerT=1.4; }
+  }else if(mode==='apex'){ resetJack(); }
+  else{ roundWinner='p2'; state='roundEnd'; stateT=0; sDeath(); }
+}
+function jackReachedTop(){
+  if(mode==='climb'){
+    const bonus=500; score+=bonus; sClear();
+    if(score>best){best=score;try{localStorage.setItem('apex_best',best);}catch(_){}}
+    state='stageClear'; stateT=0;
+    banner='STAGE '+stage+' CLEAR +'+bonus; bannerT=1.8; confetti(26);
+  }else if(mode==='versus'){ roundWinner='p1'; state='roundEnd'; stateT=0; sWin(); }
+  else{
+    alarms++; sAlarm(); shake=1;
+    burst(jack.x,150,16,'#ffd75a');
+    if(alarms>=3){ saveApexBest(); banner='3 ALARMS - THE TOWER FALLS'; bannerT=2.0; state='gameOver'; stateT=0; sDeath(); }
+    else{ banner='ALARM '+alarms+' / 3'; bannerT=1.5; resetJack(); }
   }
-  if (mode === 'climb') aiApe(dt);
-
-  /* climber */
-  const c = climber;
-  if (c) {
-    if (mode === 'apex') stepClimber(c, aiControl(c, dt), dt, true);
-    else stepClimber(c, playerControl(), dt, false);
-    if (c.y > H + 40) climberFell();
-    else if (c.onGround && c.girder === 5) climberReachedTop();
+}
+/* ---------- update ---------- */
+function updateParticles(dt){
+  for(let i=parts.length-1;i>=0;i--){ const p=parts[i];
+    p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=500*dt; p.t+=dt;
+    if(p.t>p.life)parts.splice(i,1); }
+  for(let i=floats.length-1;i>=0;i--){ const f=floats[i];
+    f.y-=34*dt; f.t+=dt; if(f.t>1.1)floats.splice(i,1); }
+}
+function update(dt){
+  time+=dt;
+  if(bannerT>0)bannerT-=dt;
+  if(shake>0)shake-=dt*3;
+  updateParticles(dt);
+  if(state==='menu'||state==='howto'||state==='matchEnd'||state==='gameOver'||state==='campWin'){ stateT+=dt; return; }
+  stateT+=dt;
+  if(state==='serve'){ if(stateT>1.6)state='play'; return; }
+  if(state==='stageClear'){
+    if(stateT>2.0){
+      const last=(mode==='apex'&&stage>=APEX_STAGES)||(mode==='climb'&&stage>=CLIMB_STAGES);
+      if(last){ if(mode==='apex')saveApexBest(); else if(score>best){best=score;try{localStorage.setItem('apex_best',best);}catch(_){}}
+        state='campWin'; stateT=0; sWin(); confetti(60);
+      }else{ stage++; resetStage(); banner='STAGE '+stage; bannerT=1.6; state='serve'; stateT=0; }
+    }
+    return;
   }
-
-  updateBarrels(dt);
-
-  /* barrel vs climber */
-  if (c && state === 'play') {
-    for (const b of barrels) {
-      if (!barrelHitsClimber(b, c)) continue;
-      const feet = c.y, bTop = b.y - b.r;
-      if (!c.onGround && !c.climbing && feet < bTop + 7) {
-        if (!b.jumped && (mode === 'climb' || mode === 'versus')) { b.jumped = true; dodges++; score += 25; sScore(); }
-        continue; // clean jump over
+  if(state==='roundEnd'){ if(stateT>1.8)nextRound(roundWinner); return; }
+  if(paused||state!=='play')return;
+  if(mode==='apex'){ matchT+=dt; stageT+=dt; }
+  if(mode==='versus'){ roundT-=dt; if(roundT<=0){roundWinner='p1';state='roundEnd';stateT=0;sWin();return;} }
+  const bc=beaverControl(); ctlL=bc.left; ctlR=bc.right; keyGnaw=bc.gnaw;
+  if(mode==='climb')aiBeaver(dt);
+  updateBeaver(dt);
+  const c=jack;
+  if(c){
+    if(mode==='apex')stepJack(c,aiControl(c,dt),dt,true);
+    else stepJack(c,jackControl(),dt,false);
+    if(c.y>H+40)jackFell();
+    else if(c.onGround&&c.girder===5)jackReachedTop();
+  }
+  updateLogs(dt);
+  if(c&&state==='play'){
+    for(const b of logs){
+      if(!logHitsJack(b,c))continue;
+      const feet=c.y, bTop=b.y-b.r;
+      if(!c.onGround&&!c.climbing&&feet<bTop+7){
+        if(!b.jumped&&(mode==='climb'||mode==='versus')){ b.jumped=true; dodges++; score+=25; sScore(); }
+        continue;
       }
-      if (c.inv <= 0) { hitClimber(); break; }
+      if(c.inv<=0){ hitJack(); break; }
     }
   }
 }
-function updateParticles(dt) {
-  for (let i = parts.length - 1; i >= 0; i--) {
-    const p = parts[i];
-    p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 500 * dt; p.t += dt;
-    if (p.t > p.life) parts.splice(i, 1);
+/* ---------- draw ---------- */
+function drawParts(){
+  for(const p of parts){ bctx.fillStyle=p.color; const r=Math.max(2,Math.round(p.r)); bctx.fillRect(Math.round(p.x-r/2),Math.round(p.y-r/2),r,r); }
+}
+function drawFloats(){
+  for(const f of floats){
+    bctx.globalAlpha=Math.max(0,1-f.t/1.1);
+    text(f.txt,f.x,f.y,'16',f.color,'center');
   }
-  for (let i = floats.length - 1; i >= 0; i--) {
-    const f = floats[i]; f.y -= 34 * dt; f.t += dt;
-    if (f.t > 1.1) floats.splice(i, 1);
+  bctx.globalAlpha=1;
+}
+function drawBanner(){
+  const w=pixW(banner,'16')+28;
+  bctx.fillStyle='rgba(5,7,12,0.82)'; bctx.fillRect(Math.round(W/2-w/2),304,w,40);
+  bctx.fillStyle='#ffd75a'; bctx.fillRect(Math.round(W/2-w/2),304,w,3);
+  text(banner,W/2,322,'16','#ffd75a','center');
+}
+function drawCenter(msg,sub){
+  bctx.fillStyle='rgba(4,4,10,0.72)'; bctx.fillRect(0,0,W,H);
+  text(msg,W/2,H/2-24,'34','#ffd75a','center');
+  if(sub)text(sub,W/2,H/2+18,'16','#c9cfe8','center');
+}
+function drawHUD(){
+  if(mode==='apex'){
+    text('SCORE '+score,W/2,22,'16','#8a93a0','center');
+    text('STAGE '+stage+'/'+APEX_STAGES,W/2,42,'16','#8a93a0','center');
+    text('HITS '+hits+'/3',14,22,'16','#ffd75a','left');
+    text('ALARM '+alarms+'/3',W-14,22,'16','#ff5a5a','right');
+  }else if(mode==='climb'){
+    text('SCORE '+score,14,22,'16','#8a93a0','left');
+    text('BEST '+best,14,42,'16','#5a6270','left');
+    text('STAGE '+stage+'/'+CLIMB_STAGES,W-14,22,'16','#8a93a0','right');
+    text('LIVES '+lives,W-14,42,'16','#7dff9a','right');
+  }else{
+    text('P1 '+wins.p1+' - '+wins.p2+' P2',W/2,22,'16','#8a93a0','center');
+    text(''+Math.max(0,Math.ceil(roundT)),W/2,50,'28','#ffd75a','center');
   }
+  bctx.fillStyle='#1a2230';
+  bctx.fillRect(pauseBtn.x-14,pauseBtn.y-14,28,28);
+  bctx.fillRect(muteBtn.x-14,muteBtn.y-14,28,28);
+  text('II',pauseBtn.x,pauseBtn.y+2,'16','#cfe0f2','center');
+  text(muted?'M-':'M',muteBtn.x,muteBtn.y+2,'16','#cfe0f2','center');
 }
-
-/* ---------- render ---------- */
-function poly(pts) {
-  ctx.beginPath();
-  ctx.moveTo(pts[0][0], pts[0][1]);
-  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
-  ctx.closePath(); ctx.fill();
-}
-function drawGirders() {
-  for (let i = 0; i < 6; i++) {
-    // segments split by the gap
-    const segs = [];
-    if (i >= 1 && i <= 4) segs.push([GX0, GAPC - GAPH], [GAPC + GAPH, GX1]);
-    else segs.push([GX0, GX1]);
-    for (const [x0, x1] of segs) {
-      const y0 = surfY(i, x0), y1 = surfY(i, x1), th = 15;
-      ctx.fillStyle = '#33506e';
-      ctx.beginPath();
-      ctx.moveTo(x0, y0); ctx.lineTo(x1, y1);
-      ctx.lineTo(x1, y1 + th); ctx.lineTo(x0, y0 + th);
-      ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = '#7fb2dd'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
-      // truss bracing under the chord
-      ctx.strokeStyle = '#263d59'; ctx.lineWidth = 3;
-      const _len = x1 - x0, _bays = Math.max(1, Math.floor(_len / 48));
-      for (let _k = 0; _k < _bays; _k++) {
-        const _xa = x0 + _len * _k / _bays, _xb = x0 + _len * (_k + 1) / _bays;
-        ctx.beginPath();
-        if (_k % 2 === 0) { ctx.moveTo(_xa, surfY(i, _xa) + th); ctx.lineTo(_xb, surfY(i, _xb) + 3); }
-        else { ctx.moveTo(_xa, surfY(i, _xa) + 3); ctx.lineTo(_xb, surfY(i, _xb) + th); }
-        ctx.stroke();
-      }
-      // rivets
-      ctx.fillStyle = '#9cc4e4';
-      const len = x1 - x0, n = Math.floor(len / 30);
-      for (let k = 0; k <= n; k++) {
-        const x = x0 + len * k / n;
-        ctx.beginPath(); ctx.arc(x, surfY(i, x) + 5, 2.2, 0, TAU); ctx.fill();
-      }
-    }
+function drawMenu(){
+  bctx.drawImage(sky,0,0,W,H);
+  const bob=Math.sin(time*2)*3;
+  text('APEX',W/2,140+bob,'76','#ffd75a','center');
+  text('BEAVER VS LUMBERJACK',W/2,196,'20','#7fb2dd','center');
+  text('A 1981 TOWER TALE',W/2,222,'16','#5a6270','center');
+  drawTree({x:64,gy:312,stage:2,gnaw:0,falling:0,highlight:false});
+  drawBeaver({x:416,y:308,face:-1,vx:0,gnawMode:false});
+  drawTree({x:448,gy:312,stage:1,gnaw:0,falling:0,highlight:false});
+  text('BEAVER VS LUMBERJACK',W/2,196,'20','#7fb2dd','center');
+  text('A 1981 TOWER TALE',W/2,222,'16','#5a6270','center');
+  for(const b of menuBtns){
+    bctx.fillStyle='#141c2a'; bctx.fillRect(90,b.y-28,W-180,58);
+    bctx.fillStyle='#2a3a55'; bctx.fillRect(90,b.y-28,W-180,4);
+    bctx.fillStyle='#0e1420'; bctx.fillRect(90,b.y+26,W-180,4);
+    text(b.label,W/2,b.y-6,'28','#e8f4ff','center');
+    text(b.sub,W/2,b.y+18,'13','#8a93a0','center');
   }
+  text('TAP TO BEGIN - M MUTE',W/2,H-36,'14','#3a3f45','center');
+  bctx.drawImage(vig,0,0,W,H);
 }
-function drawLadders() {
-  for (const L of ladders) {
-    const yB = surfY(L.g0, L.x), yT = surfY(L.g1, L.x);
-    ctx.strokeStyle = '#4a6a8a'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(L.x - 9, yB); ctx.lineTo(L.x - 9, yT); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(L.x + 9, yB); ctx.lineTo(L.x + 9, yT); ctx.stroke();
-    ctx.lineWidth = 2;
-    for (let y = yT + 8; y < yB; y += 15) {
-      ctx.beginPath(); ctx.moveTo(L.x - 9, y); ctx.lineTo(L.x + 9, y); ctx.stroke();
-    }
-  }
-}
-function drawMiniDrum(x, y, r, color) {
-  ctx.fillStyle = '#5e3a10';
-  ctx.beginPath(); ctx.arc(x, y, r, 0, TAU); ctx.fill();
-  ctx.fillStyle = color;
-  ctx.beginPath(); ctx.arc(x, y, r * 0.55, 0, TAU); ctx.fill();
-  ctx.fillStyle = '#3a2410';
-  ctx.beginPath(); ctx.arc(x, y, 1.8, 0, TAU); ctx.fill();
-}
-function drawApe() {
-  // the ape lords it over the tower from a timber perch above girder 5
-  const ax = 64, py = 148, bob = Math.sin(time * 2.2) * 2;
-  const gy = surfY(5, ax);
-  const C = '#8a5a20', CD = '#5e3a10', CH = '#c98a3a';
-  ctx.save();
-  // posts down to the girder + cross brace
-  ctx.strokeStyle = '#5a4632'; ctx.lineWidth = 6; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(ax - 28, py); ctx.lineTo(ax - 28, gy); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(ax + 28, py); ctx.lineTo(ax + 28, gy); ctx.stroke();
-  ctx.strokeStyle = '#6e5a3a'; ctx.lineWidth = 4;
-  ctx.beginPath(); ctx.moveTo(ax - 28, py + 16); ctx.lineTo(ax + 28, py + 40); ctx.stroke();
-  // platform
-  ctx.fillStyle = '#6e5a3a';
-  ctx.fillRect(ax - 52, py - 4, 128, 10);
-  ctx.fillStyle = '#8a7346';
-  ctx.fillRect(ax - 52, py - 4, 128, 3);
-  // the golden spool prize, stacked at the platform's left end
-  drawMiniDrum(ax - 38, py - 12, 8, '#d8a850');
-  drawMiniDrum(ax - 24, py - 12, 8, '#c89840');
-  drawMiniDrum(ax - 31, py - 26, 8, '#e8bc60');
-  // alarm bell on an A-frame at the right end
-  const bx = ax + 56;
-  ctx.strokeStyle = '#5a4632'; ctx.lineWidth = 4;
-  ctx.beginPath(); ctx.moveTo(bx - 12, py - 4); ctx.lineTo(bx, py - 36); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(bx + 12, py - 4); ctx.lineTo(bx, py - 36); ctx.stroke();
-  const swing = Math.sin(time * 18) * 0.45 * Math.min(1, bellT);
-  ctx.save();
-  ctx.translate(bx, py - 36); ctx.rotate(swing);
-  ctx.strokeStyle = '#5a4632'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 4); ctx.stroke();
-  ctx.fillStyle = '#c89840';
-  ctx.beginPath(); ctx.arc(0, 12, 9, Math.PI, 0); ctx.closePath(); ctx.fill();
-  ctx.fillRect(-9, 12, 18, 4);
-  ctx.fillStyle = '#8a6a20';
-  ctx.beginPath(); ctx.arc(0, 18, 2.6, 0, TAU); ctx.fill();
-  ctx.restore();
-  // the ape itself
-  ctx.translate(ax, py - 6 + bob);
-  ctx.fillStyle = C;
-  poly([[-36, -6], [-27, -54], [27, -54], [36, -6]]);            // torso
-  ctx.fillStyle = CH;
-  poly([[-27, -54], [27, -54], [20, -40], [-20, -40]]);          // chest plate
-  ctx.fillStyle = C;
-  poly([[-21, -54], [-16, -82], [16, -82], [21, -54]]);          // head
-  ctx.fillStyle = CD;
-  poly([[-19, -70], [19, -70], [14, -61], [-14, -61]]);          // brow
-  ctx.fillStyle = '#ffb347';                                     // eyes
-  ctx.fillRect(-11, -68, 6, 4); ctx.fillRect(5, -68, 6, 4);
-  ctx.strokeStyle = C; ctx.lineCap = 'round';
-  ctx.lineWidth = 15;
-  ctx.beginPath(); ctx.moveTo(-29, -42); ctx.lineTo(-46, -14); ctx.stroke();  // left arm
-  ctx.beginPath();
-  if (ape.throwT > 0) { ctx.moveTo(29, -46); ctx.lineTo(48, -74); }           // raised!
-  else { ctx.moveTo(29, -42); ctx.lineTo(46, -14); }
-  ctx.stroke();
-  ctx.fillStyle = CD;                                            // folded legs
-  poly([[-36, -6], [-48, 0], [-18, 0]]);
-  poly([[36, -6], [48, 0], [18, 0]]);
-  ctx.restore();
-}
-function drawClimber(c) {
-  if (!c) return;
-  if (c.inv > 0 && Math.floor(time * 12) % 2 === 0) return;      // spawn blink
-  const flash = c.stun > 0 && Math.floor(time * 16) % 2 === 0;
-  ctx.save(); ctx.translate(c.x, c.y); ctx.scale(c.face, 1);
-  const legSwing = c.onGround && Math.abs(c.vx) > 10 ? Math.sin(time * 14) * 5 : 0;
-  ctx.strokeStyle = flash ? '#ff5a5a' : '#2a3a55'; ctx.lineWidth = 6; ctx.lineCap = 'round';
-  ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(-4, -1 + legSwing * 0.4); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(0, -14); ctx.lineTo(4, -1 - legSwing * 0.4); ctx.stroke();
-  ctx.fillStyle = flash ? '#ff5a5a' : '#3a5a9a';                  // torso
-  ctx.fillRect(-8, -32, 16, 19);
-  ctx.strokeStyle = flash ? '#ff5a5a' : '#3a5a9a'; ctx.lineWidth = 5;
-  if (c.climbing) {                                              // arms up on ladder
-    ctx.beginPath(); ctx.moveTo(-6, -28); ctx.lineTo(-10, -44); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(6, -28); ctx.lineTo(10, -44); ctx.stroke();
-  } else {
-    ctx.beginPath(); ctx.moveTo(6, -28); ctx.lineTo(12, -18 + legSwing * 0.5); ctx.stroke();
-  }
-  ctx.fillStyle = '#e8b88a';                                     // head
-  ctx.beginPath(); ctx.arc(2, -38, 7, 0, TAU); ctx.fill();
-  ctx.fillStyle = '#e0a030';                                     // helmet
-  ctx.beginPath(); ctx.arc(2, -39, 8, Math.PI, TAU); ctx.fill();
-  ctx.fillRect(-7, -41, 18, 3);
-  ctx.restore();
-}
-function drawReticle() {
-  if (!humanApe() || (state !== 'play' && state !== 'serve')) return;
-  const x = aimEdge < 0 ? GX0 + 14 : GX1 - 14;
-  const y = surfY(aimG, x) - 11;
-  ctx.save();
-  ctx.strokeStyle = '#ffd75a'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
-  ctx.lineDashOffset = -time * 24;
-  ctx.beginPath(); ctx.arc(x, y, 16, 0, TAU); ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.fillStyle = '#ffd75a';
-  const ax = x + aimEdge * 26;
-  ctx.beginPath();
-  if (aimEdge < 0) { ctx.moveTo(ax + 10, y); ctx.lineTo(ax, y - 6); ctx.lineTo(ax, y + 6); }
-  else { ctx.moveTo(ax - 10, y); ctx.lineTo(ax, y - 6); ctx.lineTo(ax, y + 6); }
-  ctx.closePath(); ctx.fill();
-  ctx.restore();
-}
-function drawDrums() {
-  for (const b of barrels) {
-    // motion streak
-    ctx.strokeStyle = 'rgba(216,168,80,0.30)'; ctx.lineWidth = b.r * 1.1; ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(b.x - b.vx * 0.05, b.y - (b.vy || 0) * 0.05);
-    ctx.lineTo(b.x, b.y); ctx.stroke();
-    // rolling cable spool: wooden flange, cross spokes, wound cable, axle dot
-    ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.rot);
-    ctx.fillStyle = '#8a5a20';
-    ctx.beginPath(); ctx.arc(0, 0, b.r, 0, TAU); ctx.fill();
-    ctx.strokeStyle = '#5e3a10'; ctx.lineWidth = 2.5;
-    for (let k = 0; k < 4; k++) {
-      const a = k * Math.PI / 4;
-      ctx.beginPath();
-      ctx.moveTo(Math.cos(a) * 3, Math.sin(a) * 3);
-      ctx.lineTo(Math.cos(a) * (b.r - 1), Math.sin(a) * (b.r - 1));
-      ctx.stroke();
-    }
-    ctx.fillStyle = '#d8a850';
-    ctx.beginPath(); ctx.arc(0, 0, b.r * 0.48, 0, TAU); ctx.fill();
-    ctx.strokeStyle = '#a8762e'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(0, 0, b.r * 0.48, 0, TAU); ctx.stroke();
-    ctx.fillStyle = '#3a2410';
-    ctx.beginPath(); ctx.arc(0, 0, 2.6, 0, TAU); ctx.fill();
-    ctx.restore();
-  }
-}
-function drawHUD() {
-  ctx.font = '14px "Courier New", monospace';
-  if (mode === 'apex') {
-    // centered: the ape's perch owns the top-left corner
-    ctx.textAlign = 'center'; ctx.fillStyle = '#8a93a0';
-    ctx.fillText('SCORE ' + score + '   STAGE ' + stage + '/' + APEX_STAGES, W / 2, 24);
-    ctx.fillStyle = alarms >= 2 ? '#ff5a5a' : '#8a93a0';
-    ctx.fillText('HITS ' + hits + '/3   ALARMS ' + alarms + '/3', W / 2, 44);
-    if (apexBest) { ctx.fillStyle = '#54655c'; ctx.fillText('BEST ' + apexBest, W / 2, 64); }
-    ctx.textAlign = 'left';
-  } else if (mode === 'climb') {
-    ctx.textAlign = 'center'; ctx.fillStyle = '#8a93a0';
-    ctx.fillText('SCORE ' + score + '   STAGE ' + stage, W / 2, 24);
-    ctx.fillStyle = '#e8f4ff';
-    ctx.fillText('LIVES ' + lives + '   DODGES ' + dodges, W / 2, 44);
-    if (best) { ctx.fillStyle = '#54655c'; ctx.fillText('BEST ' + best, W / 2, 64); }
-    ctx.textAlign = 'left';
-  } else {
-    ctx.textAlign = 'left'; ctx.fillStyle = '#8a93a0';
-    ctx.fillText('P1 ' + wins.p1 + ' — ' + wins.p2 + ' P2', 14, 26);
-    ctx.fillText('ROUND ' + round, 14, 46);
-    ctx.fillStyle = '#ffd75a'; ctx.textAlign = 'center';
-    ctx.fillText(Math.ceil(roundT) + 's', W / 2, 26); ctx.textAlign = 'left';
-  }
-  pauseBtn = { x: W - 30, y: 30 };
-  muteBtn = { x: W - 30, y: 58 };
-  ctx.fillStyle = '#3a3f45'; ctx.textAlign = 'center'; ctx.font = '13px "Courier New", monospace';
-  ctx.fillText(paused ? '\u25B6' : 'II', pauseBtn.x, pauseBtn.y);
-  ctx.fillText(muted ? 'M\u00D7' : 'M\u266A', muteBtn.x, muteBtn.y);
-  ctx.textAlign = 'left';
-}
-function drawMenu() {
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#e8f4ff';
-  ctx.font = 'bold 72px "Courier New", monospace';
-  ctx.fillText('APEX', W / 2, 180);
-  ctx.font = '15px "Courier New", monospace'; ctx.fillStyle = '#8a93a0';
-  ctx.fillText('a 1981 story', W / 2, 214);
-  ctx.fillStyle = '#8a5a20';
-  ctx.fillText('you are the ape', W / 2, 238);
-  // little tower ornament
-  ctx.strokeStyle = '#33506e'; ctx.lineWidth = 3;
-  for (let i = 0; i < 4; i++) {
-    const y = 300 + i * 16;
-    ctx.beginPath(); ctx.moveTo(W / 2 - 60, y); ctx.lineTo(W / 2 + 60, y); ctx.stroke();
-  }
-  for (const b of menuBtns) {
-    ctx.strokeStyle = '#e8f4ff'; ctx.lineWidth = 1.6;
-    ctx.strokeRect(90, b.y - 30, W - 180, 60);
-    ctx.fillStyle = '#e8f4ff'; ctx.font = 'bold 22px "Courier New", monospace';
-    ctx.fillText(b.label, W / 2, b.y - 2);
-    ctx.font = '12px "Courier New", monospace'; ctx.fillStyle = '#8a93a0';
-    ctx.fillText(b.sub, W / 2, b.y + 20);
-  }
-  ctx.font = '12px "Courier New", monospace'; ctx.fillStyle = '#54655c';
-  const bestLine = (apexBest ? 'apex best ' + apexBest + '   ' : '') + (best ? 'climb best ' + best : '');
-  if (bestLine) ctx.fillText(bestLine, W / 2, H - 62);
-  ctx.fillStyle = '#3a3f45';
-  ctx.fillText('M mute · P pause', W / 2, H - 40);
-}
-function drawHowto() {
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#e8f4ff'; ctx.font = 'bold 34px "Courier New", monospace';
-  ctx.fillText('HOW TO PLAY', W / 2, 92);
-  const secs = [
-    ['APEX — YOU ARE THE APE (1P)', '#ffd75a', [
-      'Tap a girder edge (or aim with arrows, SPACE throws)',
-      'to roll a spool into the climber. 3 hits clears the stage.',
-      'But each time the climber reaches the top: ALARM.',
-      '3 alarms and the run is over. Hold all 8 stages.']],
-    ['CLIMB — YOU ARE THE CLIMBER (1P)', '#7dff9a', [
-      'Arrows / WASD to run and climb, SPACE to jump the spools.',
-      'Jumping a spool scores. Reach the top of 8 stages.',
-      '3 lives. The ape throws faster every stage.']],
-    ['VERSUS — CLIMBER VS APE (2P)', '#7fb2dd', [
-      'P1 climber: arrows + SPACE to move and jump.',
-      'P2 ape: W/S aim girder, A/D edge, F throws.',
-      'On touch: P1 uses buttons, P2 taps the tower top.',
-      'Top scores for the climber, hits for the ape. Best of 3.']],
+function drawHowto(){
+  bctx.drawImage(sky,0,0,W,H);
+  text('HOW TO PLAY',W/2,84,'34','#e8f4ff','center');
+  const secs=[
+    ['BEAVER - YOU FELL THE TREES','#ffd75a',[
+      'PRESS AND HOLD A TREE TO GNAW IT.',
+      'THE BEAVER SCURRIES OVER AND CHEWS.',
+      'WHEN THE TRUNK GIVES - TIMBER! THE',
+      'LOG TUMBLES DOWN THE TOWER.',
+      '3 LOG HITS CLEAR THE STAGE. BUT EACH',
+      'TIME THE JACK REACHES THE TOP:',
+      'ALARM. 3 ALARMS AND THE RUN IS OVER.',
+      'CLEAR ALL 8 STAGES.']],
+    ['LUMBERJACK - YOU CLIMB','#7dff9a',[
+      'ARROWS OR WASD TO RUN AND CLIMB.',
+      'SPACE TO JUMP THE ROLLING LOGS.',
+      'JUMPING A LOG SCORES +25.',
+      'REACH THE TOP OF 8 STAGES. 3 LIVES.',
+      'THE BEAVER GNAWS FASTER EVERY STAGE.']],
+    ['VERSUS - SAME SCREEN','#7fb2dd',[
+      'P1 LUMBERJACK: ARROWS + SPACE.',
+      'P2 BEAVER: A/D TO MOVE, HOLD F OR',
+      'PRESS-AND-HOLD A TREE TO GNAW.',
+      'TOUCH: P1 BUTTONS, P2 HOLDS TREES.',
+      'BEST OF 3. 60S ROUNDS.']],
   ];
-  let y = 140;
-  ctx.textAlign = 'left';
-  for (const [title, color, lines] of secs) {
-    ctx.fillStyle = color; ctx.font = 'bold 14px "Courier New", monospace';
-    ctx.fillText(title, 36, y); y += 22;
-    ctx.fillStyle = '#8a93a0'; ctx.font = '12.5px "Courier New", monospace';
-    for (const l of lines) { ctx.fillText(l, 36, y); y += 19; }
-    y += 14;
+  let y=128;
+  for(const s of secs){
+    text(s[0],36,y,'17',s[1],'left'); y+=26;
+    for(const l of s[2]){ text(l,36,y,'13','#9aa4b5','left'); y+=20; }
+    y+=14;
   }
-  ctx.textAlign = 'center'; ctx.fillStyle = '#3a3f45';
-  ctx.font = '12px "Courier New", monospace';
-  ctx.fillText('tap anywhere to return', W / 2, H - 60);
-  ctx.textAlign = 'left';
+  text('TAP TO GO BACK',W/2,H-40,'14','#3a3f45','center');
+  bctx.drawImage(vig,0,0,W,H);
 }
-function centerText(main, sub, color) {
-  ctx.textAlign = 'center';
-  ctx.fillStyle = color || '#e8f4ff';
-  ctx.font = 'bold 32px "Courier New", monospace';
-  ctx.fillText(main, W / 2, H / 2 - 24);
-  if (sub) {
-    ctx.font = '15px "Courier New", monospace'; ctx.fillStyle = '#8a93a0';
-    const lines = sub.split('\n');
-    lines.forEach((l, i) => ctx.fillText(l, W / 2, H / 2 + 8 + i * 22));
+function render(){
+  bctx.setTransform(PX,0,0,PX,0,0);
+  bctx.imageSmoothingEnabled=false;
+  if(state==='menu'){ drawMenu(); }
+  else if(state==='howto'){ drawHowto(); }
+  else{
+    bctx.save();
+    if(shake>0)bctx.translate(rnd(-3,3)*shake,rnd(-3,3)*shake);
+    bctx.drawImage(sky,0,0,W,H);
+    drawGirders(); drawLadders();
+    for(const t of trees)drawTree(t);
+    for(const b of logs)drawLog(b);
+    drawJack(jack);
+    drawBeaver(beaver);
+    drawParts(); drawFloats();
+    bctx.drawImage(vig,0,0,W,H);
+    drawHUD();
+    if(bannerT>0)drawBanner();
+    if(paused)drawCenter('PAUSED','P OR TAP TO RESUME');
+    else if(state==='gameOver')drawCenter(mode==='apex'?'THE TOWER FALLS':'GAME OVER','TAP TO RETURN');
+    else if(state==='campWin')drawCenter('CAMP CLEARED!','TAP TO RETURN');
+    else if(state==='matchEnd')drawCenter(wins.p1>wins.p2?'LUMBERJACK WINS':'BEAVER WINS','TAP TO RETURN');
+    bctx.restore();
   }
-  ctx.textAlign = 'left';
-}
-function render() {
-  ctx.save();
-  if (shake > 0) ctx.translate(rnd(-1, 1) * shake * 5, rnd(-1, 1) * shake * 5);
-  ctx.clearRect(-10, -10, W + 20, H + 20);
-  // night sky
-  ctx.fillStyle = '#8a93a0';
-  for (const [sx, sy, sr] of stars) {
-    ctx.globalAlpha = 0.25; ctx.fillRect(sx, sy, sr, sr);
-  }
-  ctx.globalAlpha = 1;
-  drawSkyline();
-
-  if (state === 'menu') { drawMenu(); drawVignette(); ctx.restore(); return; }
-  if (state === 'howto') { drawHowto(); drawVignette(); ctx.restore(); return; }
-
-  drawVignette();
-  drawLadders();
-  drawGirders();
-  drawReticle();
-  drawDrums();
-  drawApe();
-  drawClimber(climber);
-  for (const p of parts) {
-    ctx.globalAlpha = 1 - p.t / p.life; ctx.fillStyle = p.color;
-    ctx.fillRect(p.x - p.r / 2, p.y - p.r / 2, p.r, p.r);
-  }
-  ctx.globalAlpha = 1;
-  ctx.textAlign = 'center';
-  for (const f of floats) {
-    ctx.globalAlpha = 1 - f.t / 1.1; ctx.fillStyle = f.color;
-    ctx.font = 'bold 15px "Courier New", monospace';
-    ctx.fillText(f.txt, f.x, f.y);
-  }
-  ctx.globalAlpha = 1; ctx.textAlign = 'left';
-
-  drawHUD();
-
-  if (bannerT > 0) {
-    ctx.globalAlpha = Math.min(1, bannerT);
-    ctx.fillStyle = '#e8f4ff'; ctx.textAlign = 'center';
-    ctx.font = 'bold 22px "Courier New", monospace';
-    ctx.fillText(banner, W / 2, 120);
-    ctx.globalAlpha = 1; ctx.textAlign = 'left';
-  }
-  if (paused && state === 'play') {
-    ctx.fillStyle = 'rgba(5,7,12,0.6)'; ctx.fillRect(0, 0, W, H);
-    centerText('PAUSED', null);
-  }
-  if (state === 'roundEnd') {
-    centerText(roundWinner === 'p1' ? 'CLIMBER TAKES IT' : 'APE TAKES IT',
-      'p1 ' + wins.p1 + ' — ' + wins.p2 + ' p2');
-  }
-  if (state === 'matchEnd') {
-    ctx.fillStyle = 'rgba(5,7,12,0.78)'; ctx.fillRect(0, 0, W, H);
-    const p1w = wins.p1 > wins.p2;
-    centerText(p1w ? 'CLIMBER WINS' : 'APE WINS',
-      'rounds: p1 ' + wins.p1 + ' — ' + wins.p2 + ' p2\ntap to return',
-      p1w ? '#7dff9a' : '#ff5a5a');
-  }
-  if (state === 'gameOver') {
-    ctx.fillStyle = 'rgba(5,7,12,0.78)'; ctx.fillRect(0, 0, W, H);
-    centerText('GAME OVER', 'score ' + score + '\nbest ' + (mode === 'apex' ? apexBest : best) + '\ntap to return', '#ff5a5a');
-  }
-  if (state === 'campWin') {
-    ctx.fillStyle = 'rgba(5,7,12,0.78)'; ctx.fillRect(0, 0, W, H);
-    const isApex = mode === 'apex';
-    const cb = isApex ? apexBest : best;
-    centerText(isApex ? 'APEX PREDATOR' : 'SUMMIT CONQUERED',
-      (isApex ? 'the tower holds — all 8 stages' : 'all 8 stages climbed') +
-      '\nscore ' + score + (cb ? '\nbest ' + cb : '') + '\ntap to return',
-      '#7dff9a');
-  }
-  ctx.restore();
-}
-
-/* ---------- main loop ---------- */
-let lastT = 0, acc = 0;
-function frame(t) {
-  requestAnimationFrame(frame);
   syncTouch();
-  const mdt = Math.min(0.1, t / 1000 - (frame._l || t / 1000)); frame._l = t / 1000;
-  musT -= mdt;
-  if (musT <= 0) { musicTick(); musT = 60 / 132 / 2; }
-  const now = t / 1000;
-  const ft = Math.min(0.1, now - (lastT || now));
-  lastT = now; acc += ft;
-  while (acc >= DT) { update(DT); acc -= DT; }
-  render();
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.imageSmoothingEnabled=false;
+  ctx.clearRect(0,0,cv.width,cv.height);
+  ctx.drawImage(buf,0,0,buf.width,buf.height,0,0,cv.width,cv.height);
 }
+/* ---------- main loop ---------- */
+let lastT=0;
+function frame(t){
+  const dt=Math.min(0.05,(t-lastT)/1000||0.016); lastT=t;
+  if(!paused)update(dt);
+  render();
+  requestAnimationFrame(frame);
+}
+resetStage();
 requestAnimationFrame(frame);
-
 /* ---------- debug hooks ---------- */
-window.GAME = {
-  get state() { return state; }, get mode() { return mode; },
-  get score() { return score; }, get lives() { return lives; },
-  get stage() { return stage; }, get climber() { return climber; },
-  get barrels() { return barrels; }, get ape() { return ape; },
-  get wins() { return wins; }, get hits() { return hits; },
-  get dodges() { return dodges; }, get alarms() { return alarms; },
-  get aimG() { return aimG; }, get aimEdge() { return aimEdge; },
-  get paused() { return paused; }, get best() { return best; },
-  get apexBest() { return apexBest; },
-  get matchT() { return matchT; }, get roundT() { return roundT; },
-  get round() { return round; },
-  startMode, throwDrum, hitClimber, surfY, onGirderX,
-  debug: {
-    endServe() { if (state === 'serve') { state = 'play'; stateT = 99; } },
-    teleportClimber(gi, x) {
-      const c = climber;
-      c.climbing = false; c.ladder = -1; c.girder = gi;
-      c.x = x; c.y = surfY(gi, x); c.vx = 0; c.vy = 0; c.onGround = true; c.inv = 0;
-    },
-    throwAt(gi, edge) { throwDrum(gi, edge, 1); },
-    setLives(n) { lives = n; },
-    setAlarms(n) { alarms = n; },
-    setHits(n) { hits = n; },
-    setRoundT(n) { roundT = n; },
-    setStage(n) { stage = n; },
-    key(code, down) { keys[code] = !!down; },
-    tap(x, y) { handleTap(x, y); },
-    aim(g, e) { aimG = g; aimEdge = e; },
-  },
+window.__apex={
+  get state(){return state;}, get mode(){return mode;}, get stage(){return stage;},
+  get beaver(){return beaver;}, get trees(){return trees;}, get logs(){return logs;},
+  get jack(){return jack;}, get hits(){return hits;}, get alarms(){return alarms;},
+  get score(){return score;}, get lives(){return lives;},
+  startMode, fellTree, update, toMenu,
+  holdTreeAt(i){ const t=trees[i]; if(t){ holdPtr={id:'dbg',tree:t}; } },
+  releaseHold(){ holdPtr=null; },
+  setKeys(o){ for(const k in o)keys[k]=o[k]; },
 };
 </script>
 </body>
