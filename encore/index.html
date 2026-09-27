@@ -39,6 +39,12 @@ const SONGS = [
    prog:[98.00, 110.00, 87.31, 130.81]},   // G2 A2 F2 C3
   {name:'OVERDRIVE',   bpm0:130, bpm1:160, dens0:0.75, dens1:0.95, chords:true,
    prog:[130.81, 98.00, 110.00, 87.31]},  // C3 G2 A2 F2
+  {name:'MIDNIGHT DRIVE', bpm0:105, bpm1:125, dens0:0.60, dens1:0.80, chords:false,
+   prog:[87.31, 98.00, 110.00, 130.81]},  // F2 G2 A2 C3
+  {name:'NEON REIGN',  bpm0:140, bpm1:165, dens0:0.70, dens1:0.90, chords:true,
+   prog:[146.83, 130.81, 110.00, 98.00]}, // D3 C3 A2 G2
+  {name:'BASSQUAKE',   bpm0:150, bpm1:180, dens0:0.80, dens1:1.00, chords:true,
+   prog:[65.41, 65.41, 98.00, 87.31]},    // C2 C2 G2 F2
 ];
 const WARM = {name:'WARMUP', bpm0:88, bpm1:88, dens0:0.35, dens1:0.35, chords:false,
   prog:[110.00, 110.00, 98.00, 98.00]};
@@ -93,7 +99,7 @@ const WARM_DUR = genChart(WARM,4242,4).duration;
 
 /* ---------------- audio ---------------- */
 let AC=null, master=null, noiseBuf=null, muted=false, audioLive=false;
-let analyser=null, freqData=null;
+let analyser=null, freqData=null, audioWatchStarted=false;
 function initAudio(){
   if(AC) { if(AC.state==='suspended') AC.resume().catch(()=>{}); return; }
   try{
@@ -107,6 +113,9 @@ function initAudio(){
     const d = noiseBuf.getChannelData(0);
     for(let i=0;i<len;i++) d[i]=Math.random()*2-1;
     if(AC.state==='suspended') AC.resume().catch(()=>{});
+    // watchdog: iOS sometimes leaves the context suspended after a gesture
+    if(!audioWatchStarted){ audioWatchStarted=true;
+      setInterval(()=>{ if(AC&&AC.state==='suspended') AC.resume().catch(()=>{}); },800); }
   }catch(e){ AC=null; }
 }
 function analyzerBars(n){
@@ -620,6 +629,8 @@ function drawShade(t){
   ctx.fillStyle='#111';ctx.font='bold 11px Courier New';ctx.textAlign='left';
   const ttl = G.mode==='warmup'?'WINAMP - [WARMUP]':('WINAMP - ['+SONGS[G.songIdx].name+']');
   ctx.fillText(ttl,8,14);
+  if((!AC||AC.state!=='running') && Math.floor(t*2)%2===0)
+    ledText('TAP FOR SOUND',W-8,4,2,'#ffe600','right');
   ctx.fillStyle='#0b0b10';ctx.fillRect(0,20,W,58);
   const songN = G.mode==='warmup'?'WARMUP':SONGS[G.songIdx].name;
   ledMarquee(8,28,196,42,3,'#39ff14','> '+songN+' *** ',t,60);
@@ -735,7 +746,7 @@ function drawMenu(t){
   waTrans('prev','prevsong',win.bx,ty,48);
   waTrans('play','playsong',win.bx+58,ty,48);
   waTrans('next','nextsong',win.bx+116,ty,48);
-  ledText('TRACK '+(G.menuSong+1)+'/3',win.bx+192,ty+16,3,'#5f6f66','left');
+  ledText('TRACK '+(G.menuSong+1)+'/'+SONGS.length,win.bx+192,ty+16,3,'#5f6f66','left');
   waButton('WARMUP','warmup',W/2,480,{sub:'88 BPM PRACTICE',c:'blue'});
   waButton('VERSUS','versus',W/2,548,{sub:'2P BEST OF 3',c:'pink'});
   ledText('TAP LANES OR D F J K * P PAUSE * M MUTE',W/2,622,2,'#3f5a3f','center');
@@ -769,7 +780,7 @@ function drawSongs(t){
   }else if(G.mode==='warmup'){
     playlistRow(y,'WARMUP','88 BPM - PRACTICE - NO FAIL','song0',true,fmtClock(WARM_DUR));
   }else{
-    for(let i=0;i<3;i++){
+    for(let i=0;i<SONGS.length;i++){
       const s=SONGS[i], best=bestScore(i);
       playlistRow(y,(i+1)+'. '+s.name,
         s.bpm0+'-'+s.bpm1+' BPM'+(best?'   BEST '+fmt(best):''),
@@ -925,8 +936,8 @@ function pressButton(id){
   else if(id==='back'){ G.state='menu'; G.buttons=[]; }
   else if(id==='menu'){ G.state='menu'; G.mode=null; G.buttons=[]; }
   else if(id==='songs'){ G.state='songs'; G.buttons=[]; }
-  else if(id==='prevsong'){ G.menuSong=(G.menuSong+2)%3; }
-  else if(id==='nextsong'){ G.menuSong=(G.menuSong+1)%3; }
+  else if(id==='prevsong'){ G.menuSong=(G.menuSong+SONGS.length-1)%SONGS.length; }
+  else if(id==='nextsong'){ G.menuSong=(G.menuSong+1)%SONGS.length; }
   else if(id==='playsong'){ G.mode='stage'; startSong(G.songIdx=G.menuSong); }
   else if(id&&id.indexOf('song')===0){
     const i=parseInt(id.slice(4),10);
