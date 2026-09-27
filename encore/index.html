@@ -115,8 +115,19 @@ function initAudio(){
     if(AC.state==='suspended') AC.resume().catch(()=>{});
     // watchdog: iOS sometimes leaves the context suspended after a gesture
     if(!audioWatchStarted){ audioWatchStarted=true;
-      setInterval(()=>{ if(AC&&AC.state==='suspended') AC.resume().catch(()=>{}); },800); }
+      setInterval(()=>{ if(AC&&(AC.state==='suspended'||AC.state==='interrupted')) AC.resume().catch(()=>{}); },800); }
   }catch(e){ AC=null; }
+}
+/* iOS unlock: silent buffer played inside the gesture forces the audio session open */
+function unlockAudio(){
+  initAudio();
+  if(!AC) return;
+  try{
+    const buf=AC.createBuffer(1,1,AC.sampleRate);
+    const src=AC.createBufferSource(); src.buffer=buf; src.connect(AC.destination);
+    src.start(0);
+  }catch(e){}
+  if(AC.state==='suspended'||AC.state==='interrupted') AC.resume().catch(()=>{});
 }
 function analyzerBars(n){
   const out=new Array(n).fill(0);
@@ -629,8 +640,10 @@ function drawShade(t){
   ctx.fillStyle='#111';ctx.font='bold 11px Courier New';ctx.textAlign='left';
   const ttl = G.mode==='warmup'?'WINAMP - [WARMUP]':('WINAMP - ['+SONGS[G.songIdx].name+']');
   ctx.fillText(ttl,8,14);
-  if((!AC||AC.state!=='running') && Math.floor(t*2)%2===0)
-    ledText('TAP FOR SOUND',W-8,4,2,'#ffe600','right');
+  if((!AC||AC.state!=='running') && Math.floor(t*2)%2===0){
+    const st = !AC?'NONE':AC.state.toUpperCase();
+    ledText('AUDIO:'+st,W-8,4,2,'#ffe600','right');
+  }
   ctx.fillStyle='#0b0b10';ctx.fillRect(0,20,W,58);
   const songN = G.mode==='warmup'?'WARMUP':SONGS[G.songIdx].name;
   ledMarquee(8,28,196,42,3,'#39ff14','> '+songN+' *** ',t,60);
@@ -948,7 +961,9 @@ function pressButton(id){
   else if(id==='nextround'){ nextRound(); }
   else if(id==='rematch'){ const m=G.mode; startMode(m); G.state='songs'; if(m==='versus'){G.round=1;startSong(0);} }
 }
-cv.addEventListener('pointerdown',e=>{ e.preventDefault(); initAudio(); const p=canvasPos(e); tapAt(p.x,p.y); });
+cv.addEventListener('pointerdown',e=>{ e.preventDefault(); unlockAudio(); const p=canvasPos(e); tapAt(p.x,p.y); });
+cv.addEventListener('touchstart',e=>{ unlockAudio(); },{passive:true});
+cv.addEventListener('touchend',e=>{ unlockAudio(); },{passive:true});
 cv.addEventListener('mousemove',e=>{
   const p=canvasPos(e); G.hoverBtn=null;
   for(const b of G.buttons){ if(p.x>=b.x&&p.x<=b.x+b.w&&p.y>=b.y&&p.y<=b.y+b.h){ G.hoverBtn=b.id; break; } }
@@ -957,7 +972,7 @@ const KEYMAP={KeyD:[0,0],KeyF:[0,1],KeyJ:[0,2],KeyK:[0,3]};
 const KEYMAP_VS={KeyD:[0,0],KeyF:[0,1],KeyJ:[1,0],KeyK:[1,1]};
 window.addEventListener('keydown',e=>{
   if(e.repeat) return;
-  initAudio();
+  unlockAudio();
   if(e.code==='KeyM'){ muted=!muted; if(master) master.gain.value=muted?0:0.9; return; }
   if(e.code==='KeyP'){
     if(G.state==='play') pauseGame();
