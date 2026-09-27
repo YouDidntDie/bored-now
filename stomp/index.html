@@ -237,7 +237,7 @@ function drawDemon(d, t){
     const w = 32, h = 32*squash;
     ctx.save();
     ctx.translate(x, y - 15 + bob*0.4);
-    ctx.scale(d.vx < 0 ? 1 : -1, 1);
+    ctx.scale(d.vx < 0 ? -1 : 1, 1);
     ctx.drawImage(demonImg2, -w/2, -h/2, w, h);
     ctx.restore();
   }
