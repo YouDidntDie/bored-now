@@ -493,117 +493,151 @@ function drawWrestlerBody(g, shape, color, S){
   origDraw(g, shape, color, S);
 }
 function drawWrestlerBodyDraw(g, shape, color, S){
+  // Hara-inspired (Fist of the North Star / Slam Masters): exaggerated anatomy,
+  // massive shoulders, armor-plate pecs, tiny waist, dramatic shading
   const u = S/64;
-  const skin='#e8b88a', skinD='#c9986a', skinL='#f7d4a8';
-  const gear=color, dark='rgba(0,0,0,0.4)';
-  const wide = shape==='big'?1.25 : shape==='lean'?0.8 : shape==='stocky'?1.15 : 1.0;
-  g.save(); g.translate(S/2,S/2); g.scale(u*wide,u); g.lineWidth=1; g.strokeStyle=dark;
-  g.lineWidth=2; g.strokeStyle=dark;
-  // --- shadow ---
-  g.fillStyle='rgba(0,0,0,0.25)';
-  g.beginPath(); g.ellipse(0, 38, 22, 5, 0, 0, 7); g.fill();
-  // --- legs (wrestling tights) ---
-  g.fillStyle='#232833';
-  // left leg
-  g.fillRect(-14, 8, 11, 24); g.strokeRect(-14, 8, 11, 24);
-  // right leg
-  g.fillRect(3, 8, 11, 24); g.strokeRect(3, 8, 11, 24);
-  // quad shading
-  g.fillStyle='#343c4e';
-  g.fillRect(-14, 8, 11, 6); g.fillRect(3, 8, 11, 6);
-  // knee pads (gear color)
-  g.fillStyle=gear; g.fillRect(-14, 20, 11, 6); g.fillRect(3, 20, 11, 6);
-  g.fillStyle='rgba(255,255,255,0.2)'; g.fillRect(-14, 20, 11, 2); g.fillRect(3, 20, 11, 2);
-  // boots
-  g.fillStyle='#15181f';
-  g.fillRect(-15, 30, 13, 8); g.fillRect(2, 30, 13, 8);
-  g.strokeStyle=dark; g.strokeRect(-15, 30, 13, 8); g.strokeRect(2, 30, 13, 8);
-  g.fillStyle='#2a2f3a'; g.fillRect(-15, 30, 13, 2); g.fillRect(2, 30, 13, 2);
-  // --- torso (bare chest with gear trim, like a wrestler) ---
-  // chest skin
-  g.fillStyle=skin; g.fillRect(-16, -18, 32, 28);
-  // pecs
-  g.fillStyle=skinD; g.fillRect(-16, -8, 32, 2);
-  g.fillRect(-2, -18, 2, 12);
-  // pec highlights
-  g.fillStyle=skinL; g.fillRect(-14, -16, 10, 4); g.fillRect(4, -16, 10, 4);
-  // abs
-  g.fillStyle=skinD;
-  g.fillRect(-8, -2, 16, 1); g.fillRect(-6, 2, 12, 1); g.fillRect(-4, 6, 8, 1);
-  // side shading
-  g.fillStyle=skinD; g.fillRect(-16, -18, 3, 28); g.fillRect(13, -18, 3, 28);
-  g.strokeStyle=dark; g.strokeRect(-16, -18, 32, 28);
-  // gear straps (shoulder straps in gear color)
-  g.fillStyle=gear; g.fillRect(-16, -18, 7, 28); g.fillRect(9, -18, 7, 28);
-  g.fillStyle='rgba(255,255,255,0.25)'; g.fillRect(-16, -18, 7, 3); g.fillRect(9, -18, 7, 3);
-  // championship belt
-  g.fillStyle='#1a1d24'; g.fillRect(-16, 6, 32, 5);
-  g.fillStyle='#ffd93f'; g.fillRect(-5, 5, 10, 7);
-  g.fillStyle='#b8962f'; g.fillRect(-5, 5, 10, 2);
-  g.fillStyle='#fff'; g.fillRect(-2, 7, 4, 3);
-  // --- arms (muscular) ---
-  // left arm
-  g.fillStyle=skin; g.fillRect(-24, -16, 8, 20);
-  // deltoid
-  g.beginPath(); g.arc(-20, -14, 6, 0, 7); g.fillStyle=skin; g.fill();
-  g.fillStyle=skinL; g.beginPath(); g.arc(-21, -15, 3, 0, 7); g.fill();
-  // bicep shading
-  g.fillStyle=skinD; g.fillRect(-24, -6, 8, 3);
-  g.strokeStyle=dark; g.strokeRect(-24, -16, 8, 20);
-  // right arm
-  g.fillStyle=skin; g.fillRect(16, -16, 8, 20);
-  g.beginPath(); g.arc(20, -14, 6, 0, 7); g.fillStyle=skin; g.fill();
-  g.fillStyle=skinL; g.beginPath(); g.arc(19, -15, 3, 0, 7); g.fill();
-  g.fillStyle=skinD; g.fillRect(16, -6, 8, 3);
-  g.strokeStyle=dark; g.strokeRect(16, -16, 8, 20);
-  // wristbands
-  g.fillStyle=gear; g.fillRect(-24, 0, 8, 4); g.fillRect(16, 0, 8, 4);
-  // fists
+  const skin='#e8b88a', skinD='#b87f52', skinDD='#8a5a35', skinL='#f7d4a8';
+  const gear=color, dark='rgba(0,0,0,0.45)';
+  const wide = shape==='big'?1.35 : shape==='lean'?0.85 : shape==='stocky'?1.2 : 1.05;
+  const bulk = shape==='big'?1.3 : shape==='lean'?0.75 : shape==='stocky'?1.15 : 1.0;
+  g.save(); g.translate(S/2,S/2+4); g.scale(u*wide,u);
+  g.lineWidth=1.2;
+  // --- MASSIVE DELTOIDS (shoulders 3x head width, Hara style) ---
+  const shY=-20, shR=10*bulk;
   g.fillStyle=skin;
-  g.beginPath(); g.arc(-20, 8, 5, 0, 7); g.fill(); g.stroke();
-  g.beginPath(); g.arc(20, 8, 5, 0, 7); g.fill(); g.stroke();
-  // --- head ---
-  const hy=-30;
-  // neck
-  g.fillStyle=skinD; g.fillRect(-6, -22, 12, 6);
-  // head base
-  g.fillStyle=skin; g.beginPath(); g.arc(0, hy, 11, 0, 7); g.fill();
-  // jaw shading
-  g.fillStyle=skinD; g.beginPath(); g.arc(0, hy+3, 9, 0.3, Math.PI-0.3); g.fill();
-  g.strokeStyle=dark; g.beginPath(); g.arc(0, hy, 11, 0, 7); g.stroke();
-  // hair (style varies by shape)
-  g.fillStyle = shape==='big' ? '#1a1210' : shape==='lean' ? '#d4a017' : shape==='stocky' ? '#4a2a18' : '#2a2a2a';
-  // top hair
-  g.fillRect(-11, hy-11, 22, 6);
-  g.fillRect(-11, hy-11, 5, 12); g.fillRect(6, hy-11, 5, 12);
-  if(shape==='lean'){ // long hair flowing
-    g.fillRect(-13, hy-5, 4, 14); g.fillRect(9, hy-5, 4, 14);
-  }
-  if(shape==='big'){ // mohawk
-    g.fillRect(-3, hy-16, 6, 6);
-  }
-  // headband (gear color)
-  g.fillStyle=gear; g.fillRect(-11, hy-6, 22, 4);
-  g.fillStyle='rgba(255,255,255,0.3)'; g.fillRect(-11, hy-6, 22, 1);
-  // eyes (fierce)
-  g.fillStyle='#fff'; g.fillRect(-8, hy-1, 6, 4); g.fillRect(2, hy-1, 6, 4);
-  g.fillStyle='#111'; g.fillRect(-6, hy, 3, 3); g.fillRect(4, hy, 3, 3);
-  g.fillStyle='#fff'; g.fillRect(-5, hy, 1, 1); g.fillRect(5, hy, 1, 1);
-  // angry brows
-  g.fillStyle='#1a1210';
-  g.save(); g.translate(-5, hy-3); g.rotate(-0.3); g.fillRect(-4, -1, 8, 2); g.restore();
-  g.save(); g.translate(5, hy-3); g.rotate(0.3); g.fillRect(-4, -1, 8, 2); g.restore();
-  // nose
-  g.fillStyle=skinD; g.fillRect(-1, hy+2, 2, 3);
-  // mouth (gritted teeth)
-  g.fillStyle='#5a2a20'; g.fillRect(-5, hy+6, 10, 3);
-  g.fillStyle='#fff'; g.fillRect(-5, hy+6, 10, 1);
-  // --- flash effect ---
-  if(false){ g.globalAlpha=o.flash*0.7; g.fillStyle='#fff';
-    g.beginPath(); g.ellipse(0, 0, 26, 42, 0, 0, 7); g.fill();
-    g.globalAlpha=o.alpha!==undefined?o.alpha:1; }
+  g.beginPath(); g.arc(-18,shY,shR,0,7); g.fill();
+  g.beginPath(); g.arc(18,shY,shR,0,7); g.fill();
+  // delt shading (3 heads of deltoid)
+  g.fillStyle=skinD;
+  g.beginPath(); g.arc(-18,shY+2,shR*0.7,0,7); g.fill();
+  g.beginPath(); g.arc(18,shY+2,shR*0.7,0,7); g.fill();
+  g.fillStyle=skinL;
+  g.beginPath(); g.arc(-20,shY-3,shR*0.4,0,7); g.fill();
+  g.beginPath(); g.arc(16,shY-3,shR*0.4,0,7); g.fill();
+  g.strokeStyle=dark;
+  g.beginPath(); g.arc(-18,shY,shR,0,7); g.stroke();
+  g.beginPath(); g.arc(18,shY,shR,0,7); g.stroke();
+  // --- TRAPS (sloping from neck to shoulders) ---
+  g.fillStyle=skin;
+  g.beginPath(); g.moveTo(-8,-28); g.lineTo(-18,shY-4); g.lineTo(-10,shY); g.lineTo(-4,-24); g.fill();
+  g.beginPath(); g.moveTo(8,-28); g.lineTo(18,shY-4); g.lineTo(10,shY); g.lineTo(4,-24); g.fill();
+  // --- PECS (armor plates) ---
+  g.fillStyle=skin;
+  g.fillRect(-16,-20,32,14);
+  // pec separation and striations
+  g.fillStyle=skinDD; g.fillRect(-1,-20,2,14);
+  g.strokeStyle=skinD; g.lineWidth=1;
+  for(let i=0;i<3;i++){ g.beginPath(); g.moveTo(-14,-17+i*4); g.lineTo(-2,-16+i*4); g.stroke();
+    g.beginPath(); g.moveTo(14,-17+i*4); g.lineTo(2,-16+i*4); g.stroke(); }
+  g.fillStyle=skinL; g.fillRect(-15,-19,12,3); g.fillRect(3,-19,12,3);
+  g.strokeStyle=dark; g.lineWidth=1.2; g.strokeRect(-16,-20,32,14);
+  // --- LATS (flaring out) ---
+  g.fillStyle=skin;
+  g.beginPath(); g.moveTo(-16,-8); g.lineTo(-22,6); g.lineTo(-14,6); g.lineTo(-10,-6); g.fill();
+  g.beginPath(); g.moveTo(16,-8); g.lineTo(22,6); g.lineTo(14,6); g.lineTo(10,-6); g.fill();
+  // --- ABS (tiny waist, Hara V-taper) ---
+  g.fillStyle=skin; g.fillRect(-9,-6,18,14);
+  g.fillStyle=skinD;
+  g.fillRect(-7,-4,14,1); g.fillRect(-6,0,12,1); g.fillRect(-5,4,10,1);
+  g.fillStyle=skinDD; g.fillRect(-1,-6,2,14);
+  g.fillStyle=skinL; g.fillRect(-8,-5,3,12);
+  g.strokeStyle=dark; g.strokeRect(-9,-6,18,14);
+  // --- GEAR: wrestling singlet straps ---
+  g.fillStyle=gear;
+  g.fillRect(-16,-20,6,28); g.fillRect(10,-20,6,28);
+  g.fillStyle='rgba(255,255,255,0.3)'; g.fillRect(-16,-20,6,2); g.fillRect(10,-20,6,2);
+  g.fillStyle='rgba(0,0,0,0.3)'; g.fillRect(-16,4,6,4); g.fillRect(10,4,6,4);
+  // --- CHAMPIONSHIP BELT (big, prominent) ---
+  g.fillStyle='#1a1d24'; g.fillRect(-11,8,22,6);
+  g.fillStyle='#ffd93f'; g.fillRect(-6,7,12,8);
+  g.fillStyle='#b8962f'; g.fillRect(-6,7,12,2); g.fillRect(-6,13,12,2);
+  g.fillStyle='#fff'; g.fillRect(-3,9,6,4);
+  g.fillStyle='#ffd93f'; g.fillRect(-2,10,4,2);
+  // --- ARMS (huge biceps, forearms) ---
+  // left upper arm
+  g.fillStyle=skin; g.fillRect(-27,-14,9,14);
+  g.fillStyle=skinD; g.fillRect(-27,-4,9,4); // bicep peak shadow
+  g.fillStyle=skinL; g.fillRect(-26,-13,4,10);
+  g.strokeStyle=dark; g.strokeRect(-27,-14,9,14);
+  // left forearm (thick)
+  g.fillStyle=skin; g.fillRect(-26,0,8,12);
+  g.fillStyle=skinD; g.fillRect(-26,6,8,3);
+  // veins
+  g.strokeStyle=skinDD; g.lineWidth=0.8;
+  g.beginPath(); g.moveTo(-24,2); g.lineTo(-22,10); g.stroke();
+  g.strokeStyle=dark; g.lineWidth=1.2; g.strokeRect(-26,0,8,12);
+  // right upper arm
+  g.fillStyle=skin; g.fillRect(18,-14,9,14);
+  g.fillStyle=skinD; g.fillRect(18,-4,9,4);
+  g.fillStyle=skinL; g.fillRect(19,-13,4,10);
+  g.strokeStyle=dark; g.strokeRect(18,-14,9,14);
+  // right forearm
+  g.fillStyle=skin; g.fillRect(18,0,8,12);
+  g.fillStyle=skinD; g.fillRect(18,6,8,3);
+  g.strokeStyle=skinDD; g.lineWidth=0.8;
+  g.beginPath(); g.moveTo(22,2); g.lineTo(20,10); g.stroke();
+  g.strokeStyle=dark; g.lineWidth=1.2; g.strokeRect(18,0,8,12);
+  // wristbands (gear)
+  g.fillStyle=gear; g.fillRect(-26,8,8,4); g.fillRect(18,8,8,4);
+  // fists (big, clenched)
+  g.fillStyle=skin;
+  g.beginPath(); g.arc(-22,16,6,0,7); g.fill(); g.strokeStyle=dark; g.stroke();
+  g.beginPath(); g.arc(22,16,6,0,7); g.fill(); g.stroke();
+  g.fillStyle=skinD; g.fillRect(-26,14,8,2); g.fillRect(18,14,8,2);
+  // --- LEGS (powerful quads) ---
+  g.fillStyle='#232833';
+  g.fillRect(-13,14,11,18); g.fillRect(2,14,11,18);
+  // quad definition
+  g.fillStyle='#343c4e'; g.fillRect(-13,14,11,5); g.fillRect(2,14,11,5);
+  g.strokeStyle=skinDD; g.lineWidth=0.8;
+  g.beginPath(); g.moveTo(-7,16); g.lineTo(-7,28); g.stroke();
+  g.beginPath(); g.moveTo(7,16); g.lineTo(7,28); g.stroke();
+  g.strokeStyle=dark; g.lineWidth=1.2;
+  g.strokeRect(-13,14,11,18); g.strokeRect(2,14,11,18);
+  // knee pads
+  g.fillStyle=gear; g.fillRect(-13,24,11,6); g.fillRect(2,24,11,6);
+  g.fillStyle='rgba(255,255,255,0.25)'; g.fillRect(-13,24,11,2); g.fillRect(2,24,11,2);
+  // boots
+  g.fillStyle='#15181f'; g.fillRect(-14,30,13,8); g.fillRect(1,30,13,8);
+  g.fillStyle='#2a2f3a'; g.fillRect(-14,30,13,2); g.fillRect(1,30,13,2);
+  g.strokeStyle=dark; g.strokeRect(-14,30,13,8); g.strokeRect(1,30,13,8);
+  // --- HEAD (smaller relative to body, Hara proportion) ---
+  const hy=-32;
+  g.fillStyle=skinD; g.fillRect(-5,-26,10,5); // neck
+  g.fillStyle=skin; g.beginPath(); g.arc(0,hy,9,0,7); g.fill();
+  // chiseled jaw
+  g.fillStyle=skin;
+  g.beginPath(); g.moveTo(-7,hy+2); g.lineTo(0,hy+10); g.lineTo(7,hy+2); g.fill();
+  g.strokeStyle=dark; g.beginPath(); g.arc(0,hy,9,0.2,Math.PI-0.2); g.stroke();
+  g.beginPath(); g.arc(0,hy,9,Math.PI+0.5,Math.PI*2-0.5); g.stroke();
+  // hair (distinctive per shape)
+  const hairC = shape==='big'?'#0f0a08':shape==='lean'?'#d4a017':shape==='stocky'?'#3a2415':'#1f1f1f';
+  g.fillStyle=hairC;
+  g.fillRect(-9,hy-9,18,5);
+  g.fillRect(-9,hy-9,4,10); g.fillRect(5,hy-9,4,10);
+  if(shape==='big'){ g.fillRect(-2,hy-14,4,6); } // mohawk
+  if(shape==='lean'){ g.fillRect(-11,hy-4,3,12); g.fillRect(8,hy-4,3,12); } // long
+  if(shape==='stocky'){ g.fillRect(-9,hy-9,18,3); } // flat top
+  // headband
+  g.fillStyle=gear; g.fillRect(-9,hy-5,18,3);
+  g.fillStyle='rgba(255,255,255,0.35)'; g.fillRect(-9,hy-5,18,1);
+  // INTENSE eyes (Hara style: sharp, angular)
+  g.fillStyle='#fff';
+  g.beginPath(); g.moveTo(-7,hy); g.lineTo(-2,hy); g.lineTo(-2,hy+3); g.lineTo(-7,hy+3); g.fill();
+  g.beginPath(); g.moveTo(2,hy); g.lineTo(7,hy); g.lineTo(7,hy+3); g.lineTo(2,hy+3); g.fill();
+  g.fillStyle='#0a0a0a'; g.fillRect(-5,hy+1,3,2); g.fillRect(3,hy+1,3,2);
+  // thick angry brows (Hara's signature)
+  g.fillStyle=hairC;
+  g.save(); g.translate(-4,hy-2); g.rotate(-0.4); g.fillRect(-5,-1,9,2.5); g.restore();
+  g.save(); g.translate(4,hy-2); g.rotate(0.4); g.fillRect(-4,-1,9,2.5); g.restore();
+  // nose (angular)
+  g.fillStyle=skinD; g.beginPath(); g.moveTo(0,hy+3); g.lineTo(-1.5,hy+6); g.lineTo(1.5,hy+6); g.fill();
+  // mouth (snarl)
+  g.fillStyle='#4a1a15'; g.fillRect(-4,hy+7,8,2.5);
+  g.fillStyle='#fff'; g.fillRect(-4,hy+7,8,1);
   g.restore();
 }
+
 
 function monById(id){ return WRESTLERS.find(m=>m.id===id); }
 
