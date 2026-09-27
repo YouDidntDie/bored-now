@@ -619,21 +619,28 @@ function drawDemon(d,sx,horizon,vh,depth,fog){
   const tele=d.tele>0;
   const C=flash?'#ffffff':T.col, D=flash?'#dddddd':T.dark;
   if(tele){halo(sx,y+size*0.4,size*0.9,'rgba(255,60,40,A)',0.5);}
-  // AI sprite billboard (2-frame walk cycle)
+  // AI sprite billboard - single sprite with code-driven walk animation
   const spr = DEMON_SPRITES[d.type];
   if(spr && spr.complete && spr.naturalWidth){
+    // Frame 0 for walk/idle (code-animated), frame 4 for attack pose
+    const sx0 = attacking ? 4*128 : 0;
     const sw = size*1.1, sh = size*1.35;
     const attacking = d.atkT>0 || d.state==='attack';
-    const wf = attacking ? 4 : Math.floor(d.anim*1.6) % 4; // 4-frame Doom walk cycle
-    const sx0 = wf*128; // frame offset in sheet
-    let sy = groundY - sh + bob; // feet on the ground
-    let rot = 0, alpha = 1;
+    // Doom-style walk feel: rhythmic bob, side tilt, subtle squash
+    const walkPhase = d.anim*2.2;
+    const walkBob = attacking ? 0 : Math.abs(Math.sin(walkPhase))*size*0.06;
+    const walkTilt = attacking ? 0 : Math.sin(walkPhase)*0.06;
+    const walkSquash = attacking ? 1 : 1 + Math.sin(walkPhase*2)*0.02;
+    let sy = groundY - sh + bob - walkBob; // feet on the ground
+    let rot = walkTilt, alpha = 1;
     if(d.dying){
       const k = Math.min(1, d.dieT/d.dieDur);
       rot = k * 1.4; // fall backward
       sy += k * sh * 0.5; // sink
       alpha = 1 - k*0.3;
     }
+    // apply squash to dimensions
+    const sw2 = sw*walkSquash, sh2 = sh*(2-walkSquash);
     if(flash){
       // Doom-style pain flash: sprite tinted red-white, keeping its shape
       g.save();
@@ -654,7 +661,7 @@ function drawDemon(d,sx,horizon,vh,depth,fog){
       g.globalAlpha = fog*alpha;
       g.translate(sx, sy+sh);
       g.rotate(rot);
-      g.drawImage(spr, sx0, 0, 128, 128, -sw/2, -sh, sw, sh);
+      g.drawImage(spr, sx0, 0, 128, 128, -sw2/2, -sh2, sw2, sh2);
       g.restore();
     }
   }
