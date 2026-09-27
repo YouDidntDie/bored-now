@@ -239,7 +239,10 @@ function drawSoul(x, y, t){
   ctx.translate(x, y + bob);
   if(soulSheet.complete && soulSheet.naturalWidth){
     ctx.scale(soul.face, 1);
+    ctx.shadowColor = 'rgba(80,200,255,0.8)';
+    ctx.shadowBlur = 10;
     ctx.drawImage(soulSheet, frame*FRAME_W, 0, FRAME_W, FRAME_W, -w/2, -h/2, w, h);
+    ctx.shadowBlur = 0;
   }
   ctx.restore();
   if(soul.armor){
@@ -260,9 +263,9 @@ function drawDemon(d, t){
     ctx.save();
     ctx.translate(x, y - 15 + bob*0.4);
     ctx.scale(d.vx < 0 ? -1 : 1, 1);
-    // dark outline to pop from busy background
-    ctx.shadowColor = 'rgba(0,0,0,0.9)';
-    ctx.shadowBlur = 6;
+    // toxic glow to pop from the red background
+    ctx.shadowColor = 'rgba(180,255,50,0.7)';
+    ctx.shadowBlur = 8;
     ctx.drawImage(img, -w/2, -h/2, w, h);
     ctx.shadowBlur = 0;
     ctx.restore();
@@ -416,7 +419,10 @@ function loop(ts){
     if(x < -20 || x > W+20) continue;
     if(pickupImg.complete && pickupImg.naturalWidth){
       const s = 13 + Math.sin(p.t*4)*1.5; // small skull
+      ctx.shadowColor = 'rgba(255,200,50,0.9)';
+      ctx.shadowBlur = 8;
       ctx.drawImage(pickupImg, x-s/2, y-s/2, s, s);
+      ctx.shadowBlur = 0;
     }
   }
   
