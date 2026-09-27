@@ -461,7 +461,19 @@ function fellStack(t){
 function spawnLog(t){
   if(logs.length>=24) return;
   const sp=ROLL_BASE+(mode==='climb'?Math.min(stage*9,60):0);
-  logs.push({x:t.x,y:surfY(5,t.x)-6,vx:GDIR[5]*sp,vy:0,r:10,girder:5,state:'roll',rot:0,jumped:false});
+  const r=Math.random();
+  if(r<0.25){
+    // straight drop: falls vertically from the stack, no roll
+    logs.push({x:t.x,y:surfY(5,t.x)-6,vx:0,vy:0,r:10,girder:5,state:'fall',rot:0,jumped:false});
+  }else if(r<0.5){
+    // one-level drop: falls onto girder 4 (nudged off the gap) and rolls from there
+    let x=t.x;
+    if(inGap(4,x)) x=x<GAPC?GAPC-GAPH-24:GAPC+GAPH+24;
+    x=Math.max(GX0+12,Math.min(GX1-12,x));
+    logs.push({x,y:surfY(5,x)-6,vx:0,vy:0,r:10,girder:5,state:'fall',rot:0,jumped:false});
+  }else{
+    logs.push({x:t.x,y:surfY(5,t.x)-6,vx:GDIR[5]*sp,vy:0,r:10,girder:5,state:'roll',rot:0,jumped:false});
+  }
   sCrack(); shake=Math.max(shake,0.6);
   burst(t.x,surfY(5,t.x)-10,10,'#8a5a20');
   floatText(t.x,surfY(5,t.x)-70,'THIEF!','#ffd75a');
