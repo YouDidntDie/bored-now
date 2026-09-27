@@ -146,7 +146,6 @@ const soul = {
   onGround: false, coyote: 0, jbuf: 0,
   face: 1, alive: true, invuln: 0,
   armor: false,
-  trail: [],
 };
 const GRAV = 0.45, MAXFALL = 9;
 const RUN_ACC = 0.35, RUN_MAX = 3.2, FRICTION = 0.85, AIR_ACC = 0.22;
@@ -349,11 +348,6 @@ function loop(ts){
     
     moveBody(soul, true);
     
-    soul.trail.push({x:soul.x+6, y:soul.y+8, life:0.3});
-    if(soul.trail.length > 12) soul.trail.shift();
-    soul.trail.forEach(p => p.life -= dt);
-    soul.trail = soul.trail.filter(p => p.life > 0);
-    
     if(soul.y > 400){
       lives--;
       document.getElementById('lives').textContent = '♥ ' + lives;
@@ -444,11 +438,6 @@ function loop(ts){
     ctx.save(); ctx.translate(x, 0);
     drawDemon({x:0, y:d.y, w:d.w, h:d.h, vx:d.vx, t:d.t, type:d.type}, t);
     ctx.restore();
-  }
-  
-  for(const p of soul.trail){
-    ctx.fillStyle = `rgba(100,150,255,${p.life*1.5})`;
-    ctx.beginPath(); ctx.arc(p.x - camX, p.y, 3*p.life*3, 0, 7); ctx.fill();
   }
   
   if(soul.alive) drawSoul(soul.x + soul.w/2 - camX, soul.y + soul.h/2, t);
