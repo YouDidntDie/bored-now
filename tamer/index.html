@@ -740,7 +740,12 @@ const OW_W = 20, OW_H = 15;
 function owTile(x,y){ if(x<0||y<0||x>=OW_W||y>=OW_H) return 2; return OW_MAP[y][x]; }
 function owBlocked(x,y){ const t=owTile(x,y); return t===2||t===3; }
 function startOverworld(){
-  S.ow = { px:3, py:6, dir:'down', moving:false, mt:0 };
+  S.ow = { px:3, py:6, dir:'down', moving:false, mt:0,
+    npcs:[
+      {x:8, y:7, id:'titan', beaten:false, name:'TITAN CRUSH'},
+      {x:14, y:8, id:'velvet', beaten:false, name:'"VELVET" VERA STORM'},
+      {x:5, y:10, id:'brutus', beaten:false, name:'BRUTUS "THE BUTCHER"'},
+    ]};
   S.screen='overworld'; drawAll();
 }
 function drawOverworld(){
@@ -763,6 +768,19 @@ function drawOverworld(){
       ctx.fillStyle='#ffd93f'; ctx.fillRect(sx+5,sy+5,6,6); }
     else if(t===7){ ctx.fillStyle='#d4a574'; ctx.fillRect(sx,sy,OW_T,OW_T); }
   }
+  // NPC rival wrestlers
+  S.ow.npcs.forEach(n=>{
+    if(n.beaten) return;
+    const nx=n.x*OW_T+ox, ny=n.y*OW_T+oy;
+    const wbase=WRESTLERS.find(w=>w.id===n.id);
+    ctx.fillStyle='#e8b88a'; ctx.fillRect(nx+5,ny+3,6,6);
+    ctx.fillStyle=TCOL[wbase.type]; ctx.fillRect(nx+4,ny+9,8,5);
+    ctx.fillStyle='#2a2f3a'; ctx.fillRect(nx+4,ny+14,3,2); ctx.fillRect(nx+9,ny+14,3,2);
+    // "!" if player is close
+    if(Math.abs(S.ow.px-n.x)+Math.abs(S.ow.py-n.y)===1){
+      text('!', nx+8, ny-10, 14, '#ffd93f', 'center', 'bold ');
+    }
+  });
   // player (simple pixel wrestler, top-down)
   const px=S.ow.px*OW_T+ox, py=S.ow.py*OW_T+oy;
   ctx.fillStyle='#e8b88a'; ctx.fillRect(px+5,py+3,6,6); // head
@@ -783,9 +801,18 @@ function owMove(dx,dy){
     startBattle(mkTeam(S.stable), randTeam(), {a:'human',b:'ai'});
     S.screen='battle'; drawAll(); return;
   }
-  if(t===5 && Math.random()<0.15){ // tall grass encounter!
-    startBattle(mkTeam(S.stable), randTeam(), {a:'human',b:'ai'});
-    log('A rival wrestler wants a fight!');
+  // check NPC challenge: adjacent rival wants to fight
+  const npc = S.ow.npcs.find(n=>!n.beaten && Math.abs(S.ow.px-n.x)+Math.abs(S.ow.py-n.y)===1);
+  if(npc){
+    const wbase=WRESTLERS.find(w=>w.id===npc.id);
+    const foeIds=[npc.id];
+    // foe team: the rival + 2 random others
+    const others=WRESTLERS.filter(w=>w.id!==npc.id).map(w=>w.id);
+    for(let i=others.length-1;i>0;i--){ const j=(Math.random()*(i+1))|0; [others[i],others[j]]=[others[j],others[i]]; }
+    foeIds.push(others[0], others[1]);
+    npc.beaten=true;
+    startBattle(mkTeam(S.stable), mkTeam(foeIds), {a:'human',b:'ai'});
+    log(npc.name+' wants a fight!');
     S.screen='battle'; drawAll(); return;
   }
   drawAll();
