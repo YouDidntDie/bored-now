@@ -57,32 +57,79 @@ const left = () => keys['arrowleft']||keys['a']||(touchL&&touchX<0.25);
 const right = () => keys['arrowright']||keys['d']||(touchL&&touchX>=0.25);
 const jumpHeld = () => keys[' ']||keys['arrowup']||keys['w']||touchR;
 
-// ===== LEVEL: Circle I — Limbo =====
-const MAP = [
-"                                                                                                    ",
-"                                                                                                    ",
-"                                                                                                    ",
-"                                                                                                    ",
-"                        o o o                                                                        ",
-"                       ======                                          o o o                        ",
-"                                                                     =======                       ",
-"            o                                                              D                        ",
-"           ===              D                  o o               =================                   ",
-"                            ===              =====                                            D     ",
-"         D                                                                          ===============",
-"       =======            o o o                D                        o                           ",
-"                         =======             ======                    ===             o o o         ",
-"  o o         D                                                              D      =======        ",
-" =====     ======                                                          =====                   ",
-"              o o o              D          o o o               D                                    ",
-"##########=========##########=======##############=========#############=======####################E",
-];
-const TW = MAP[0].length, TH = MAP.length, TS = 16;
-const solids = new Set(['#','=']);
-function tileAt(tx, ty){
-  if(tx<0||tx>=TW||ty<0||ty>=TH) return ' ';
-  return MAP[ty][tx];
+// ===== ENDLESS LIMBO: procedural chunks =====
+const TS = 16, TH = 17;
+const CHUNK_W = 30; // tiles per chunk
+let chunks = new Map(); // chunkIdx -> {tiles: 2D array, demons: [], pickups: []}
+let highestChunk = -1;
+
+function genChunk(ci){
+  // difficulty ramps with distance
+  const diff = Math.min(1, ci / 40);
+  const tiles = [];
+  for(let y=0; y<TH; y++) tiles.push(new Array(CHUNK_W).fill(' '));
+  const demons = [], pickups = [];
+  
+  // ground with gaps
+  let gx = 0;
+  while(gx < CHUNK_W){
+    const segLen = 8 + Math.floor(Math.random()*10 * (1-diff*0.5));
+    const gapLen = ci===0 ? 0 : 2 + Math.floor(Math.random()*4*diff + Math.random()*2);
+    for(let i=0; i<segLen && gx+i<CHUNK_W; i++){
+      tiles[TH-1][gx+i] = '#';
+    }
+    // demons on ground
+    if(ci > 0 && Math.random() < 0.4 + diff*0.4){
+      const dx = gx + Math.floor(Math.random()*segLen);
+      if(dx < CHUNK_W) demons.push({tx: ci*CHUNK_W+dx, ty: TH-2, type: Math.random()<0.25+diff*0.2?1:0});
+    }
+    // soul arcs over gaps
+    if(gapLen > 0 && Math.random() < 0.6){
+      const sx = gx + segLen + Math.floor(gapLen/2);
+      for(let s=-1; s<=1; s++) if(sx+s >=0 && sx+s < CHUNK_W) pickups.push({tx: ci*CHUNK_W+sx+s, ty: TH-4});
+    }
+    gx += segLen + gapLen;
+  }
+  
+  // floating bone platforms with souls
+  const nPlat = 1 + Math.floor(Math.random()*2);
+  for(let p=0; p<nPlat; p++){
+    const px = 5 + Math.floor(Math.random()*(CHUNK_W-12));
+    const py = 6 + Math.floor(Math.random()*6);
+    const pw = 3 + Math.floor(Math.random()*4);
+    for(let i=0; i<pw; i++) tiles[py][px+i] = '=';
+    // souls on platform
+    for(let i=0; i<pw; i++) if(Math.random()<0.7) pickups.push({tx: ci*CHUNK_W+px+i, ty: py-1});
+    // flyer above platform
+    if(ci > 1 && Math.random() < 0.3+diff*0.3){
+      demons.push({tx: ci*CHUNK_W+px+Math.floor(pw/2), ty: py-3, type: 1});
+    }
+  }
+  
+  chunks.set(ci, {tiles, demons, pickups});
+  if(ci > highestChunk) highestChunk = ci;
 }
+
+function ensureChunks(){
+  const needUpTo = Math.floor((camX + W + 200) / (CHUNK_W*TS));
+  const haveFrom = Math.floor(Math.max(0, camX - 200) / (CHUNK_W*TS));
+  for(let ci=haveFrom; ci<=needUpTo; ci++){
+    if(!chunks.has(ci)) genChunk(ci);
+  }
+  // prune old
+  for(const ci of chunks.keys()){
+    if(ci < haveFrom - 2) chunks.delete(ci);
+  }
+}
+
+function tileAt(tx, ty){
+  if(ty<0||ty>=TH) return ' ';
+  const ci = Math.floor(tx / CHUNK_W);
+  if(!chunks.has(ci)) return ' ';
+  const lx = tx - ci*CHUNK_W;
+  return chunks.get(ci).tiles[ty][lx];
+}
+const solids = new Set(['#','=']);
 function solidAt(px, py){
   return solids.has(tileAt(Math.floor(px/TS), Math.floor(py/TS)));
 }
@@ -99,20 +146,16 @@ const GRAV = 0.45, MAXFALL = 9;
 const RUN_ACC = 0.35, RUN_MAX = 3.2, FRICTION = 0.85, AIR_ACC = 0.22;
 const JUMP_V = -8.5, JUMP_HOLD = 0.55;
 
-let demons = [];
-function spawnDemons(){
-  demons = [];
-  for(let y=0; y<TH; y++) for(let x=0; x<TW; x++){
-    if(MAP[y][x]==='D'){
-      demons.push({ x:x*TS+2, y:y*TS, w:12, h:14, vx:-0.5, vy:0, alive:true, t:Math.random()*10, type: Math.random()<0.3?1:0 });
+let demons = [], pickups = [];
+function spawnFromChunks(){
+  demons = []; pickups = [];
+  for(const [ci, ch] of chunks){
+    for(const d of ch.demons){
+      demons.push({ x:d.tx*TS+2, y:d.ty*TS, w:12, h:14, vx:-0.5, vy:0, alive:true, t:Math.random()*10, type:d.type, ctx:d.tx });
     }
-  }
-}
-let pickups = [];
-function spawnPickups(){
-  pickups = [];
-  for(let y=0; y<TH; y++) for(let x=0; x<TW; x++){
-    if(MAP[y][x]==='o') pickups.push({ x:x*TS+4, y:y*TS+4, taken:false, t:Math.random()*10 });
+    for(const p of ch.pickups){
+      pickups.push({ x:p.tx*TS+4, y:p.ty*TS+4, taken:false, t:Math.random()*10, ctx:p.tx });
+    }
   }
 }
 let soulsCollected = 0, lives = 3;
@@ -120,12 +163,15 @@ let camX = 0;
 let particles = [];
 let shake = 0;
 
+let maxDist = 0;
 function reset(){
   soul.x = 32; soul.y = 200; soul.vx = 0; soul.vy = 0; soul.alive = true; soul.invuln = 0;
-  spawnDemons(); spawnPickups();
-  soulsCollected = 0; camX = 0; particles = [];
+  chunks.clear(); highestChunk = -1; if(window._spawnedChunks) window._spawnedChunks.clear();
+  genChunk(0); genChunk(1);
+  soulsCollected = 0; camX = 0; particles = []; maxDist = 0;
   document.getElementById('souls').textContent = '◊ 0';
   document.getElementById('lives').textContent = '♥ ' + lives;
+  document.getElementById('circle').textContent = 'CIRCLE I — LIMBO · 0m';
 }
 
 function moveBody(b, isPlayer){
@@ -335,7 +381,7 @@ function loop(ts){
     soul.trail.forEach(p => p.life -= dt);
     soul.trail = soul.trail.filter(p => p.life > 0);
     
-    if(soul.y > TH*TS + 40){
+    if(soul.y > 400){
       lives--;
       document.getElementById('lives').textContent = '♥ ' + lives;
       if(lives <= 0){ lives = 3; reset(); }
@@ -343,7 +389,7 @@ function loop(ts){
     }
     
     if(soul.invuln > 0) soul.invuln -= dt;
-    const targetCam = Math.max(0, Math.min(soul.x - W*0.4, TW*TS - W));
+    const targetCam = Math.max(0, soul.x - W*0.4);
     camX += (targetCam - camX) * 0.12;
   }
   
@@ -441,30 +487,33 @@ function loop(ts){
     ctx.globalAlpha = 1;
   }
   
-  const ex = (TW-1)*TS - camX;
-  if(ex > -40 && ex < W+40){
-    ctx.fillStyle = '#000';
-    ctx.fillRect(ex-8, TH*TS-16*4, 24, 16*4);
-    ctx.strokeStyle = '#ff4400'; ctx.lineWidth = 2;
-    const pulse = 1 + Math.sin(t*4)*0.1;
-    ctx.strokeRect(ex-8, TH*TS-16*4, 24*pulse, 16*4);
-    ctx.fillStyle = '#ff4400';
-    ctx.font = '10px monospace'; ctx.textAlign = 'center';
-    ctx.fillText('▼', ex+4, TH*TS-16*4-6);
-  }
+
   
   ctx.restore();
   
-  const exitX = (TW-1)*TS;
-  if(soul.x > exitX - 10 && soul.x < exitX + 20){
-    ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = '#8fa3ff'; ctx.font = 'bold 20px monospace'; ctx.textAlign = 'center';
-    ctx.fillText('CIRCLE I CLEARED', W/2, H/2-10);
-    ctx.font = '12px monospace';
-    ctx.fillText(soulsCollected + ' souls gathered', W/2, H/2+15);
-    if(!soul.exitT) soul.exitT = t;
-    if(t - soul.exitT > 2.5){ soul.exitT = 0; reset(); }
+  // endless: track distance, ensure chunks, respawn from new chunks
+  const dist = Math.floor(soul.x / 50);
+  if(dist > maxDist){
+    maxDist = dist;
+    document.getElementById('circle').textContent = 'CIRCLE I — LIMBO · ' + maxDist + 'm';
   }
+  ensureChunks();
+  // add entities from new chunks only (track spawned chunk set)
+  if(!window._spawnedChunks) window._spawnedChunks = new Set();
+  for(const [ci, ch] of chunks){
+    if(window._spawnedChunks.has(ci)) continue;
+    window._spawnedChunks.add(ci);
+    for(const d of ch.demons){
+      demons.push({ x:d.tx*TS+2, y:d.ty*TS, w:12, h:14, vx:-0.5, vy:0, alive:true, t:Math.random()*10, type:d.type });
+    }
+    for(const p of ch.pickups){
+      pickups.push({ x:p.tx*TS+4, y:p.ty*TS+4, taken:false, t:Math.random()*10 });
+    }
+  }
+  // prune entities far behind
+  demons = demons.filter(d => d.x > camX - 100);
+  pickups = pickups.filter(p => p.x > camX - 100);
+
 }
 
 reset();
