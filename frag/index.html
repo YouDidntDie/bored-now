@@ -622,10 +622,10 @@ function drawDemon(d,sx,horizon,vh,depth,fog){
   // AI sprite billboard - single sprite with code-driven walk animation
   const spr = DEMON_SPRITES[d.type];
   if(spr && spr.complete && spr.naturalWidth){
+    const attacking = d.atkT>0 || d.state==='attack';
     // Frame 0 for walk/idle (code-animated), frame 4 for attack pose
     const sx0 = attacking ? 4*128 : 0;
     const sw = size*1.1, sh = size*1.35;
-    const attacking = d.atkT>0 || d.state==='attack';
     // Per-clown walk personality (code-driven)
     const walkStyles = {
       spitter:  {freq:1.4, bob:0.09, tilt:0.10, lean:0.12, squash:0.03}, // mime: slow push against wind, leaning in
