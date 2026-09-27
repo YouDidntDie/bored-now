@@ -431,8 +431,8 @@ function startSwipe(pid,x,y){ swipeId=pid; swipeX0=x; swipeY0=y;
 function moveSwipe(pid,x,y){
   if(pid!==swipeId) return;
   const dx=x-swipeX0, dy=y-swipeY0;
+  if(Math.hypot(dx,dy)<24) return; // don't clear on tiny drifts
   touchHeld.left=touchHeld.right=touchHeld.up=touchHeld.down=false;
-  if(Math.hypot(dx,dy)<24) return;
   if(Math.abs(dx)>Math.abs(dy)) touchHeld[dx>0?'right':'left']=true;
   else touchHeld[dy>0?'down':'up']=true;
 }
