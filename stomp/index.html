@@ -202,16 +202,14 @@ function moveBody(b, isPlayer){
 
 function drawSoul(x, y, t){
   if(soul.invuln > 0 && Math.floor(t*12)%2===0) return;
-  // 3-frame flicker animation (fast when moving)
-  const speed = Math.abs(soul.vx);
-  const frameRate = soul.onGround ? 6 + speed*2 : 10;
-  const frame = Math.floor(t * frameRate) % 2;
+  // single frame, gentle hover bob (no seizure)
+  const bob = Math.sin(t*4)*1.5;
   const w = 36, h = 36;
   ctx.save();
-  ctx.translate(x, y);
+  ctx.translate(x, y + bob);
   if(soulSheet.complete && soulSheet.naturalWidth){
     ctx.scale(soul.face, 1);
-    ctx.drawImage(soulSheet, frame*FRAME_W, 0, FRAME_W, FRAME_W, -w/2, -h/2, w, h);
+    ctx.drawImage(soulSheet, 0, 0, FRAME_W, FRAME_W, -w/2, -h/2, w, h);
   }
   ctx.restore();
   if(soul.armor){
