@@ -640,9 +640,9 @@ function drawShade(t){
   ctx.fillStyle='#111';ctx.font='bold 11px Courier New';ctx.textAlign='left';
   const ttl = G.mode==='warmup'?'WINAMP - [WARMUP]':('WINAMP - ['+SONGS[G.songIdx].name+']');
   ctx.fillText(ttl,8,14);
-  if((!AC||AC.state!=='running') && Math.floor(t*2)%2===0){
+  if(Math.floor(t*2)%2===0){
     const st = !AC?'NONE':AC.state.toUpperCase();
-    ledText('AUDIO:'+st,W-8,4,2,'#ffe600','right');
+    ledText('AUDIO:'+st+' B:'+G.schedBeat,W-8,4,2,'#ffe600','right');
   }
   ctx.fillStyle='#0b0b10';ctx.fillRect(0,20,W,58);
   const songN = G.mode==='warmup'?'WARMUP':SONGS[G.songIdx].name;
