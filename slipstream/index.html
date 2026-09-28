@@ -204,7 +204,7 @@ const G = {
   raceTime: 0, lapStart: 0, score: 0,
   wins: { p1: 0, p2: 0 }, round: 1,
   banner: null, bannerT: 0,
-  qualHits: 0, finishedOrder: [],
+  qualHits: 0,
   msg: null
 };
 // handicap (seconds of head start the rivals get), set by the time trial
@@ -224,7 +224,7 @@ function makeRacer(isP2) {
 function banner(text, dur) { G.banner = text; G.bannerT = dur || 2.2; }
 
 function startMode(mode) {
-  G.mode = mode; G.t = 0; G.banner = null; G.finishedOrder = [];
+  G.mode = mode; G.t = 0; G.banner = null;
   G.racers = []; G.cars = []; G.wins = { p1: 0, p2: 0 }; G.round = 1; G.score = 0;
   if (mode === 'trial') {
     G.racers = [makeRacer(false)];
@@ -296,26 +296,25 @@ function btnHeld(id) {
 // input state per player: {steer:-1..1, gas, brake}
 function readInput(r) {
   const inp = { steer: 0, gas: false, brake: false };
+  const versus = G.mode === 'versus';
   if (!r.isP2) {
-    if (keys.ArrowLeft || keys.KeyA) inp.steer -= 1;
-    if (keys.ArrowRight || keys.KeyD) inp.steer += 1;
-    if (keys.ArrowUp || keys.KeyW) inp.gas = true;
-    if (keys.ArrowDown || keys.KeyS) inp.brake = true;
-  } else {
-    if (keys.KeyA && G.mode !== 'versus') inp.steer -= 1; // (versus uses these below)
-  }
-  if (G.mode === 'versus' && r.isP2) {
-    if (keys.KeyA) inp.steer -= 1;
-    if (keys.KeyD) inp.steer += 1;
-    if (keys.KeyW) inp.gas = true;
-    if (keys.KeyS) inp.brake = true;
-  } else if (G.mode === 'versus' && !r.isP2) {
-    // P1 uses arrows only in versus (already set above); WASD reserved for P2
-    inp.steer = 0; inp.gas = false; inp.brake = false;
+    // P1: arrows always; WASD doubles up outside versus (they're P2's in versus)
     if (keys.ArrowLeft) inp.steer -= 1;
     if (keys.ArrowRight) inp.steer += 1;
     if (keys.ArrowUp) inp.gas = true;
     if (keys.ArrowDown) inp.brake = true;
+    if (!versus) {
+      if (keys.KeyA) inp.steer -= 1;
+      if (keys.KeyD) inp.steer += 1;
+      if (keys.KeyW) inp.gas = true;
+      if (keys.KeyS) inp.brake = true;
+    }
+  } else if (versus) {
+    // P2 drives on WASD
+    if (keys.KeyA) inp.steer -= 1;
+    if (keys.KeyD) inp.steer += 1;
+    if (keys.KeyW) inp.gas = true;
+    if (keys.KeyS) inp.brake = true;
   }
   // touch buttons tagged with player
   const tag = r.isP2 ? 'p2' : 'p1';
@@ -419,7 +418,6 @@ function onLap(r) {
 }
 function finishRacer(r) {
   r.finished = true; r.finishT = G.raceTime;
-  G.finishedOrder.push(r);
 }
 function updateAI(c, dt, playerDist) {
   // rubber band around the player's absolute distance
@@ -539,7 +537,7 @@ function startVersusRound() {
   G.racers = [makeRacer(false), makeRacer(true)];
   G.cars = makeTraffic(3);
   G.wins = wins; G.round = round;
-  G.raceTime = 0; G.banner = null; G.finishedOrder = [];
+  G.raceTime = 0; G.banner = null;
   G.state = 'countdown'; G.countdown = 3.2; G.countShown = -1;
 }
 
@@ -692,7 +690,7 @@ function drawSky(v, curveHint) {
   }
   ctx.lineTo(v.x + v.w, v.y + v.h * 0.52); ctx.closePath(); ctx.fill();
 }
-function renderView(v, r, isP2view) {
+function renderView(v, r) {
   drawSky(v, findSegment(r.z + PLAYER_Z).curve);
   const baseSeg = findSegment(r.z);
   const basePct = (r.z % SEG) / SEG;
@@ -714,7 +712,7 @@ function renderView(v, r, isP2view) {
     if (seg.p1.camera.z <= CAM_DEPTH || p2.y >= p1.y || p2.y >= maxy) continue;
     renderSegmentView(v, p1.x, p1.y, p1.w, p2.x, p2.y, p2.w, seg.color);
     maxy = p1.y;
-    if (G.mode === 'gauntlet' && GATE_SEGS.indexOf(seg.index) >= 0 && p1.w < v.w * 1.5) {
+    if (G.mode === 'gauntlet' && GATE_SEGS.includes(seg.index) && p1.w < v.w * 1.5) {
       // overhead sector-gate bar across the road
       ctx.fillStyle = 'rgba(0,229,255,.85)';
       ctx.fillRect(p1.x - p1.w, p1.y - 16, p1.w * 2, 8);
@@ -733,7 +731,6 @@ function renderView(v, r, isP2view) {
       const relZ = cz - ((r.z + PLAYER_Z) % TRACK_LEN);
       if (relZ < SEG * 0.3) continue; // behind player
       const scale = p1.scale;
-      const sx = p1.x + scale * (c.offset - r.x * 0) * ROAD_W * v.w / 2 - scale * r.x * 0; // relative to road center at this segment
       // position relative to player's lateral camera: shift by (c.offset - r.x)
       const carX = p1.x + scale * (c.offset - r.x) * ROAD_W * v.w / 2;
       const carW = Math.max(2, scale * 1500 * v.w / 480);
@@ -741,10 +738,9 @@ function renderView(v, r, isP2view) {
     }
   }
   // player car
-  const pv = v;
-  const pcx = pv.x + pv.w / 2 + r.steerVis * pv.w * 0.06;
-  const pcy = pv.y + pv.h - pv.h * 0.13;
-  const pcw = pv.w * 0.30;
+  const pcx = v.x + v.w / 2 + r.steerVis * v.w * 0.06;
+  const pcy = v.y + v.h - v.h * 0.13;
+  const pcw = v.w * 0.30;
   const wob = r.spin > 0 ? Math.sin(G.t * 30) * 0.35 : r.steerVis * 0.08;
   const bounce = Math.sin(G.t * 40) * (r.speed / MAX_SPEED) * 1.5;
   drawCar(pcx, pcy + bounce, pcw, r.color, { tilt: wob, draft: r.draft });
@@ -780,10 +776,8 @@ function drawHUD(v, r, label) {
   if (G.mode === 'gauntlet') text('HANDICAP -' + handicapSecs.toFixed(1) + 's', v.x + v.w / 2, v.y + 46 * s, Math.round(15 * s), '#8fa89b', 'center');
   if (G.mode !== 'versus') text(fmtTime(G.raceTime), v.x + 10 * s, v.y + 46 * s, Math.round(15 * s), '#8fa89b');
   else text('R' + G.round + '  P1 ' + G.wins.p1 + ' - ' + G.wins.p2 + ' P2', v.x + v.w - 10 * s, v.y + 46 * s, Math.round(15 * s), '#8fa89b', 'right');
-  if (G.banner && !r.isP2) {
-    text(G.banner, v.x + v.w / 2, v.y + v.h * 0.30, Math.round(30 * s), '#00e5ff', 'center');
-  } else if (G.banner && r.isP2) {
-    text(G.banner, v.x + v.w / 2, v.y + v.h * 0.30, Math.round(30 * s), '#f15bb5', 'center');
+  if (G.banner) {
+    text(G.banner, v.x + v.w / 2, v.y + v.h * 0.30, Math.round(30 * s), r.isP2 ? '#f15bb5' : '#00e5ff', 'center');
   }
   if (r.draft) text('SLIPSTREAM', v.x + v.w / 2, v.y + v.h * 0.38, Math.round(15 * s), '#00e5ff', 'center');
 }
@@ -815,7 +809,7 @@ function layoutTouch() {
   if (G.mode === 'versus') {
     // P1: top half, P2: bottom half — compact pedals
     const halves = [
-      { tag: 'p1', y0: 34, y1: 360 }, { tag: 'p2', y0: 394, y1: 720 }
+      { tag: 'p1', y1: 360 }, { tag: 'p2', y1: 720 }
     ];
     for (const hf of halves) {
       const by = hf.y1 - 74;
@@ -873,7 +867,7 @@ function drawMenu() {
     text('handicap -' + handicapSecs.toFixed(1) + 's', W / 2, 344, 14, '#8fa89b', 'center');
   } catch (e) {}
 }
-function drawCountdown(v, r) {
+function drawCountdown(v) {
   const n = Math.ceil(G.countdown);
   text(n > 0 ? String(n) : 'GO!', v.x + v.w / 2, v.y + v.h / 2 - 40, 64, n > 0 ? '#ff5252' : '#00e5ff', 'center');
 }
@@ -920,12 +914,12 @@ function render() {
     renderView(v1, G.racers[0]); renderView(v2, G.racers[1]);
     ctx.fillStyle = '#0b0714'; ctx.fillRect(0, 356, W, 8);
     drawHUD(v1, G.racers[0], 'P1'); drawHUD(v2, G.racers[1], 'P2');
-    if (G.state === 'countdown') { drawCountdown(v1, G.racers[0]); drawCountdown(v2, G.racers[1]); }
+    if (G.state === 'countdown') { drawCountdown(v1); drawCountdown(v2); }
   } else if (r0) {
     const v = { x: 0, y: 0, w: W, h: H };
     renderView(v, r0);
     drawHUD(v, r0, G.mode === 'gauntlet' ? '' : 'YOU');
-    if (G.state === 'countdown') drawCountdown(v, r0);
+    if (G.state === 'countdown') drawCountdown(v);
   }
   drawTouch();
   if (G.state === 'paused') drawPaused();
