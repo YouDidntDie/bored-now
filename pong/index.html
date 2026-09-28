@@ -76,7 +76,6 @@ function fit() {
   canvas.height = Math.max(2, Math.round(H * s * dpr));
   canvas.style.width = (W * s) + 'px';
   canvas.style.height = (H * s) + 'px';
-  G.view = { iw: iw, ih: ih, s: s, cw: W * s, ch: H * s };
   buildSprites();
 }
 window.addEventListener('resize', fit);
@@ -93,7 +92,8 @@ function mkCanvas(w, h) {
   c.width = Math.max(2, Math.round(w)); c.height = Math.max(2, Math.round(h));
   return c;
 }
-function rrc(g, x, y, w, h, r) {
+function rr(g, x, y, w, h, r) {
+  // rounded-rect path on context g (arcTo already joins the straights)
   g.beginPath();
   g.moveTo(x + r, y);
   g.lineTo(x + w - r, y); g.arcTo(x + w, y, x + w, y + r, r);
@@ -112,11 +112,11 @@ function bakePaddle(p, color, k) {
   g.scale(k, k);
   g.shadowColor = color; g.shadowBlur = 20;
   g.fillStyle = '#f2f6fb';
-  rrc(g, pad, pad, p.w, p.h, 7); g.fill();
+  rr(g, pad, pad, p.w, p.h, 7); g.fill();
   g.shadowBlur = 0;
   g.fillStyle = color;
-  rrc(g, pad, pad, p.w, 5, 3); g.fill();
-  rrc(g, pad, pad + p.h - 5, p.w, 5, 3); g.fill();
+  rr(g, pad, pad, p.w, 5, 3); g.fill();
+  rr(g, pad, pad + p.h - 5, p.w, 5, 3); g.fill();
   return { c: c, w: w, h: h, pad: pad };
 }
 function bakeRadial(stops, d, k) {
@@ -276,9 +276,10 @@ function startLadder() {
   G.state = 'ladderIntro'; sfx.click();
 }
 function startQuick(diffKey) {
-  G.match = 'quick'; G.ai = QUICK_DIFF[diffKey]; G.quickLabel = QUICK_DIFF[diffKey].label;
-  G.state = 'serve'; sfx.click();
-  startMatch();
+  const d = QUICK_DIFF[diffKey];
+  G.match = 'quick'; G.ai = d; G.quickLabel = d.label;
+  sfx.click();
+  startMatch();   // -> serve() sets G.state = 'serve'
 }
 function startVersus() {
   G.match = 'versus'; G.ai = null;
@@ -340,16 +341,11 @@ function onPaddleHit(p, rel, dir) {
     sfx.rally10();
   }
 }
-function onWall(top) {
+function onWall() {
   G.trauma = Math.min(1, G.trauma + 0.07);
   G.wallGlow = 1;
   burst(ball.x, clamp(ball.y, 8, H - 8), 5, '#ffffff', 150);
   sfx.wall();
-}
-function playerWonPoint() {
-  // in ladder/quick the player is always left
-  if (G.match === 'versus') return G.lastScorer === 'L' ? 'L' : 'R';
-  return G.lastScorer === 'L';
 }
 function onPoint(side) {
   if (side === 'L') G.scoreL++; else G.scoreR++;
@@ -362,8 +358,7 @@ function onPoint(side) {
   G.hitstop = 0.09;
   ball.visible = false;
   burst(clamp(ball.x, 20, W - 20), clamp(ball.y, 20, H - 20), 42, side === 'L' ? COL_L : COL_R, 420);
-  if (G.match === 'versus') { sfx.scoreGood(); }
-  else if (side === 'L') sfx.scoreGood(); else sfx.scoreBad();
+  if (G.match === 'versus' || side === 'L') sfx.scoreGood(); else sfx.scoreBad();
   if (G.scoreL >= WIN_SCORE || G.scoreR >= WIN_SCORE) {
     G.winner = G.scoreL >= WIN_SCORE ? 1 : 2;
     G.slowT = 0.9;   // dramatic slow-mo on the winning point
@@ -402,8 +397,7 @@ function doButton(id) {
     case 'diffEasy': startQuick('easy'); break;
     case 'diffNormal': startQuick('normal'); break;
     case 'diffHard': startQuick('hard'); break;
-    case 'begin': primaryAction(); break;
-    case 'primary': primaryAction(); break;
+    case 'begin': case 'primary': primaryAction(); break;
     case 'menu': toMenu(); sfx.click(); break;
     case 'resume': G.paused = false; sfx.click(); break;
     case 'restart': sfx.click(); startMatch(); break;
@@ -492,12 +486,6 @@ function handleKey(code) {
   if ((G.state === 'howto' || G.state === 'ladderIntro') && code === 'Escape') { toMenu(); sfx.click(); }
 }
 function onTap(x, y) {
-  if (G.paused) {
-    for (const b of hot) {
-      if (x > b.x && x < b.x + b.w && y > b.y && y < b.y + b.h) { doButton(b.id); return; }
-    }
-    return;
-  }
   for (const b of hot) {
     if (x > b.x && x < b.x + b.w && y > b.y && y < b.y + b.h) { doButton(b.id); return; }
   }
@@ -526,12 +514,11 @@ function playerPaddle(p, side, upCode, downCode) {
 }
 function predictY(tx) {
   // project ball y at plane tx, reflecting off walls (AI lookahead)
-  let x = ball.x, y = ball.y;
-  const vx = ball.vx, vy = ball.vy;
-  if (vx <= 0) return y;
-  const t = (tx - x) / vx;
-  if (t < 0) return y;
-  y += vy * t;
+  let y = ball.y;
+  const vx = ball.vx;
+  if (vx <= 0 || tx < ball.x) return y;  // ball not approaching the plane
+  const t = (tx - ball.x) / vx;
+  y += ball.vy * t;
   const r = BALL_R, h = H - 2 * r;
   let yy = (y - r) % (2 * h);
   if (yy < 0) yy += 2 * h;
@@ -623,8 +610,8 @@ function update(dt) {
   ball.trail.push({ x: ball.x, y: ball.y });
   if (ball.trail.length > 16) ball.trail.shift();
 
-  if (ball.y - ball.r < 0) { ball.y = ball.r; ball.vy = Math.abs(ball.vy); onWall(true); }
-  else if (ball.y + ball.r > H) { ball.y = H - ball.r; ball.vy = -Math.abs(ball.vy); onWall(false); }
+  if (ball.y - ball.r < 0) { ball.y = ball.r; ball.vy = Math.abs(ball.vy); onWall(); }
+  else if (ball.y + ball.r > H) { ball.y = H - ball.r; ball.vy = -Math.abs(ball.vy); onWall(); }
 
   collidePaddle(padL, 1);
   collidePaddle(padR, -1);
@@ -644,15 +631,6 @@ function movePaddlesIdle(dt) {
 
 // ---------- render ----------
 const FONT = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
-function rr(x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
 // ---------- police pixel 5x7 (capitales arcade) ----------
 const FONT5X7 = {
 'A': ["01110","10001","10001","11111","10001","10001","10001"],
@@ -808,7 +786,7 @@ function drawFrame() {
   ctx.lineWidth = 2;
   ctx.shadowColor = 'rgba(120,180,255,0.8)';
   ctx.shadowBlur = (12 + heat * 18) / PX;
-  rr(8, 8, W - 16, H - 16, 14);
+  rr(ctx, 8, 8, W - 16, H - 16, 14);
   ctx.stroke();
   ctx.restore();
   // wall bounce glow
@@ -850,7 +828,7 @@ function drawPaddle(p, color) {
     ctx.fillStyle = color;
     const len = clamp(Math.abs(p.vy) * 0.05, 0, 60);
     const dir = p.vy > 0 ? -1 : 1;
-    rr(p.x - hw, dir > 0 ? p.y - hh : p.y + hh - len, p.w, len, 4);
+    rr(ctx, p.x - hw, dir > 0 ? p.y - hh : p.y + hh - len, p.w, len, 4);
     ctx.fill();
     ctx.restore();
   }
@@ -930,10 +908,10 @@ function button(id, x, y, w, h, label, color, sub) {
   ctx.strokeStyle = color; ctx.lineWidth = 2;
   ctx.shadowColor = color; ctx.shadowBlur = 14 / PX;
   ctx.globalAlpha = 0.92;
-  rr(x, y, w, h, 12); ctx.stroke();
+  rr(ctx, x, y, w, h, 12); ctx.stroke();
   ctx.globalAlpha = 0.10;
   ctx.fillStyle = color;
-  rr(x, y, w, h, 12); ctx.fill();
+  rr(ctx, x, y, w, h, 12); ctx.fill();
   ctx.globalAlpha = 1; ctx.shadowBlur = 0;
   text(label, x + w / 2, y + h / 2 + (sub ? -11 : 1), '700 23px ' + FONT, '#eef4fa', color, 10);
   if (sub) text(sub, x + w / 2, y + h / 2 + 15, '500 13px ' + FONT, 'rgba(255,255,255,0.55)');
@@ -967,13 +945,11 @@ function drawHowto() {
     ['LADDER', 'beat all five rivals']
   ];
   let y = 168;
-  ctx.textAlign = 'left';
   for (const ln of lines) {
     if (ln[0]) text(ln[0], 120, y, '700 17px ' + FONT, COL_GOLD, null, 0, 'left');
     text(ln[1], ln[0] ? 250 : 120, y, '500 16px ' + FONT, 'rgba(240,246,252,0.85)', null, 0, 'left');
     y += 40;
   }
-  ctx.textAlign = 'center';
   button('back', W / 2 - 150, 470, 300, 64, '< BACK', '#9fb3cc');
 }
 function drawDiff() {
