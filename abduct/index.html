@@ -115,7 +115,7 @@ function hDown(id,x,y){
   const stickOK=G.mode==='abduct'?true:(G.mode==='versus'?(y>340&&x<330):x<300);
   if(!stick.active&&stickOK){
     stick.active=true;stick.id=id;stick.ax=x;stick.ay=y;stick.vx=0;stick.vy=0;
-  } else if(inCircle(x,y,BTN_FIRE)){firePtrs.add(id);}
+  }
 }
 function hMove(id,x,y){
   if(stick.active&&stick.id===id){
@@ -155,9 +155,9 @@ const G={
   spawnQueue:0,spawnT:0,wavePause:0,
   conversions:0,saves:0,kills:0,
   round:1,wins:[0,0],roundT:90,roundOver:0,
-  p2budget:6,p2budgetT:0,selT:0,
+  p2budget:6,p2budgetT:0,
   shake:0,flash:0,banner:'',bannerT:0,
-  overTitle:'',overSub:'',camXv:0
+  overTitle:'',overSub:''
 };
 let camXv=240;
 function camX(){
@@ -174,7 +174,6 @@ function focusEnt(){
   return null;
 }
 function colonistsLeft(){let n=0;for(const h of G.colonists)if(h.state==='standing'||h.state==='carried'||h.state==='falling')n++;return n;}
-function colonistsStanding(){let n=0;for(const h of G.colonists)if(h.state==='standing')n++;return n;}
 function banner(txt,t){G.banner=txt;G.bannerT=t||2;}
 function floater(x,y,txt,col){G.floats.push({x:x,y:y,txt:txt,col:col||'#fff',t:1.2});}
 function boom(x,y,big){
@@ -217,7 +216,6 @@ function startMode(m){
 }
 function startRound(){
   const keepWins=G.wins,keepRound=G.round;
-  const keepScore=0;
   resetWorld();
   G.wins=keepWins;G.round=keepRound;G.score=0;G.score2=0;
   G.ship=mkShip(WORLD_W/2,300);G.ship.novas=3;G.ship.infinite=true;
@@ -271,8 +269,7 @@ function updateNovas(dt){
   G.novas=G.novas.filter(n=>n.r<n.maxR);
 }
 function addKill(pts,x,y){
-  if(G.mode==='versus'){G.score+=pts;}
-  else G.score+=pts;
+  G.score+=pts;
   G.kills++;floater(x,y,'+'+pts,'#ffd75a');
 }
 function dropCarried(l){
@@ -289,7 +286,7 @@ function convertColonist(l){
   const cap=G.mode==='abduct'?3:4;
   if(G.hollows.length<cap)G.hollows.push({x:l.x,y:TOP_Y+30,vx:0,vy:0,seed:Math.random()*9});
   l.target=null;
-  // snatcher continues hunting (or leaves in versus? keep hunting)
+  // snatcher continues hunting
 }
 function killShip(){
   const s=G.ship;if(!s||!s.alive)return;
@@ -312,10 +309,9 @@ function p2Spawn(wx){
 }
 
 /* ================= UPDATE ================= */
-function nearestColonist(x,onlyStanding){
+function nearestColonist(x){
   let best=null,bd=1e9;
   for(const h of G.colonists){
-    if(onlyStanding&&h.state!=='standing')continue;
     if(h.state!=='standing')continue;
     const d=Math.abs(wdx(h.x,x));
     if(d<bd){bd=d;best=h;}
@@ -363,13 +359,13 @@ function updateShip(dt){
 function updateSnatcherAI(l,dt,foe){
   if(!l.alive)return;
   if(l.carrying){
-    steer(l,wdx(l.x,l.x)*0,-190,190,3,dt); // ascend: mostly vertical
+    steer(l,0,-190,190,3,dt); // ascend: mostly vertical
     l.vx+=(0-l.vx)*Math.min(1,dt*2);
     if(l.y<TOP_Y)convertColonist(l);
   }else if(l.manual){
     steer(l,wdx(l.tx,l.x)*4,(l.ty-l.y)*4,200,4,dt);
   }else{
-    if(!l.target||l.target.state!=='standing')l.target=nearestColonist(l.x,true);
+    if(!l.target||l.target.state!=='standing')l.target=nearestColonist(l.x);
     if(l.target){
       const dx=wdx(l.target.x,l.x),dy=(SURF_Y-46)-l.y;
       steer(l,dx*3.2,dy*3.2+70,165,3,dt);
@@ -503,7 +499,7 @@ function collisions(){
     for(const l of G.snatchers){
       if(!l.alive||b.dead)continue;
       if(hitR(b,l,20)){b.dead=true;l.alive=false;dropCarried(l);boom(l.x,l.y,false);
-        if(G.mode==='versus')G.score+=150;else G.score+=150;
+        G.score+=150;
         G.kills++;floater(l.x,l.y,'+150','#ffd75a');break;}
     }
     if(b.dead)continue;
@@ -623,9 +619,6 @@ function update(dt){
   updateParts(dt);
   updateNovas(dt);
   collisions();
-  if(G.state==='play'&&(G.mode==='ship'||G.mode==='versus')&&colonistsLeft()<=0&&G.mode==='ship'){
-    // handled in waveLogic; versus handled in versusLogic
-  }
 }
 
 /* ================= RENDER ================= */
@@ -680,7 +673,6 @@ function render(){
   ctx.globalAlpha=1;
   // moons
   ctx.fillStyle='#f5c86e';ctx.globalAlpha=0.85;
-  const mx=scrX(300-cam*0.1,cam*0+1); // fixed-ish moon: use cam parallax manually
   ctx.beginPath();ctx.arc((((300-cam*0.12)%W)+W)%W,120,26,0,7);ctx.fill();
   ctx.globalAlpha=1;
   // mountains (two parallax layers, seamless)
