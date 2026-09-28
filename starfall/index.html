@@ -119,8 +119,7 @@ function text(str, x, y, font, color, glow, glowBlur, align) {
   str = String(str).toUpperCase();
   ctx.shadowBlur = 0;   // pas de halo doux hérité : le glow est pixel, dessiné à la main
   const m = /(\d+)px/.exec(font || '');
-  const size = m ? +m[1] : 16;
-  const u = Math.max(PX, Math.round(size / 7 / PX) * PX);
+  const u = fontU(m ? +m[1] : 16);
   let w = 0;
   for (const ch of str) w += ch === ' ' ? 4 * u : 6 * u;
   let dx = align === 'right' ? x - w : align === 'left' ? x : x - w / 2;
@@ -142,14 +141,13 @@ function text(str, x, y, font, color, glow, glowBlur, align) {
 // largeur d'un texte pixel (pour les pastilles qui s'ajustent au contenu)
 function pixW(str, font) {
   const m = /(\d+)px/.exec(font || '');
-  const size = m ? +m[1] : 16;
-  const u = Math.max(PX, Math.round(size / 7 / PX) * PX);
+  const u = fontU(m ? +m[1] : 16);
   let w = 0;
   for (const ch of String(str).toUpperCase()) w += ch === ' ' ? 4 * u : 6 * u;
   return w;
 }
-
-// animated aurora background blobs
+// unité de police en px logiques, multiple de PX pour tomber sur la grille
+function fontU(size) { return Math.max(PX, Math.round(size / 7 / PX) * PX); }
 
 /* ================= adaptive layout ================= */
 const canvas = document.getElementById('c');
@@ -246,10 +244,6 @@ function noiseHit(dur, vol, fc, delay) {
 // iconic tension: descending 4-note bass pulse, quickens as the swarm descends
 const PULSE_NOTES = [58, 55, 52, 49];
 let pulseT = 0, pulseStep = 0;
-function bassPulse(progress) {
-  const interval = lerp(1.15, 0.26, clamp(progress, 0, 1));
-  return interval;
-}
 const sShoot = () => tone(920, 240, 0.1, 'square', 0.06);
 const sBolt  = () => tone(320, 95, 0.13, 'sawtooth', 0.045);
 const sKill  = () => { noiseHit(0.22, 0.2, 900); tone(230, 42, 0.22, 'triangle', 0.13); };
@@ -549,11 +543,12 @@ const TYPES = {
 };
 function spawnSwarm(count, opts) {
   opts = opts || {};
+  const wv = wave;
   units = [];
   const slots = formationSlots(count, 0);
   for (let n = 0; n < count; n++) {
     // type mix escalates with wave: stingers + brutes appear later
-    const wv = wave, roll = Math.random();
+    const roll = Math.random();
     let type = 'drifter';
     if (wv >= 3 && roll < 0.1 + wv * 0.02) type = 'stinger';
     if (wv >= 5 && roll > 0.86 - wv * 0.008) type = 'brute';
@@ -564,7 +559,6 @@ function spawnSwarm(count, opts) {
   swarm.dir = 1;
   swarm.cx = W / 2; swarm.cy = H * 0.14;
   swarm.total = count; swarm.phase = 0;
-  const wv = wave;
   swarm.baseSpeed = (30 + wv * 5) * (opts.speedMul || 1);
   swarm.boltT = 1.2;
   swarm.diveT = 2.6;
@@ -653,18 +647,21 @@ function killUnit(i, byPlayer) {
     frags.push({ x: u.x + rand(-5, 5), y: u.y, vx: rand(-85, 85), vy: rand(60, 180), r: 3.2, t: 0 });
   sKill(); addTrauma(0.26); hitstop = Math.max(hitstop, 0.05);
   if (byPlayer && (mode === 'defend' || mode === 'versus')) {
-    streak++;
-    chainT = 2.5;   // keep the chain alive with quick follow-up kills
-    const nm = Math.min(5, 1 + Math.floor(streak / 4));
-    if (nm > mult) { mult = nm; sCombo(mult); popup(u.x, u.y - 26, 'COMBO x' + mult, '#ffd166'); }
+    bumpCombo(u.x, u.y, true);
     const T = TYPES[u.type];
     addScore(T.score, u.x, u.y);
-    if (mode === 'versus') feedAdd((humanDefSide() ? 'STATION' : 'SWARM') + ' +' + (T.score * mult), '#ffd166');
+    if (mode === 'versus') feedAdd('STATION +' + (T.score * mult), '#ffd166');
   }
   // slow-mo on the final kill of a wave
   if (units.length === 0 && divers.length === 0) { slowT = 0.85; }
 }
-function humanDefSide() { return true; } // versus feed labels the defender side
+// combo chain: quick follow-up kills raise the multiplier (x5 max)
+function bumpCombo(x, y, announce) {
+  streak++;
+  chainT = 2.5;   // keep the chain alive with quick follow-up kills
+  const nm = Math.min(5, 1 + Math.floor(streak / 4));
+  if (nm > mult) { mult = nm; sCombo(mult); if (announce) popup(x, y - 26, 'COMBO x' + mult, '#ffd166'); }
+}
 function diveUnit(i) {
   const u = units.splice(i, 1)[0];
   if (!u) return;
@@ -682,6 +679,12 @@ function damageCannon(byDiver) {
 function ringNode() {
   return { x: cannon.x + Math.cos(ring.ang) * ring.rx,
            y: BASE_Y + Math.sin(ring.ang) * ring.ry };
+}
+// true when a point hits the orbiting defense ring node
+function ringHit(x, y, r) {
+  if (ring.broken) return false;
+  const n = ringNode();
+  return circleHit(x, y, r, n.x, n.y, 12);
 }
 function damageRing() {
   if (ring.broken) return;
@@ -769,14 +772,13 @@ function update(dt) {
   if ((mode === 'defend' || mode === 'versus') && units.length) {
     pulseT -= dt;
     if (pulseT <= 0) {
-      pulseT = bassPulse(swarm.cy / DEF_LINE);
+      pulseT = lerp(1.15, 0.26, clamp(swarm.cy / DEF_LINE, 0, 1));
       tone(PULSE_NOTES[pulseStep % 4], PULSE_NOTES[pulseStep % 4] * 0.99, 0.16, 'square', 0.075);
       pulseStep++;
     }
   }
 
   /* --- swarm march --- */
-  const alive = units.length;
   const spd = swarm.baseSpeed * swarm.dir;
   swarm.cx += spd * sdt;
   let minO = 1e9, maxO = -1e9;
@@ -792,7 +794,7 @@ function update(dt) {
     else if (swarm.cx + maxO > W - 26) { swarm.cx = W - 26 - maxO; if (swarm.dir > 0) { swarm.dir = -1; hitEdge = true; } }
   }
   if (hitEdge) swarm.cy += FORM_SY * 0.55;
-  const frac = swarm.total ? alive / swarm.total : 1;
+  const frac = swarm.total ? units.length / swarm.total : 1;
   const wantPhase = frac <= 0.2 ? 3 : frac <= 0.4 ? 2 : frac <= 0.66 ? 1 : 0;
   if (wantPhase !== swarm.phase) setFormation(wantPhase);
   for (const u of units) {
@@ -952,10 +954,7 @@ function updateProjectiles(dt) {
         explode(d.x, d.y, '#ff5a3c', 14, 180);
         divers.splice(j, 1); sKill(); addTrauma(0.2);
         if (mode === 'defend' || mode === 'versus') {
-          streak++;
-          chainT = 2.5;
-          const nm = Math.min(5, 1 + Math.floor(streak / 4));
-          if (nm > mult) { mult = nm; sCombo(mult); }
+          bumpCombo(d.x, d.y, false);
           addScore(150, d.x, d.y);
           if (mode === 'versus') feedAdd('DIVER DOWN +' + (150 * mult), '#ffd166');
         }
@@ -982,11 +981,8 @@ function updateProjectiles(dt) {
     d.vy += ((dy / m * sp) - d.vy) * Math.min(1, dt * 3.2);
     d.x += d.vx * dt; d.y += d.vy * dt;
     let dead = false;
-    if (!ring.broken) {
-      const n = ringNode();
-      if (circleHit(d.x, d.y, d.r, n.x, n.y, 12)) {
-        damageRing(); explode(d.x, d.y, '#ff5a3c', 10, 150); divers.splice(i, 1); dead = true;
-      }
+    if (ringHit(d.x, d.y, d.r)) {
+      damageRing(); explode(d.x, d.y, '#ff5a3c', 10, 150); divers.splice(i, 1); dead = true;
     }
     if (dead) continue;
     if (circleHit(d.x, d.y, d.r - 2, c.x, BASE_Y, 20)) {
@@ -1000,10 +996,7 @@ function updateProjectiles(dt) {
     const b = bolts[i];
     b.x += b.vx * dt; b.y += b.vy * dt;
     if (b.y > H + 10 || b.x < -10 || b.x > W + 10) { bolts.splice(i, 1); continue; }
-    if (!ring.broken) {
-      const n = ringNode();
-      if (circleHit(b.x, b.y, b.r, n.x, n.y, 12)) { damageRing(); bolts.splice(i, 1); continue; }
-    }
+    if (ringHit(b.x, b.y, b.r)) { damageRing(); bolts.splice(i, 1); continue; }
     if (circleHit(b.x, b.y, b.r, c.x, BASE_Y, 18)) { damageCannon(false); bolts.splice(i, 1); }
   }
 
@@ -1013,10 +1006,7 @@ function updateProjectiles(dt) {
     f.t += dt; f.vy += H * 0.45 * dt;
     f.x += f.vx * dt; f.y += f.vy * dt;
     if (f.y > H - 8 || f.t > 4) { frags.splice(i, 1); continue; }
-    if (!ring.broken) {
-      const n = ringNode();
-      if (circleHit(f.x, f.y, f.r, n.x, n.y, 12)) { damageRing(); frags.splice(i, 1); continue; }
-    }
+    if (ringHit(f.x, f.y, f.r)) { damageRing(); frags.splice(i, 1); continue; }
     if (circleHit(f.x, f.y, f.r, c.x, BASE_Y, 16)) { damageCannon(false); frags.splice(i, 1); }
   }
 }
@@ -1364,7 +1354,7 @@ function drawHUD() {
   }
   // versus kill feed — left lane under the HUD, dark pills so text never sits on sprites
   if (mode === 'versus') {
-    ctx.textAlign = 'left'; ctx.font = '12px "Courier New", monospace';
+    ctx.textAlign = 'left';
     feed.forEach((f, i) => {
       const y = 68 + i * 20;
       const a = Math.max(0, 1 - f.t / 4);
@@ -1391,12 +1381,11 @@ function drawIconButton(id, x, y, w, h, glyph) {
 function renderMenu() {
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   const isLand = W > H;
-  const uOf = size => Math.max(PX, Math.round(size / 7 / PX) * PX); // même quantum que text()
   // logo avec halo pixel
-  const logoFont = Math.round(Math.min(W * 0.13, H * 0.19)), logoU = uOf(logoFont);
+  const logoFont = Math.round(Math.min(W * 0.13, H * 0.19)), logoU = fontU(logoFont);
   const logoY = H * 0.18;
   text('STARFALL', W / 2, logoY, 'bold ' + logoFont + 'px', '#f5f8fc', '#00e5ff');
-  const subFont = Math.round(W * 0.032), subU = uOf(subFont);
+  const subFont = Math.round(W * 0.032), subU = fontU(subFont);
   const subY = logoY + 4.5 * logoU + 4 + 4.5 * subU; // sous le halo du logo
   text('a 1978 arcade tale', W / 2, subY, subFont + 'px', '#f5f8fc', '#ff5a3c');
   const bw = Math.min(320, W * 0.66);
