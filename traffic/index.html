@@ -206,7 +206,7 @@ function killBeetle(h,cause,isPlayer){
     G.lives--;
     if(G.lives<=0) banner('GAME OVER'); // 'SPLAT!' already shown above
   }else if(G.mode==='traffic'){
-    if(isPlayer){ /* player is traffic; AI died */
+    if(!isPlayer){ /* player is traffic; AI died */
       G.ai.lives--;
       addScore(500);
       banner(G.ai.lives>0?'BEETLE DOWN — '+(G.ai.lives)+' LEFT':'TRAFFIC PREVAILS!');
