@@ -51,14 +51,9 @@ g.imageSmoothingEnabled=false;
 
 /* ================= utils ================= */
 const clamp=(v,a,b)=>v<a?a:(v>b?b:v);
-const lerp=(a,b,t)=>a+(b-a)*t;
 const dist2=(ax,ay,bx,by)=>{const dx=ax-bx,dy=ay-by;return Math.sqrt(dx*dx+dy*dy);};
 function angDiff(a,b){let d=(b-a)%(Math.PI*2);if(d>Math.PI)d-=Math.PI*2;if(d<-Math.PI)d+=Math.PI*2;return d;}
 function fmtTime(s){s=Math.floor(s);const m=Math.floor(s/60);return (m<10?'0':'')+m+':'+((s%60)<10?'0':'')+(s%60);}
-function shade(hex,f){ // hex '#rrggbb' * f -> rgb string
-  const r=parseInt(hex.slice(1,3),16),gg=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
-  return 'rgb('+Math.floor(r*f)+','+Math.floor(gg*f)+','+Math.floor(b*f)+')';
-}
 
 /* ================= audio — all procedural ================= */
 const SFX=(()=>{
@@ -104,7 +99,6 @@ const SFX=(()=>{
     spit(){tone(420,120,0.14,'sawtooth',0.12);},
     telegraph(){tone(160,160,0.12,'square',0.12);tone(160,160,0.12,'square',0.12,0.16);},
     roar(){tone(70,38,0.6,'sawtooth',0.34);burst(0.5,0.25,500,0,0.05);},
-    chitter(){for(let i=0;i<4;i++)tone(1800-i*200,2400-i*200,0.04,'square',0.06,i*0.05);},
     hurt(){tone(110,50,0.2,'sine',0.4);burst(0.15,0.25,600);},
     heartbeat(){tone(55,40,0.12,'sine',0.4);tone(50,38,0.1,'sine',0.32,0.18);},
     pickup(){tone(660,660,0.08,'sine',0.14);tone(990,990,0.12,'sine',0.14,0.08);},
@@ -121,11 +115,11 @@ const SFX=(()=>{
 })();
 
 /* ================= input ================= */
-const keys={},pressedEdge={};
+const keys={};
 const GAMEKEYS=new Set(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE','KeyF','KeyM','KeyP','KeyR','Enter','Comma','Period','Digit1','Digit2','Digit3','Digit4','Escape','Tab']);
 addEventListener('keydown',e=>{
   if(GAMEKEYS.has(e.code))e.preventDefault();
-  if(!e.repeat){keys[e.code]=true;pressedEdge[e.code]=true;onKeyPress(e.code);}
+  if(!e.repeat){keys[e.code]=true;onKeyPress(e.code);}
 });
 addEventListener('keyup',e=>{keys[e.code]=false;});
 addEventListener('blur',()=>{for(const k in keys)keys[k]=false;});
@@ -1738,7 +1732,6 @@ function frame(t){
   const now=t/1000;let dt=Math.min(0.1,now-(lastT||now));lastT=now;
   frames++;fpsT+=dt;if(fpsT>=1){G.fps=frames;frames=0;fpsT=0;}
   adaptQuality(dt);
-  for(const k in pressedEdge)pressedEdge[k]=false;
   if(G.screen==='countdown'){
     const prev=Math.ceil(G.countT);
     G.countT-=dt;
