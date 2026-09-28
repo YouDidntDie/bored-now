@@ -26,12 +26,6 @@ const rnd=(a,b)=>a+Math.random()*(b-a);
 const irnd=(a,b)=>Math.floor(rnd(a,b+1));
 const clamp=(v,a,b)=>v<a?a:v>b?b:v;
 const dist=(x1,y1,x2,y2)=>Math.hypot(x2-x1,y2-y1);
-function shade(hex,amt){ // lighten/darken hex color
-  const n=parseInt(hex.slice(1),16);
-  let r=(n>>16)+amt,g=((n>>8)&255)+amt,b=(n&255)+amt;
-  r=clamp(r,0,255);g=clamp(g,0,255);b=clamp(b,0,255);
-  return '#'+((r<<16)|(g<<8)|b).toString(16).padStart(6,'0');
-}
 
 /* ---------- audio ---------- */
 let AC=null,noiseBuf=null,muted=false;
@@ -104,7 +98,7 @@ let keys={};
 let p2regenT=0,regenT=0;
 
 function newCities(){cities=CITY_X.map(x=>({x,alive:true}));}
-function newBatteries(ammo){batteries=BAT_X.map(x=>({x,ammo:ammo,max:10,alive:true,rebuildT:0}));}
+function newBatteries(ammo){batteries=BAT_X.map(x=>({x,ammo:ammo,max:10,alive:true,rebuildT:0,cool:0}));}
 function resetField(){
   warheads=[];counters=[];explosions=[];bombers=[];parts=[];
   spawnQueue=[];waveActive=false;banner='';bannerT=0;shakeT=0;
@@ -116,13 +110,13 @@ function showHint(t,dur){hint=t;hintT=dur||4;}
 function shake(mag,dur){shakeMag=Math.max(shakeMag,mag);shakeT=Math.max(shakeT,dur);}
 
 /* ---------- spawning ---------- */
-function aliveTargets(includeBatteries){
-  const t=cities.filter(c=>c.alive).map(c=>({x:c.x,kind:'city',ref:c}));
-  if(includeBatteries)batteries.forEach(b=>{if(b.alive)t.push({x:b.x,kind:'battery',ref:b});});
+function aliveTargets(){
+  const t=cities.filter(c=>c.alive).map(c=>({x:c.x,kind:'city'}));
+  batteries.forEach(b=>{if(b.alive)t.push({x:b.x,kind:'battery'});});
   return t;
 }
 function pickTarget(){
-  const t=aliveTargets(true);
+  const t=aliveTargets();
   if(!t.length)return null;
   // weight cities 80%
   const cs=t.filter(x=>x.kind==='city');
@@ -130,13 +124,14 @@ function pickTarget(){
   return t[irnd(0,t.length-1)];
 }
 function spawnWarhead(x,type,tx,ty,speed){
-  const tgt=tx!==undefined?{x:tx,y:ty,kind:'city'}:pickTarget();
-  if(!tgt&&tx===undefined)return null;
+  let tgt;
+  if(tx!==undefined)tgt={x:tx,y:ty};
+  else{tgt=pickTarget();if(!tgt)return null;}
   const sx=x!==undefined?x:rnd(20,W-20);
-  const dx=tgt.x-sx,dy=GROUND-(-10);
+  const dx=tgt.x-sx,dy=GROUND+10;
   const d=Math.hypot(dx,dy),sp=speed||68;
   const w={x:sx,y:-10,vx:dx/d*sp,vy:dy/d*sp,type:type||'plain',
-    tx:tgt.x,ty:GROUND,split:false,trail:[],kind:tgt.kind,ref:tgt.ref||null};
+    tx:tgt.x,ty:GROUND,split:false,trail:[]};
   warheads.push(w);return w;
 }
 /* DEFEND wave composition */
@@ -178,11 +173,11 @@ function fireCounter(tx,ty,bi){
   SFX.launch();
   return true;
 }
-function explode(x,y,maxR,life,friendly){
-  explosions.push({x,y,r:2,maxR,t:0,life,friendly:friendly!==false});
+function explode(x,y,maxR,life){
+  explosions.push({x,y,r:2,maxR,t:0,life});
   if(maxR>35)SFX.boom();else SFX.smallBoom();
 }
-function chainBlast(x,y){explode(x,y,30,0.6,true);}
+function chainBlast(x,y){explode(x,y,30,0.6);}
 
 /* player rain launches */
 function playerLaunch(tx,ty,isMirv,isBomber){
@@ -225,10 +220,8 @@ function startMode(m){
 /* ---------- update ---------- */
 function killTargetAt(x,y){
   // warhead impact: destroy city or battery at x
-  let hit=false;
-  cities.forEach(c=>{if(c.alive&&Math.abs(c.x-x)<26){c.alive=false;hit=true;}});
-  batteries.forEach(b=>{if(b.alive&&Math.abs(b.x-x)<22){b.alive=false;b.rebuildT=20;hit=true;}});
-  return hit;
+  cities.forEach(c=>{if(c.alive&&Math.abs(c.x-x)<26)c.alive=false;});
+  batteries.forEach(b=>{if(b.alive&&Math.abs(b.x-x)<22){b.alive=false;b.rebuildT=20;}});
 }
 function update(dt){
   // timers always
@@ -237,8 +230,6 @@ function update(dt){
   if(shakeT>0){shakeT-=dt;if(shakeT<=0)shakeMag=0;}
   if(state!=='play')return;
   matchT+=dt;
-
-  /* stars twinkle via parts? no, static */
 
   if(mode==='defend'){
     // spawning
@@ -362,11 +353,10 @@ function update(dt){
     w.trail.push({x:w.x,y:w.y});if(w.trail.length>14)w.trail.shift();
     // ground impact
     if(w.y>=GROUND-8){
-      const wasCity=killTargetAt(w.x,w.y);
-      explode(w.x,GROUND-14,42,0.8,true);
+      killTargetAt(w.x,w.y);
+      explode(w.x,GROUND-14,42,0.8);
       shake(7,0.35);
       parts.push({x:w.x,y:GROUND-20,vx:0,vy:0,t:0,life:0.5,r:30,col:'#ff9a3c'});
-      if(wasCity&&(mode==='defend')){/* city lost */}
       if(cities.some(c=>!c.alive&&Math.abs(c.x-w.x)<26))SFX.alarm();
       warheads.splice(i,1);continue;
     }
@@ -409,7 +399,7 @@ function update(dt){
     c.x+=c.vx*dt;c.y+=c.vy*dt;
     const d=dist(c.x,c.y,c.tx,c.ty);
     if(d<14||c.y<0){
-      explode(c.tx,c.ty,46,1.1,true);
+      explode(c.tx,c.ty,46,1.1);
       counters.splice(i,1);
     }
   }
@@ -578,6 +568,16 @@ function drawEntities(){
     ctx.globalAlpha=1;
   });
 }
+function drawCross(c,color){
+  ctx.strokeStyle=color;ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.arc(c.x,c.y,12,0,7);ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(c.x-18,c.y);ctx.lineTo(c.x-6,c.y);
+  ctx.moveTo(c.x+6,c.y);ctx.lineTo(c.x+18,c.y);
+  ctx.moveTo(c.x,c.y-18);ctx.lineTo(c.x,c.y-6);
+  ctx.moveTo(c.x,c.y+6);ctx.lineTo(c.x,c.y+18);
+  ctx.stroke();
+}
 function drawHUD(){
   ctx.textAlign='left';ctx.font='14px Courier New';ctx.fillStyle='#8fa89b';
   if(mode==='defend'){
@@ -603,27 +603,9 @@ function drawHUD(){
   ctx.fillText('II',W-40,28);
   ctx.fillText(muted?'M×':'M♪',W-14,28);
   // crosshair (P1, green)
-  if(cross.on&&state==='play'){
-    ctx.strokeStyle='#00ff9d';ctx.lineWidth=1.5;
-    ctx.beginPath();ctx.arc(cross.x,cross.y,12,0,7);ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(cross.x-18,cross.y);ctx.lineTo(cross.x-6,cross.y);
-    ctx.moveTo(cross.x+6,cross.y);ctx.lineTo(cross.x+18,cross.y);
-    ctx.moveTo(cross.x,cross.y-18);ctx.lineTo(cross.x,cross.y-6);
-    ctx.moveTo(cross.x,cross.y+6);ctx.lineTo(cross.x,cross.y+18);
-    ctx.stroke();
-  }
+  if(cross.on&&state==='play')drawCross(cross,'#00ff9d');
   // P2 crosshair (red) in versus
-  if(mode==='versus'&&cross2.on&&state==='play'){
-    ctx.strokeStyle='#ff5a5a';ctx.lineWidth=1.5;
-    ctx.beginPath();ctx.arc(cross2.x,cross2.y,12,0,7);ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(cross2.x-18,cross2.y);ctx.lineTo(cross2.x-6,cross2.y);
-    ctx.moveTo(cross2.x+6,cross2.y);ctx.lineTo(cross2.x+18,cross2.y);
-    ctx.moveTo(cross2.x,cross2.y-18);ctx.lineTo(cross2.x,cross2.y-6);
-    ctx.moveTo(cross2.x,cross2.y+6);ctx.lineTo(cross2.x,cross2.y+18);
-    ctx.stroke();
-  }
+  if(mode==='versus'&&cross2.on&&state==='play')drawCross(cross2,'#ff5a5a');
   // versus P2 MIRV toggle
   if(mode==='versus'&&state==='play'){
     ctx.fillStyle=p2mirv?'#ffb43c':'#232c52';
@@ -709,9 +691,21 @@ function render(){
 /* ---------- input ---------- */
 function toGame(e){
   const r=cv.getBoundingClientRect();
-  const p=e.touches?e.touches[0]:e;
-  const cx=(e.clientX!==undefined?e.clientX:p.clientX),cy=(e.clientY!==undefined?e.clientY:p.clientY);
-  return {x:(cx-r.left)/r.width*W,y:(cy-r.top)/r.height*H};
+  const t=e.touches?e.touches[0]:e;
+  return {x:(t.clientX-r.left)/r.width*W,y:(t.clientY-r.top)/r.height*H};
+}
+function nearestTargetX(x){
+  // x of the alive city/battery closest in x to x, or null
+  let bx=null,bd=1e9;
+  cities.forEach(c=>{if(c.alive){const d=Math.abs(c.x-x);if(d<bd){bd=d;bx=c.x;}}});
+  batteries.forEach(b=>{if(b.alive){const d=Math.abs(b.x-x);if(d<bd){bd=d;bx=b.x;}}});
+  return bx;
+}
+function p2Strike(bx){
+  // P2 versus: spend budget and drop a warhead on target x
+  const cost=p2mirv?3:1;
+  if(budget>=cost){budget-=cost;spawnWarhead(rnd(30,W-30),p2mirv?'mirv':'plain',bx,GROUND,135);SFX.launch();}
+  else{SFX.empty();showHint('P2: NOT ENOUGH WARHEADS',1.2);}
 }
 function onTap(x,y){
   audio();
@@ -758,11 +752,7 @@ function onTap(x,y){
       let tgt=null,bd=36;
       cities.forEach(c=>{if(c.alive){const d=dist(x,y,c.x,GROUND-26);if(d<bd){bd=d;tgt={x:c.x,y:GROUND};}}});
       batteries.forEach(b=>{if(b.alive){const d=dist(x,y,b.x,GROUND-16);if(d<bd){bd=d;tgt={x:b.x,y:GROUND};}}});
-      if(tgt){
-        const cost=p2mirv?3:1;
-        if(budget>=cost){budget-=cost;spawnWarhead(rnd(30,W-30),p2mirv?'mirv':'plain',tgt.x,GROUND,135);SFX.launch();}
-        else{SFX.empty();showHint('P2: NOT ENOUGH WARHEADS',1.2);}
-      }
+      if(tgt)p2Strike(tgt.x);
     }
   }
 }
@@ -787,22 +777,14 @@ window.addEventListener('keydown',e=>{
       if((mode==='defend'||mode==='rain')&&cross.on){
         if(mode==='defend')fireCounter(cross.x,cross.y);
         else{
-          let bx=cross.x,bd=1e9;
-          cities.forEach(c=>{if(c.alive){const d=Math.abs(c.x-cross.x);if(d<bd){bd=d;bx=c.x;}}});
-          batteries.forEach(b=>{if(b.alive){const d=Math.abs(b.x-cross.x);if(d<bd){bd=d;bx=b.x;}}});
-          if(bd<1e9)playerLaunch(bx,GROUND,keyMIRV&&mirvUnlocked,false);
+          const bx=nearestTargetX(cross.x);
+          if(bx!==null)playerLaunch(bx,GROUND,keyMIRV&&mirvUnlocked,false);
         }
       }else if(mode==='versus'){
         if(k===' '&&cross.on)fireCounter(cross.x,Math.min(cross.y,GROUND-40));
         if(k==='enter'&&cross2.on){
-          let bx=cross2.x,bd=1e9;
-          cities.forEach(c=>{if(c.alive){const d=Math.abs(c.x-cross2.x);if(d<bd){bd=d;bx=c.x;}}});
-          batteries.forEach(b=>{if(b.alive){const d=Math.abs(b.x-cross2.x);if(d<bd){bd=d;bx=b.x;}}});
-          if(bd<1e9){
-            const cost=p2mirv?3:1;
-            if(budget>=cost){budget-=cost;spawnWarhead(rnd(30,W-30),p2mirv?'mirv':'plain',bx,GROUND,135);SFX.launch();}
-            else{SFX.empty();showHint('P2: NOT ENOUGH WARHEADS',1.2);}
-          }
+          const bx=nearestTargetX(cross2.x);
+          if(bx!==null)p2Strike(bx);
         }
       }
     }
@@ -827,7 +809,7 @@ window.addEventListener('keydown',e=>{
 window.addEventListener('keyup',e=>{keys[e.key.toLowerCase()]=false;});
 
 /* ---------- main loop ---------- */
-stars=[];for(let i=0;i<90;i++)stars.push({x:rnd(0,W),y:rnd(0,GROUND-60),tw:rnd(0,6)});
+for(let i=0;i<90;i++)stars.push({x:rnd(0,W),y:rnd(0,GROUND-60),tw:rnd(0,6)});
 let last=0,acc=0;
 function frame(ts){
   requestAnimationFrame(frame);
