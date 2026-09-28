@@ -970,20 +970,21 @@ function tCyl(rt,rb,h,c,x,y,z,seg){
 }
 
 // cylinder with AI texture wrapped on the front (+Z) quads, smooth-shaded plain elsewhere
-function tCylTex(rt,rb,h,c,x,y,z,seg,tex){
-  seg=seg||16;
+function tCylTex(rt,rb,h,c,x,y,z,seg,tex,ex,ez){
+  seg=seg||16; ex=ex||1; ez=ez||1;
   const tris=[];
   const spread=(tex&&tex.spread)||0, img=(tex&&tex.img)||null;
+  const en=v=>{ const l=Math.hypot(v[0],v[2])||1; return [v[0]/l,0,v[2]/l]; };
   for(let i=0;i<seg;i++){
     const a0=(i/seg)*Math.PI*2, a1=((i+1)/seg)*Math.PI*2, am=(a0+a1)/2;
     const q=[
-      [x+rt*Math.cos(a0), y+h/2, z+rt*Math.sin(a0)],
-      [x+rt*Math.cos(a1), y+h/2, z+rt*Math.sin(a1)],
-      [x+rb*Math.cos(a1), y-h/2, z+rb*Math.sin(a1)],
-      [x+rb*Math.cos(a0), y-h/2, z+rb*Math.sin(a0)]
+      [x+rt*ex*Math.cos(a0), y+h/2, z+rt*ez*Math.sin(a0)],
+      [x+rt*ex*Math.cos(a1), y+h/2, z+rt*ez*Math.sin(a1)],
+      [x+rb*ex*Math.cos(a1), y-h/2, z+rb*ez*Math.sin(a1)],
+      [x+rb*ex*Math.cos(a0), y-h/2, z+rb*ez*Math.sin(a0)]
     ];
-    const n=[Math.cos(am),0,Math.sin(am)];
-    const n0=[Math.cos(a0),0,Math.sin(a0)], n1=[Math.cos(a1),0,Math.sin(a1)];
+    const n=en([Math.cos(am)/ex,0,Math.sin(am)/ez]);
+    const n0=en([Math.cos(a0)/ex,0,Math.sin(a0)/ez]), n1=en([Math.cos(a1)/ex,0,Math.sin(a1)/ez]);
     let d=Math.abs(am-Math.PI/2); if(d>Math.PI) d=2*Math.PI-d;
     if(img&&d<=spread){
       const u0=Math.max(0,Math.min(1,(a0-(Math.PI/2-spread))/(2*spread)));
@@ -998,8 +999,8 @@ function tCylTex(rt,rb,h,c,x,y,z,seg,tex){
   const topC=[x,y+h/2,z], botC=[x,y-h/2,z];
   for(let i=0;i<seg;i++){
     const a0=(i/seg)*Math.PI*2, a1=((i+1)/seg)*Math.PI*2;
-    tris.push({v:[topC,[x+rt*Math.cos(a1),y+h/2,z+rt*Math.sin(a1)],[x+rt*Math.cos(a0),y+h/2,z+rt*Math.sin(a0)]], n:[0,1,0], c:c});
-    tris.push({v:[botC,[x+rb*Math.cos(a0),y-h/2,z+rb*Math.sin(a0)],[x+rb*Math.cos(a1),y-h/2,z+rb*Math.sin(a1)]], n:[0,-1,0], c:c});
+    tris.push({v:[topC,[x+rt*ex*Math.cos(a1),y+h/2,z+rt*ez*Math.sin(a1)],[x+rt*ex*Math.cos(a0),y+h/2,z+rt*ez*Math.sin(a0)]], n:[0,1,0], c:c});
+    tris.push({v:[botC,[x+rb*ex*Math.cos(a0),y-h/2,z+rb*ez*Math.sin(a0)],[x+rb*ex*Math.cos(a1),y-h/2,z+rb*ez*Math.sin(a1)]], n:[0,-1,0], c:c});
   }
   return tris;
 }
@@ -1240,8 +1241,9 @@ function buildWrestler(cfg){
   // ---- torso: sculpted V-taper ----
   const torso=tNode(0,0.3,0); hips.kids.push(torso); J.torso=torso;
   torso.geo.push(...tCyl(0.22*B,0.21*B,0.2, trunk, 0,-0.02,0, 16)); // waist (smooth)
-  torso.geo.push(...tCylTex(0.28*B,0.23*B,0.34, trunk, 0,0.2,0, 16, {img:T3TEX[cfg.chestTex], spread:1.26})); // round chest, AI texture on front
-  torso.geo.push(...tCyl(0.09,0.1,0.14, skin, 0,0.44,0, 12)); // neck (smooth)
+  torso.geo.push(...tCylTex(0.30*B,0.23*B,0.32, trunk, 0,0.17,0, 16, {img:T3TEX[cfg.chestTex], spread:1.26}, 1.18, 0.88)); // broad elliptical chest, AI texture on front
+  torso.geo.push(...tCylTex(0.12,0.27*B,0.12, trunk, 0,0.37,0, 16, null, 1.1, 0.85)); // trap yoke in singlet (smooth)
+  torso.geo.push(...tCyl(0.12,0.13,0.1, skin, 0,0.46,0, 12)); // thick neck (smooth)
   // ---- head: single box, AI-painted face on the front ----
   const head=tNode(0,0.52,0); torso.kids.push(head); J.head=head;
   head.geo.push(...tCylTex(0.145,0.12,0.26, skin, 0,0.1,0, 16, {img:T3TEX[cfg.faceTex], spread:0.79})); // round head, AI face on front
