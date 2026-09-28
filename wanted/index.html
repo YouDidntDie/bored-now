@@ -303,9 +303,8 @@ function doPin(byPlayer){
     if(G.pinsP2>=3) endRound();
   }
 }
-function deliver(byDriver){
+function deliver(){
   const amt=100*G.heat;
-  if(G.mode==='versus'&&!byDriver){G.cashP2+=0;} // driver is always P1 in versus
   G.cash+=amt; G.deliveries++; AU.pickup();
   banner('+$'+amt+' DELIVERED',1.4);
   if(G.mode!=='versus') syncHeat();
@@ -432,7 +431,7 @@ function deckButtons(){
   ];
 }
 const touches={}; // id -> {x,y,btn}
-let p2Target=null, p2TapT=0, p2TapX=0, p2TapY=0;
+let p2Target=null;
 function canvasPos(t){const r=cv.getBoundingClientRect();
   return {x:(t.clientX-r.left)*(W/r.width), y:(t.clientY-r.top)*(H/r.height)};}
 cv.addEventListener('touchstart',e=>{e.preventDefault();AU.init();
@@ -598,7 +597,7 @@ function update(dt){
       const ci=aiCopInput(c,dt,i); carInput(c,ci.throttle,ci.steer,dt);
       collideWorld(c,rb,imp=>{}); });
     for(const c of G.cops){const hit=carVsCar(c,d);
-      if(hit>150){d.damage+=hit/22;if(c===pc||true){}AU.crash();G.shake=Math.min(12,hit/45);}}
+      if(hit>150){d.damage+=hit/22;AU.crash();G.shake=Math.min(12,hit/45);}}
     // P1 deliveries
     checkPickup(d,true);
     const nc=nearestCop(d);
@@ -623,7 +622,7 @@ function checkPickup(d,isPlayer){
   if(!G.carrying&&G.pkg&&dist(d.x,d.y,G.pkg.x,G.pkg.y)<32){
     G.carrying=true;AU.pickup();banner(isPlayer?'PACKAGE — DELIVER IT':'DRIVER HAS THE PACKAGE',1.4);
   }else if(G.carrying&&G.dropoff&&dist(d.x,d.y,G.dropoff.x,G.dropoff.y)<38){
-    if(G.mode==='driver'||G.mode==='versus') deliver(true);
+    if(G.mode==='driver'||G.mode==='versus') deliver();
     else { // cops mode: AI scores, heat rises
       G.deliveries++; syncHeat(); AU.pickup(); banner('DRIVER DELIVERED — HEAT UP',1.6); spawnPackage();
     }
