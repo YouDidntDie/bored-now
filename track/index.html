@@ -91,8 +91,6 @@ function reset(mode_){
   }
   state='countdown';crowdStop();
 }
-function otherPlayer(p){return runners[0]===p?runners[1]:runners[0];}
-
 /* ---------- input actions ---------- */
 function stride(p,side){
   if(paused)return;
@@ -219,7 +217,6 @@ function computeResults(){
 }
 
 /* ---------- input ---------- */
-const keymap={};
 function press(side,playerIdx){const p=runners[playerIdx];if(p)stride(p,side);}
 function jumpKey(playerIdx){const p=runners[playerIdx];if(p)doJump(p);}
 addEventListener('keydown',e=>{
@@ -279,7 +276,7 @@ canvas.addEventListener('pointerdown',e=>{
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
 
 /* ---------- render ---------- */
-function drawRunner(px,gy,r,t,big){
+function drawRunner(px,gy,r,big){
   const s=big?1:0.62;
   ctx.save();ctx.translate(px,gy);ctx.scale(s,s);
   if(r.stumbleT>0)ctx.rotate(-0.28);
@@ -306,7 +303,7 @@ function drawRunner(px,gy,r,t,big){
 }
 function drawStadium(view,rx,t){
   // view: {y,h,lanes,runners,camX,label}
-  const ppm=14, vw=view.h; // px per meter
+  const ppm=14; // px per meter
   const y0=view.y;
   // dusk sky
   const g=ctx.createLinearGradient(0,y0,0,y0+170);
@@ -365,7 +362,7 @@ function drawStadium(view,rx,t){
     if(r.isPlayer&&view.highlight){
       ctx.fillStyle='rgba(57,255,106,0.10)';ctx.fillRect(0,ty+r.lane*laneH,W,laneH);
     }
-    drawRunner(mx,gy,r,t,big);
+    drawRunner(mx,gy,r,big);
     if(r.finished){ctx.fillStyle='#fff';ctx.font='bold 11px Courier New';ctx.fillText(r.finishT.toFixed(2),Math.min(mx+14,W-46),ty+r.lane*laneH+18);}
   }
   if(view.label){ctx.fillStyle='rgba(255,255,255,0.85)';ctx.font='bold 13px Courier New';ctx.fillText(view.label,10,y0+18);}
