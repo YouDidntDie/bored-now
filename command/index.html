@@ -110,7 +110,6 @@ function resetMatch(vsMode){
 function setBanner(t,dur){banner=t;bannerT=dur||2.2;}
 
 /* ---------- helpers ---------- */
-function dist(a,b){const dx=a.x-b.x,dy=a.y-b.y;return Math.hypot(dx,dy);}
 function enemiesOf(team){const p=players[1-team];const out=[];for(const u of p.units)if(!u.dead)out.push(u);for(const b of p.buildings)if(!b.dead)out.push(b);return out;}
 function nearestEnemy(team,x,y,maxD){
   let best=null,bd=maxD||1e9;
@@ -175,7 +174,7 @@ function doTap(pl,x,y){
   const p=players[pl];if(!p||state!=='play'||paused)return;
   // build buttons
   const bi=hitBtn(x,y,pl);
-  if(bi>=0){ if(tryBuild(p,BTNS[bi].type)){} else sfx.err(); return; }
+  if(bi>=0){ if(!tryBuild(p,BTNS[bi].type))sfx.err(); return; }
   // menu-ish zones: ignore taps on HUD info areas
   if(pl===0&&y>H-68)return; if(pl===1&&mode==='versus'&&y<100)return;
   const now=performance.now()/1000;
@@ -494,7 +493,7 @@ function drawUnit(u,plSel){
     ctx.fillStyle=pr>0.4?'#4ade80':'#f87171';ctx.fillRect(u.x-w/2,u.y-u.r-9,w*pr,4);
   }
   if(u.order&&u.order.kind==='harvest'&&u.type==='extractor'){
-    const f=FIELDS[0];let bf=FIELDS[0],bd=1e9;
+    let bf=FIELDS[0],bd=1e9;
     for(const ff of FIELDS){const d=Math.hypot(ff.x-u.x,ff.y-u.y);if(d<bd){bd=d;bf=ff;}}
     if(bd<bf.r+8){ctx.strokeStyle='rgba(251,191,36,0.5)';ctx.lineWidth=1;
       ctx.beginPath();ctx.moveTo(u.x,u.y-8);ctx.lineTo(u.x,u.y-16);ctx.stroke();}
