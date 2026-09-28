@@ -50,7 +50,7 @@ ctx.imageSmoothingEnabled = false;
 
 // ===== INPUT =====
 const keys = {};
-addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; if([' ','arrowup','arrowdown'].includes(e.key.toLowerCase())) e.preventDefault(); });
+addEventListener('keydown', e => { keys[e.key.toLowerCase()] = true; if([' ','arrowup','arrowdown'].includes(e.key.toLowerCase())) e.preventDefault(); if(e.key===' '||e.key==='Enter') startGame(); });
 addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 let touchL=false, touchR=false, touchX=0;
 cv.addEventListener('touchstart', e => {
@@ -82,7 +82,6 @@ const left = () => keys['arrowleft']||keys['a']||(touchL&&touchX<0.25);
 const right = () => keys['arrowright']||keys['d']||(touchL&&touchX>=0.25);
 const jumpHeld = () => keys[' ']||keys['arrowup']||keys['w']||touchR;
 function startGame(){ if(!started){ started = true; reset(); } }
-addEventListener('keydown', e => { if(e.key===' '||e.key==='Enter') startGame(); });
 cv.addEventListener('pointerdown', startGame);
 cv.addEventListener('click', startGame);
 
@@ -90,7 +89,6 @@ cv.addEventListener('click', startGame);
 const TS = 16, TH = 17;
 const CHUNK_W = 30; // tiles per chunk
 let chunks = new Map(); // chunkIdx -> {tiles: 2D array, demons: [], pickups: []}
-let highestChunk = -1;
 
 function genChunk(ci){
   // difficulty ramps with distance
@@ -136,7 +134,6 @@ function genChunk(ci){
   }
   
   chunks.set(ci, {tiles, demons, pickups});
-  if(ci > highestChunk) highestChunk = ci;
 }
 
 function ensureChunks(){
@@ -168,36 +165,23 @@ const soul = {
   x: 32, y: 200, vx: 0, vy: 0, w: 12, h: 16,
   onGround: false, coyote: 0, jbuf: 0,
   face: 1, alive: true, invuln: 0,
-  armor: false,
 };
 const GRAV = 0.45, MAXFALL = 9;
 const RUN_ACC = 0.35, RUN_MAX = 3.2, FRICTION = 0.85, AIR_ACC = 0.22;
 const JUMP_V = -8.5, JUMP_HOLD = 0.55;
 
 let demons = [], pickups = [];
-function spawnFromChunks(){
-  demons = []; pickups = [];
-  for(const [ci, ch] of chunks){
-    for(const d of ch.demons){
-      demons.push({ x:d.tx*TS+2, y:d.ty*TS, w:12, h:14, vx:-0.5, vy:0, alive:true, t:Math.random()*10, type:d.type, ctx:d.tx });
-    }
-    for(const p of ch.pickups){
-      pickups.push({ x:p.tx*TS+4, y:p.ty*TS+4, taken:false, t:Math.random()*10, ctx:p.tx });
-    }
-  }
-}
 let soulsCollected = 0, lives = 3;
 let camX = 0;
 let particles = [];
 let shake = 0;
 
-let maxDist = 0;
 let started = false; // title screen
 function reset(){
   soul.x = 32; soul.y = 200; soul.vx = 0; soul.vy = 0; soul.alive = true; soul.invuln = 0;
-  chunks.clear(); highestChunk = -1; if(window._spawnedChunks) window._spawnedChunks.clear();
+  chunks.clear(); if(window._spawnedChunks) window._spawnedChunks.clear();
   genChunk(0); genChunk(1);
-  soulsCollected = 0; camX = 0; particles = []; maxDist = 0;
+  soulsCollected = 0; camX = 0; particles = [];
   document.getElementById('souls').textContent = '◊ 0';
   document.getElementById('lives').textContent = '♥ ' + lives;
 }
@@ -238,7 +222,7 @@ function drawSoul(x, y, t){
   } else {
     frame = soul.vy < 0 ? 3 : 4; // jump up vs fall down
   }
-  const bob = (soul.onGround && frame !== 5) ? (Math.floor(t*5)%2)*1 : 0; // bob only when moving, not when standing
+  const bob = (soul.onGround && frame !== 5) ? (Math.floor(t*5)%2) : 0; // bob only when moving, not when standing
   const w = 36, h = 36;
   ctx.save();
   ctx.translate(x, y + bob);
@@ -250,10 +234,6 @@ function drawSoul(x, y, t){
     ctx.shadowBlur = 0;
   }
   ctx.restore();
-  if(soul.armor){
-    ctx.strokeStyle = '#ffd700'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(x, y, 14+Math.sin(t*6)*1, 0, 7); ctx.stroke();
-  }
 }
 function drawDemon(d, t){
   const x = d.x + d.w/2, y = d.y + d.h;
@@ -408,13 +388,10 @@ function loop(ts){
           for(let i=0;i<12;i++) particles.push({x:d.x+6, y:d.y+7, vx:(Math.random()-0.5)*3, vy:-Math.random()*3, life:0.6, c:'#ff4400'});
           shake = 0.15;
         } else {
-          if(soul.armor){ soul.armor = false; soul.invuln = 1.5; }
-          else {
-            lives--;
-            document.getElementById('lives').textContent = '♥ ' + lives;
-            soul.invuln = 2;
-            if(lives <= 0){ lives = 3; reset(); }
-          }
+          lives--;
+          document.getElementById('lives').textContent = '♥ ' + lives;
+          soul.invuln = 2;
+          if(lives <= 0){ lives = 3; reset(); }
           soul.vx = (sx < d.x ? -1 : 1) * 4;
           soul.vy = -5;
         }
@@ -478,11 +455,7 @@ function loop(ts){
   
   ctx.restore();
   
-  // endless: track distance, ensure chunks, respawn from new chunks
-  const dist = Math.floor(soul.x / 50);
-  if(dist > maxDist){
-    maxDist = dist;
-  }
+  // endless: ensure chunks, spawn entities from new chunks
   ensureChunks();
   // add entities from new chunks only (track spawned chunk set)
   if(!window._spawnedChunks) window._spawnedChunks = new Set();
