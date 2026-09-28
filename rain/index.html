@@ -379,7 +379,7 @@ function update(dt){
     b.dropT-=dt;
     if(b.dropT<=0&&b.drops>0&&b.x>0&&b.x<W){
       b.drops--;b.dropT=1.3;
-      if(b.player){spawnWarhead(b.x,'plain',pickTarget()?pickTarget().x:W/2,GROUND,150);}
+      if(b.player){const t=pickTarget();spawnWarhead(b.x,'plain',t?t.x:W/2,GROUND,150);}
       else{const sp=Math.min(60+wave*8,160);spawnWarhead(b.x,'plain',undefined,undefined,sp);}
     }
     // hit by explosion?
