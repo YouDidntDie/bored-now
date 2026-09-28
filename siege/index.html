@@ -35,7 +35,6 @@ const AU={c:null,muted:false,
   const g=this.c.createGain();g.gain.setValueAtTime(vol||0.2,t);g.gain.exponentialRampToValueAtTime(0.001,t+d);
   s.connect(f);f.connect(g);g.connect(this.c.destination);s.start(t);},
  click(){this.tone(660,0.06,'square',0.06);},
- creak(p){this.tone(90+p*160,0.08,'sawtooth',0.05);},
  whoosh(){this.noise(0.35,0.25,900);},
  crack(mat){if(mat==='glass'){this.noise(0.18,0.22,5200);this.tone(2400,0.25,'sine',0.08,900);}else if(mat==='stone'){this.noise(0.22,0.3,420);}else{this.noise(0.2,0.25,900);}},
  chime(){this.tone(1318,0.3,'sine',0.12);setTimeout(()=>this.tone(1975,0.4,'sine',0.1),90);},
@@ -220,9 +219,9 @@ function aiPickTarget(){
 'use strict';
 /* ================= game state ================= */
 let state='menu',mode=null,paused=false;
-let shots=0,level=1,score=0,shotQueue=[],shotType='rock';
+let shots=0,level=1,score=0,shotQueue=[];
 let build=null,versus=null,aiShots=0,aiTimer=0,clearTimer=0;
-let aiming=false,aimX=0,aimY=0,aimPull=0,bannerT=0,bannerText='',msgT=0,msgText='';
+let aiming=false,aimX=0,aimY=0,bannerT=0,bannerText='',msgT=0,msgText='';
 let catSwing=0,catArmFrom=0;
 let best={fling:0,fortify:0};
 try{best.fling=parseInt(localStorage.getItem('siege_best_fling')||'0',10)||0;best.fortify=parseInt(localStorage.getItem('siege_best_fortify')||'0',10)||0;}catch(e){}
@@ -260,7 +259,7 @@ function finishBuild(){
 }
 function firePlayer(vx,vy){
  if(shots<=0||projs.length>0)return;
- shotType=shotQueue.length?shotQueue.shift():'rock';shots--;
+ const shotType=shotQueue.length?shotQueue.shift():'rock';shots--;
  const P=PTYPES[shotType];
  projs.push({x:CATAPULT.x,y:CATAPULT.y,vx:vx,vy:vy,r:P.r,dmg:P.dmg,hp:P.hp,type:shotType,spin:0,emberDone:false,ai:false});
  catArmFrom=armAngle();catSwing=1;
