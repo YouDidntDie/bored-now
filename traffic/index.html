@@ -204,7 +204,7 @@ function killBeetle(h,cause,isPlayer){
   else { SFX.splash(); banner('SPLASH!'); }
   if(G.mode==='sprint'){
     G.lives--;
-    if(isPlayer) banner(G.lives>0?'SPLAT!':'GAME OVER');
+    if(G.lives<=0) banner('GAME OVER'); // 'SPLAT!' already shown above
   }else if(G.mode==='traffic'){
     if(isPlayer){ /* player is traffic; AI died */
       G.ai.lives--;
@@ -212,15 +212,14 @@ function killBeetle(h,cause,isPlayer){
       banner(G.ai.lives>0?'BEETLE DOWN — '+(G.ai.lives)+' LEFT':'TRAFFIC PREVAILS!');
     }
   }else if(G.mode==='versus'){
-    if(isPlayer){ G.p2score+=400; banner('P2 +400 — SPLAT!'); }
-    else { G.p2score+=400; banner('P2 +400'); }
+    G.p2score+=400;
+    banner(isPlayer?'P2 +400 — SPLAT!':'P2 +400');
     h.lives=(h.lives||3)-1;
   }
 }
 function addScore(n){
-  if(G.mode==='sprint') G.score+=n;
-  else if(G.mode==='traffic') G.score+=n;
-  else if(G.mode==='versus') G.p1score+=n;
+  if(G.mode==='versus') G.p1score+=n;
+  else G.score+=n;
 }
 function landBeetle(h,isPlayer){
   const c=h.col,r=h.row;
@@ -228,9 +227,8 @@ function landBeetle(h,isPlayer){
     if(G.slots[c]){ killBeetle(h,'splat',isPlayer); return; }
     G.slots[c]=true; G.slotsFilled++;
     SFX.chime();
-    let pts=100+Math.floor(h.time)*10;
     if(G.mode==='versus'){ G.p1score+=500; banner('P1 +500 — NEST!'); }
-    else { addScore(pts); banner('+'+pts+' — NEST!'); }
+    else { const pts=100+Math.floor(h.time)*10; addScore(pts); banner('+'+pts+' — NEST!'); }
     if(G.spark&&G.spark.col===c&&G.spark.row===0){ addScore(300); SFX.spark(); banner('+300 SPARK!'); G.spark=null; }
     // new beetle or round/level end
     if(G.slotsFilled>=5){ onAllNests(isPlayer); return; }
@@ -240,7 +238,7 @@ function landBeetle(h,isPlayer){
   if(r>=7&&r<=11&&vehicleHit(c,r)){ killBeetle(h,'splat',isPlayer); return; }
   if(r>=1&&r<=5&&!supportAt(c,r)){ killBeetle(h,'splash',isPlayer); return; }
   if(G.spark&&G.spark.col===c&&G.spark.row===r&&r!==0){
-    if(G.mode==='versus') G.p1score+=300; else addScore(300);
+    addScore(300);
     SFX.spark(); banner('+300 SPARK!'); G.spark=null;
   }
 }
@@ -269,9 +267,8 @@ function onAllNests(){
 function endTrafficMode(won){
   G.state='over'; G.overWon=won;
   if(won){ G.score+=Math.max(0,Math.floor(60-G.time))*5; }
-  if(G.mode==='sprint'||G.mode==='traffic'){
-    if(G.score>G.best){ G.best=G.score; try{localStorage.setItem('traffic_best',String(G.best));}catch(e){} }
-  }
+  // only ever called from sprint/traffic modes (versus has its own end)
+  if(G.score>G.best){ G.best=G.score; try{localStorage.setItem('traffic_best',String(G.best));}catch(e){} }
 }
 function endVersusRound(){
   const w1=G.p1score, w2=G.p2score;
@@ -422,7 +419,6 @@ function update(dt){
   for(const [h,isPlayer] of hs){
     if(!h.alive){
       h.deadT-=dt;
-      const livesLeft = G.mode==='versus'? h.lives : (isPlayer?G.lives:G.ai.lives);
       if(h.deadT<=0){
         if(G.mode==='sprint'){
           if(G.lives>0){ respawnBeetle(h); banner('GO!'); }
