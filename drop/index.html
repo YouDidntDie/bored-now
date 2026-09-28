@@ -98,7 +98,7 @@ const TEX = {
 /* ============ GAME STATE ============ */
 const P = {
   x: 10.5, y: 18.5, a: -Math.PI/2, // pos + angle (facing north)
-  hp: 100, weapon: 'sidearm', ammo: Infinity,
+  hp: 100, weapon: 'sidearm',
   alive: true, kills: 0,
 };
 const WEAPONS = {
@@ -350,7 +350,6 @@ function update(dt){
   const nx = P.x + (Math.cos(P.a)*mz + Math.cos(P.a+Math.PI/2)*mx) * spd;
   const ny = P.y + (Math.sin(P.a)*mz + Math.sin(P.a+Math.PI/2)*mx) * spd;
   if(MAP[ny|0][nx|0] === 0) P.x = nx;
-  if(MAP[(P.y)|0][nx|0] === 0 || true){ /* x already checked */ }
   if(MAP[ny|0][(P.x)|0] === 0) P.y = ny;
   // clamp to map
   P.x = Math.max(1.2, Math.min(MW-1.2, P.x));
@@ -478,9 +477,7 @@ function shoot(shooter, sx, sy, ang, isAI){
     const pa = ang + (Math.random()-0.5)*(wdef.spread||0.04)*spreadMul;
     // hitscan: find closest hit (wall or fighter)
     let bestD = wdef.range, hitF = null;
-    // check fighters
-    const targets = (shooter === P) ? fighters : [{x:P.x, y:P.y, hp:P.hp, isPlayer:true}];
-    // (AI shooting at each other: simplified — only player vs AI for now)
+    // check fighters (AI shooting at each other: simplified — only player vs AI for now)
     if(shooter === P){
       for(const f of fighters){
         if(!f.alive) continue;
@@ -541,9 +538,6 @@ window.addEventListener('keydown', e=>{
 window.addEventListener('keyup', e=>{ keys[e.code] = false; });
 cv.addEventListener('mousedown', e=>{
   if(gameState!=='play'){ startGame(); return; }
-  const r = cv.getBoundingClientRect();
-  const y = (e.clientY - r.top) / r.height;
-  if(y > VH/H){ /* bottom area: fire button handled by touch */ }
   mouse.fire = true;
 });
 window.addEventListener('mouseup', ()=>{ mouse.fire = false; });
