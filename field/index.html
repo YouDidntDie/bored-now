@@ -139,6 +139,13 @@ const FONT5X7 = {
 '♪': ["00110","00101","00100","00100","01100","11100","01100"],
 '✕': ["10001","01010","00100","01010","10001","00000","00000"]
 };
+// texte pixel : 'font' garde la forme '700 23px ...' — on n'en lit que la taille.
+// u = unité de police en px logiques, multiple de PX pour tomber sur la grille.
+function pixU(font) {
+  const m = /(\d+)px/.exec(font || '');
+  const size = m ? +m[1] : 16;
+  return Math.max(PX, Math.round(size / 7 / PX) * PX);
+}
 function drawPixText(str, dx, y0, u) {
   let cx = dx;
   for (const ch of str) {
@@ -151,14 +158,10 @@ function drawPixText(str, dx, y0, u) {
     cx += ch === ' ' ? 4 * u : 6 * u;
   }
 }
-// texte pixel : 'font' garde la forme '700 23px ...' — on n'en lit que la taille.
-// u = unité de police en px logiques, multiple de PX pour tomber sur la grille.
 function text(str, x, y, font, color, glow, glowBlur, align) {
   str = String(str).toUpperCase();
   ctx.shadowBlur = 0;   // pas de halo doux hérité : le glow est pixel, dessiné à la main
-  const m = /(\d+)px/.exec(font || '');
-  const size = m ? +m[1] : 16;
-  const u = Math.max(PX, Math.round(size / 7 / PX) * PX);
+  const u = pixU(font);
   let w = 0;
   for (const ch of str) w += ch === ' ' ? 4 * u : 6 * u;
   let dx = align === 'right' ? x - w : align === 'left' ? x : x - w / 2;
@@ -179,9 +182,7 @@ function text(str, x, y, font, color, glow, glowBlur, align) {
 }
 // largeur d'un texte pixel (pour les pastilles qui s'ajustent au contenu)
 function pixW(str, font) {
-  const m = /(\d+)px/.exec(font || '');
-  const size = m ? +m[1] : 16;
-  const u = Math.max(PX, Math.round(size / 7 / PX) * PX);
+  const u = pixU(font);
   let w = 0;
   for (const ch of String(str).toUpperCase()) w += ch === ' ' ? 4 * u : 6 * u;
   return w;
@@ -238,13 +239,13 @@ const sCrack  = () => { noiseBurst(0.12, 0.14, null, 1800); beep(320, 90, 0.14, 
 const sSpawn  = () => beep(140, 430, 0.16, 'triangle', 0.07);
 const sHunter = () => beep(1200, 900, 0.22, 'sawtooth', 0.035);
 const sUI     = () => beep(520, 780, 0.07, 'square', 0.06);
-const sOver   = () => { beep(220, 55, 0.5, 'sawtooth', 0.11); beep(160, 40, 0.7, 'sawtooth', 0.10, AC ? AC.currentTime + 0.18 : 0); };
-const sWin    = () => { const t = AC ? AC.currentTime : 0;
+const sOver   = () => { beep(220, 55, 0.5, 'sawtooth', 0.11); beep(160, 40, 0.7, 'sawtooth', 0.10, AC.currentTime + 0.18); };
+const sWin    = () => { const t = AC.currentTime;
   [440, 554, 659, 880].forEach((f, i) => beep(f, f * 1.01, 0.16, 'square', 0.07, t + i * 0.13)); };
-const sWaveClear = () => { const t = AC ? AC.currentTime : 0;
+const sWaveClear = () => { const t = AC.currentTime;
   [523, 659, 784].forEach((f, i) => beep(f, f, 0.12, 'triangle', 0.08, t + i * 0.09)); };
 const sCombo  = n => beep(500 + n * 90, 900 + n * 90, 0.1, 'square', 0.06);
-const sKlaxon = () => { beep(620, 620, 0.12, 'square', 0.05); beep(470, 470, 0.12, 'square', 0.05, AC ? AC.currentTime + 0.16 : 0); };
+const sKlaxon = () => { beep(620, 620, 0.12, 'square', 0.05); beep(470, 470, 0.12, 'square', 0.05, AC.currentTime + 0.16); };
 
 /* ---------- helpers ---------- */
 const TAU = Math.PI * 2;
@@ -320,7 +321,7 @@ let score = 0, best = +(localStorage.getItem('field_best') || 0);
 let bestTime = +(localStorage.getItem('field_best_time') || 0);
 let lives = 3, aiLives = 3, aiLevel = 1, wave = 1, maxWave = 8;
 let energy = 60, aiEnergy = 60;
-let round = 1, wins = { ship: 0, field: 0 }, roundT = 60, roundWinner = null;
+let wins = { ship: 0, field: 0 }, roundT = 60, roundWinner = null;
 let comboN = 0, comboT = 0, matchT = 0, klaxonT = 0, hitstop = 0;
 let banner = '', bannerT = 0, shake = 0;
 let buttons = [];         // rebuilt every frame: {id,label,sub,x,y,w,h}
@@ -405,7 +406,7 @@ function popup(x, y, txt, color) {
 function openHowto(m) { howtoMode = m; state = 'howto'; stateT = 0; sUI(); }
 function startMode(m) {
   mode = m; score = 0; lives = 3; aiLives = 3; aiLevel = 1; wave = 1; matchT = 0;
-  round = 1; wins = { ship: 0, field: 0 }; roundWinner = null;
+  wins = { ship: 0, field: 0 }; roundWinner = null;
   resetEntities();
   if (m === 'pilot') {
     spawnWave();
@@ -443,18 +444,16 @@ function nextRound(winner) {
     state = 'matchEnd'; stateT = 0;
     if (winner === 'ship') sWin(); else sOver();
   } else {
-    round++;
     banner = winner === 'ship' ? 'SHIP SURVIVES THE ROUND' : 'FIELD TAKES THE ROUND';
     bannerT = 1.6; startRound();
   }
 }
 function endGame(kind) {
   state = kind; stateT = 0;
+  if (mode === 'pilot' && score > best) { best = score; localStorage.setItem('field_best', best); }
   if (kind === 'gameOver') {
-    if (mode === 'pilot' && score > best) { best = score; localStorage.setItem('field_best', best); }
     sOver();
   } else {
-    if (mode === 'pilot' && score > best) { best = score; localStorage.setItem('field_best', best); }
     if (mode === 'field' && (bestTime === 0 || matchT < bestTime)) {
       bestTime = matchT; localStorage.setItem('field_best_time', bestTime);
     }
@@ -469,17 +468,13 @@ function primaryAction() {
 }
 
 /* ---------- buttons & taps ---------- */
-function addBtn(id, label, sub, x, y, w, h) { buttons.push({ id, label, sub, x, y, w, h }); }
 function doButton(id) {
   sUI();
   if (id === 'pilot' || id === 'field' || id === 'versus') openHowto(id);
-  else if (id === 'back') toMenu();
+  else if (id === 'back' || id === 'quit' || id === 'tomenu') toMenu();
   else if (id === 'launch') startMode(howtoMode);
   else if (id === 'resume') paused = false;
-  else if (id === 'restart') startMode(mode);
-  else if (id === 'quit') toMenu();
-  else if (id === 'rematch') startMode(mode);
-  else if (id === 'tomenu') toMenu();
+  else if (id === 'restart' || id === 'rematch') startMode(mode);
   else if (id === 'pause') paused = !paused;
   else if (id === 'mute') muted = !muted;
   else if (id === 'hunter') tryHunter();
