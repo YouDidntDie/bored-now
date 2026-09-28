@@ -59,13 +59,6 @@ function mkSprite(w,h,fn){
   const g=c.getContext('2d'); g.scale(PX,PX); g.imageSmoothingEnabled=false;
   fn(g); return c;
 }
-function spr(img,x,y,tint){
-  if(!tint){ bctx.drawImage(img,Math.round(x),Math.round(y),img.width/PX,img.height/PX); return; }
-  const t=document.createElement('canvas'); t.width=img.width; t.height=img.height;
-  const tg=t.getContext('2d'); tg.drawImage(img,0,0);
-  tg.globalCompositeOperation='source-in'; tg.fillStyle=tint; tg.fillRect(0,0,t.width,t.height);
-  bctx.drawImage(t,Math.round(x),Math.round(y),img.width/PX,img.height/PX);
-}
 /* ---------- tiny pixel font ---------- */
 const FONT5X7={
 'A':["01110","10001","10001","11111","10001","10001","10001"],
@@ -128,21 +121,22 @@ function drawPixText(str,dx,y0,u){
     cx+=ch===' '?4*u:6*u;
   }
 }
+function textUnit(font){
+  const m=/(\d+)/.exec(font||''); const size=m?+m[1]:16;
+  return Math.max(PX,Math.round(size/7/PX)*PX);
+}
+function textW(str,u){
+  let w=0; for(const ch of String(str).toUpperCase()) w+=ch===' '?4*u:6*u;
+  return w;
+}
 function text(str,x,y,font,color,align){
   str=String(str).toUpperCase();
-  const m=/(\d+)/.exec(font||''); const size=m?+m[1]:16;
-  const u=Math.max(PX,Math.round(size/7/PX)*PX);
-  let w=0; for(const ch of str) w+=ch===' '?4*u:6*u;
+  const u=textUnit(font), w=textW(str,u);
   let dx=align==='right'?x-w:align==='center'?x-w/2:x;
   dx=Math.round(dx); const y0=Math.round(y-3.5*u);
   bctx.fillStyle=color; drawPixText(str,dx,y0,u);
 }
-function pixW(str,font){
-  const m=/(\d+)/.exec(font||''); const size=m?+m[1]:16;
-  const u=Math.max(PX,Math.round(size/7/PX)*PX);
-  let w=0; for(const ch of String(str).toUpperCase()) w+=ch===' '?4*u:6*u;
-  return w;
-}
+function pixW(str,font){ return textW(str,textUnit(font)); }
 /* ---------- audio: tiny synth ---------- */
 let AC=null, muted=false;
 function audio(){
@@ -386,11 +380,9 @@ let round=1, wins={p1:0,p2:0}, roundT=0, roundWinner=null;
 let banner='', bannerT=0, shake=0;
 let best=0, apexBest=0;
 try{ best=+(localStorage.getItem('apex_best')||0); apexBest=+(localStorage.getItem('apex_bestscore')||0); }catch(_){}
-const APEX_STAGES=8, CLIMB_STAGES=8;
 const aiSpeed=()=>150+stage*9;
 const aiWhiff=()=>Math.max(0.03,0.16-stage*0.016);
 const aiClimbV=()=>CLIMBV*(1+stage*0.05);
-const aiBeavSpd=()=>150+stage*9;
 const gnawTime=()=>mode==='climb'?Math.max(0.75,1.15-stage*0.05):1.15;
 const BEAV_SPD=210;
 function saveApexBest(){ if(score>apexBest){ apexBest=score; try{localStorage.setItem('apex_bestscore',apexBest);}catch(_){} } }
@@ -480,7 +472,7 @@ function spawnLog(t){
 }
 function updateBeaver(dt){
   const b=beaver, ai=(mode==='climb');
-  const spd=ai?aiBeavSpd():BEAV_SPD;
+  const spd=ai?aiSpeed():BEAV_SPD;
   b.gnawMode=false;
   let T=null;
   if(ai) T=aiStack;
@@ -533,6 +525,7 @@ function aiBeaver(dt){
   if(!aiStack||aiStack.stage!==2||aiStack.falling>0) aiStack=pickStack();
 }
 /* ---------- logs (ported barrel physics) ---------- */
+let tickT=0;
 function updateLogs(dt){
   let anyRoll=false;
   for(let i=logs.length-1;i>=0;i--){
@@ -566,7 +559,6 @@ function updateLogs(dt){
   tickT-=dt;
   if(anyRoll&&tickT<=0){ sTick(); tickT=0.15; }
 }
-let tickT=0;
 function logHitsJack(b,c){ return Math.abs(b.x-c.x)<19&&Math.abs(b.y-(c.y-15))<25; }
 /* ---------- lumberjack physics (ported) ---------- */
 function startClimb(c,li,down){ c.climbing=true; c.ladder=li; c.x=ladders[li].x; c.vx=0; c.vy=0; c.needUpRelease=false; }
@@ -717,7 +709,7 @@ function handleTap(x,y,pid){
     return;
   }
   if(state==='howto'){ toMenu(); return; }
-  if(state==='matchEnd'||state==='gameOver'||state==='campWin'){ toMenu(); return; }
+  if(state==='matchEnd'||state==='gameOver'){ toMenu(); return; }
   if(Math.hypot(x-pauseBtn.x,y-pauseBtn.y)<26){ if(state==='play'||state==='serve'){paused=!paused;sUI();} return; }
   if(Math.hypot(x-muteBtn.x,y-muteBtn.y)<26){ muted=!muted; sUI(); return; }
   if(state!=='play'||paused)return;
@@ -819,7 +811,7 @@ function update(dt){
   if(bannerT>0)bannerT-=dt;
   if(shake>0)shake-=dt*3;
   updateParticles(dt);
-  if(state==='menu'||state==='howto'||state==='matchEnd'||state==='gameOver'||state==='campWin'){ stateT+=dt; return; }
+  if(state==='menu'||state==='howto'||state==='matchEnd'||state==='gameOver'){ stateT+=dt; return; }
   stateT+=dt;
   if(state==='serve'){ if(stateT>1.6)state='play'; return; }
   if(state==='stageClear'){
@@ -908,8 +900,6 @@ function drawMenu(){
   drawStack({x:64,gy:312,stage:2,gnaw:0,falling:0,highlight:false});
   drawBeaver({x:416,y:308,face:-1,vx:0,gnawMode:false});
   drawStack({x:448,gy:312,stage:1,gnaw:0,falling:0,highlight:false});
-  text('BEAVER VS LUMBERJACK',W/2,196,'20','#7fb2dd','center');
-  text('A 1981 TOWER TALE',W/2,222,'16','#5a6270','center');
   for(const b of menuBtns){
     bctx.fillStyle='#141c2a'; bctx.fillRect(90,b.y-28,W-180,58);
     bctx.fillStyle='#2a3a55'; bctx.fillRect(90,b.y-28,W-180,4);
@@ -976,7 +966,6 @@ function render(){
     if(bannerT>0)drawBanner();
     if(paused)drawCenter('PAUSED','P OR TAP TO RESUME');
     else if(state==='gameOver')drawCenter(mode==='apex'?'THE TOWER FALLS':'GAME OVER','TAP TO RETURN');
-    else if(state==='campWin')drawCenter('CAMP CLEARED!','TAP TO RETURN');
     else if(state==='matchEnd')drawCenter(wins.p1>wins.p2?'LUMBERJACK WINS':'BEAVER WINS','TAP TO RETURN');
     bctx.restore();
   }
